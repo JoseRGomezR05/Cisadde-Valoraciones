@@ -1,0 +1,2011 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Valoración de Integración Sensorial Infantil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="logo.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+/* Tema: por defecto sigue al sistema; el botón 🌙/☀️ lo fija y se recuerda en las 4 páginas. */
+(function(){ try{ var t = localStorage.getItem('cisadde.tema'); if(t==='light'||t==='dark') document.documentElement.setAttribute('data-theme', t); }catch(e){} })();
+</script>
+<style>
+/* ============================= TOKENS ============================= */
+:root{
+  --navy-950:#0B2A44; --navy-900:#0F3A5C; --navy-800:#154D77; --navy-700:#1B5E90;
+  --cyan-600:#0E8FC4; --cyan-500:#17A2D6; --cyan-400:#43BBE6; --cyan-100:#E4F6FC;
+  --bg:#EEF3F7; --surface:#FFFFFF; --surface-alt:#F5F8FB; --border:#DDE6EE;
+  --text:#12314A; --text-dim:#5B7386; --text-faint:#8CA0AF;
+  --green:#1EA672; --green-bg:#E5F7EF; --amber:#E8A317; --amber-bg:#FDF3DF;
+  --red:#E4544B; --red-bg:#FCEAE9; --blue:#3E7CD6; --blue-bg:#EAF1FC;
+  --gray:#93A1AC; --gray-bg:#EEF1F3;
+  --radius-s:8px; --radius-m:14px; --radius-l:20px;
+  --shadow-card:0 1px 2px rgba(15,58,92,.06), 0 6px 20px -8px rgba(15,58,92,.18);
+  --font-display:'Manrope', system-ui, sans-serif; --font-body:'Inter', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+:root:not([data-theme="light"]){
+  --bg:#0A1E30; --surface:#0F2E48; --surface-alt:#0C2740; --border:#1C4363;
+  --text:#EAF3FA; --text-dim:#9FB8CB; --text-faint:#7092A9;
+  --green-bg:#123626; --amber-bg:#3A2E10; --red-bg:#3A1E1C; --blue-bg:#152A44; --gray-bg:#16303F;
+}
+}
+:root[data-theme="dark"]{
+  --bg:#0A1E30; --surface:#0F2E48; --surface-alt:#0C2740; --border:#1C4363;
+  --text:#EAF3FA; --text-dim:#9FB8CB; --text-faint:#7092A9;
+  --green-bg:#123626; --amber-bg:#3A2E10; --red-bg:#3A1E1C; --blue-bg:#152A44; --gray-bg:#16303F;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--font-body); font-size:14px; line-height:1.5;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+h1,h2,h3,h4{font-family:var(--font-display); margin:0; color:var(--text); letter-spacing:-.01em;}
+p{margin:0;} button{font-family:inherit;}
+::selection{background:var(--cyan-100); color:var(--navy-900);}
+
+.app{ display:flex; min-height:100vh; }
+.sidebar{
+  width:248px; flex:0 0 248px;
+  background:linear-gradient(185deg, var(--navy-900), var(--navy-950) 75%);
+  color:#DCEBF6; display:flex; flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);
+  position:sticky; top:0; height:100vh; overflow-y:auto;
+}
+.brand{ display:flex; align-items:center; gap:10px; padding:20px 18px 16px; }
+.brand-mark{
+  width:34px; height:34px; border-radius:10px; flex:0 0 auto;
+  background:linear-gradient(135deg, var(--cyan-400), var(--cyan-600));
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-display); font-weight:800; color:#fff; font-size:15px;
+}
+.brand-text{ font-family:var(--font-display); font-weight:800; font-size:15px; color:#fff; line-height:1.15; }
+.brand-text small{ display:block; font-family:var(--font-body); font-weight:500; font-size:10.5px; color:#8FB4CE; letter-spacing:.04em; }
+.user-chip{
+  margin:2px 14px 14px; padding:12px 12px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+  border-radius:var(--radius-m); display:flex; align-items:center; gap:10px;
+}
+.user-avatar{
+  width:34px; height:34px; border-radius:50%; flex:0 0 auto;
+  background:linear-gradient(135deg,#43BBE6,#1B5E90);
+  display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; font-size:13px;
+}
+.user-meta{ min-width:0; }
+.user-name{ font-weight:700; font-size:12.5px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.user-role{ font-size:10.5px; color:#8FB4CE; }
+nav.nav{ padding:4px 12px 20px; display:flex; flex-direction:column; gap:3px; flex:1; }
+.nav-label{ font-size:10px; font-weight:700; letter-spacing:.08em; color:#5E88A6; padding:14px 10px 6px; }
+.nav-item{
+  display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px;
+  color:#C6DEEE; text-decoration:none; cursor:pointer; font-size:13px; font-weight:600;
+  border:1px solid transparent; background:none; transition:background .15s ease, color .15s ease;
+}
+.nav-item .ic{ width:17px; height:17px; flex:0 0 auto; opacity:.85; }
+.nav-item:hover{ background:rgba(255,255,255,.06); color:#fff; }
+.nav-item.active{ background:rgba(255,255,255,.12); color:#fff; border-color:rgba(255,255,255,.1); }
+.nav-badge{ margin-left:auto; font-size:10px; font-weight:800; background:var(--cyan-500); color:#fff; border-radius:999px; padding:1px 7px; }
+
+.main{ flex:1; min-width:0; display:flex; flex-direction:column; }
+.topbar{
+  background:linear-gradient(90deg, var(--cyan-500), var(--cyan-600)); color:#fff; padding:14px 26px;
+  display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:5;
+  padding-top:calc(14px + env(safe-area-inset-top,0px));
+}
+.topbar h1{ font-size:16px; color:#fff; font-weight:700; }
+.crumb{ font-size:12.5px; color:rgba(255,255,255,.85); font-weight:500; }
+.topbar-right{ margin-left:auto; display:flex; align-items:center; gap:14px; font-size:12.5px; color:rgba(255,255,255,.92); font-weight:600;}
+.pill-inst{ background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25); padding:6px 12px; border-radius:999px; font-size:12px; }
+
+.view{ padding:22px 26px 56px; max-width:1180px; width:100%; margin:0 auto; }
+.view[hidden]{ display:none; }
+
+.page-head{ margin-bottom:18px; display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;}
+.page-head h2{ font-size:22px; font-weight:800; }
+.page-head p{ color:var(--text-dim); font-size:13px; margin-top:3px; }
+
+.card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-l); box-shadow:var(--shadow-card); padding:20px; margin-bottom:18px; }
+.card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap;}
+.card-head h3{ font-size:14.5px; font-weight:800; }
+.card-head .sub{ font-size:12px; color:var(--text-faint); }
+
+.grid{ display:grid; gap:14px; }
+.grid.cols-2{ grid-template-columns:1fr 1fr; }
+.grid.cols-3{ grid-template-columns:repeat(3,1fr); }
+.grid.cols-4{ grid-template-columns:repeat(4,1fr); }
+@media (max-width:860px){ .grid.cols-2,.grid.cols-3,.grid.cols-4{ grid-template-columns:1fr 1fr; } }
+@media (max-width:560px){ .grid.cols-2,.grid.cols-3,.grid.cols-4{ grid-template-columns:1fr; } }
+
+label.field{ display:flex; flex-direction:column; gap:6px; }
+label.field span.lbl{ font-size:11.5px; font-weight:700; color:var(--text-dim); }
+.input, select.input{
+  border:1.5px solid var(--border); background:var(--surface-alt); border-radius:10px; padding:9px 11px;
+  font-size:13.5px; color:var(--text); font-family:inherit; width:100%;
+}
+.input:focus, select.input:focus{ outline:none; border-color:var(--cyan-500); background:var(--surface); }
+.input[readonly]{ color:var(--text-dim); }
+
+.age-chips{ display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 2px; }
+#ageChips, #ageChipsEval{ display:none; }
+.chip{ padding:7px 13px; border-radius:999px; font-size:11.5px; font-weight:700; background:var(--surface-alt); color:var(--text-dim); border:1.5px solid var(--border); cursor:pointer; white-space:nowrap; }
+.chip.on{ background:var(--cyan-500); border-color:var(--cyan-500); color:#fff; }
+.chip.match{ box-shadow:0 0 0 3px var(--cyan-100); }
+
+.stat-row{ display:grid; grid-template-columns:repeat(6,1fr); gap:12px; }
+@media (max-width:900px){ .stat-row{ grid-template-columns:repeat(2,1fr);} }
+.stat{ background:var(--surface-alt); border:1px solid var(--border); border-radius:var(--radius-m); padding:14px 14px 12px; }
+.stat .k{ font-size:11px; color:var(--text-faint); font-weight:700; letter-spacing:.02em; }
+.stat .v{ font-family:var(--font-display); font-size:24px; font-weight:800; margin-top:4px; }
+.stat .v.green{ color:var(--green); } .stat .v.red{ color:var(--red); } .stat .v.amber{ color:var(--amber); } .stat .v.blue{ color:var(--blue); }
+
+.badge{ display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:800; padding:4px 9px; border-radius:999px; white-space:nowrap; }
+.badge .dot{ width:6px; height:6px; border-radius:50%; }
+.badge.green{ background:var(--green-bg); color:var(--green); } .badge.green .dot{ background:var(--green); }
+.badge.red{ background:var(--red-bg); color:var(--red); } .badge.red .dot{ background:var(--red); }
+.badge.amber{ background:var(--amber-bg); color:var(--amber); } .badge.amber .dot{ background:var(--amber); }
+.badge.blue{ background:var(--blue-bg); color:var(--blue); } .badge.blue .dot{ background:var(--blue); }
+.badge.gray{ background:var(--gray-bg); color:var(--text-dim); } .badge.gray .dot{ background:var(--gray); }
+
+.bar{ height:7px; background:var(--gray-bg); border-radius:999px; overflow:hidden; }
+.bar > i{ display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,var(--cyan-500),var(--cyan-400)); transition:width .35s ease; }
+
+.component-block + .component-block{ margin-top:16px; }
+.component-title{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+.component-title h4{ font-size:12.5px; font-weight:800; color:var(--navy-800); }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .component-title h4{ color:#BFE0F2; } }
+:root[data-theme="dark"] .component-title h4{ color:#BFE0F2; }
+.component-title .pct{ font-size:11.5px; font-weight:800; color:var(--text-dim); }
+
+.item-row{ display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--surface-alt); margin-bottom:7px; }
+.item-row:last-child{ margin-bottom:0; }
+.check{ width:22px; height:22px; border-radius:7px; flex:0 0 auto; border:2px solid var(--border); background:var(--surface); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .12s, border-color .12s; }
+.check svg{ width:13px; height:13px; opacity:0; transition:opacity .12s; }
+.check.checked{ background:var(--green); border-color:var(--green); } .check.checked svg{ opacity:1; }
+.item-text{ flex:1; font-size:13px; }
+.item-age{ font-size:10.5px; color:var(--text-faint); font-weight:700; min-width:66px; }
+.item-row.is-na{ opacity:.6; }
+.item-row.is-na .item-text{ text-decoration:line-through; }
+.na-btn{ font-size:10px; font-weight:800; color:var(--text-faint); border:1.5px solid var(--border); border-radius:8px; padding:4px 8px; cursor:pointer; flex:0 0 auto; background:var(--surface); }
+.na-btn.on{ background:var(--amber-bg); color:var(--amber); border-color:var(--amber); }
+.comp-notes{ margin-top:8px; }
+.comp-notes textarea{ min-height:56px; }
+
+.combo{ position:relative; }
+.combo-list{ position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:20; background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow-card); max-height:230px; overflow-y:auto; padding:6px; }
+.combo-list[hidden]{ display:none; }
+.combo-opt{ padding:8px 10px; border-radius:8px; font-size:13px; cursor:pointer; display:flex; justify-content:space-between; gap:8px; }
+.combo-opt:hover{ background:var(--cyan-100); }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .combo-opt:hover{ background:var(--blue-bg); } }
+:root[data-theme="dark"] .combo-opt:hover{ background:var(--blue-bg); }
+.combo-opt small{ color:var(--text-faint); font-weight:600; }
+
+.reason-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 4px; border-bottom:1px solid var(--border); }
+.reason-row:last-child{ border-bottom:none; }
+.reason-row span{ font-size:13px; }
+.switch{ width:38px; height:22px; border-radius:999px; background:var(--gray-bg); border:1px solid var(--border); position:relative; cursor:pointer; flex:0 0 auto; }
+.switch i{ position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25); transition:left .15s ease; }
+.switch.on{ background:var(--green); border-color:var(--green); } .switch.on i{ left:18px; }
+
+textarea.input{ resize:vertical; min-height:70px; font-family:inherit; }
+
+.btn{ display:inline-flex; align-items:center; gap:7px; justify-content:center; padding:9px 16px; border-radius:10px; font-size:13px; font-weight:700; border:1.5px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; }
+.btn.primary{ background:var(--cyan-500); border-color:var(--cyan-500); color:#fff; }
+.btn.primary:hover{ background:var(--cyan-600); }
+.btn.dark{ background:var(--navy-800); border-color:var(--navy-800); color:#fff; }
+.btn.ghost{ background:transparent; }
+.btn:hover{ filter:brightness(0.98); }
+.btn:disabled{ opacity:.55; cursor:default; }
+.btn-row{ display:flex; gap:10px; flex-wrap:wrap; }
+
+.tag-note{ font-size:11.5px; color:var(--text-faint); background:var(--surface-alt); border:1px dashed var(--border); border-radius:10px; padding:9px 11px; line-height:1.45; }
+
+.chart-card svg{ width:100%; height:auto; display:block; }
+.legend{ display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11.5px; color:var(--text-dim);}
+.legend span{ display:inline-flex; align-items:center; gap:6px; }
+.legend i{ width:9px; height:9px; border-radius:3px; display:inline-block; }
+
+table.xtable{ width:100%; border-collapse:collapse; font-size:12.5px; }
+table.xtable th{ text-align:left; background:var(--navy-800); color:#fff; font-size:10.5px; letter-spacing:.02em; padding:8px 10px; }
+table.xtable th:not(:first-child), table.xtable td:not(:first-child){ text-align:center; }
+table.xtable td{ padding:7px 10px; border-bottom:1px solid var(--border); }
+table.xtable tr:last-child td{ border-bottom:none; }
+table.xtable tr.total td{ font-weight:800; background:var(--surface-alt); }
+table.xtable a.rowlink{ color:var(--cyan-600); font-weight:700; text-decoration:none; cursor:pointer; }
+table.xtable a.rowlink:hover{ text-decoration:underline; }
+.mini-bar{ width:100%; height:14px; background:var(--gray-bg); border-radius:6px; overflow:hidden; position:relative; }
+.mini-bar i{ display:block; height:100%; background:linear-gradient(90deg,var(--green),#57D39B); }
+.mini-bar span{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; color:var(--text); }
+
+.qual-row{ display:flex; gap:12px; padding:12px 4px; border-bottom:1px solid var(--border); }
+.qual-row:last-child{ border-bottom:none; }
+.qual-row .name{ width:150px; flex:0 0 auto; font-weight:800; font-size:12.5px; padding-top:2px; }
+.qual-row .txt{ font-size:12.5px; color:var(--text-dim); line-height:1.55; }
+.qual-row .txt b{ color:var(--text); }
+
+/* The informe sheet is a printable document: colors are hardcoded (not theme
+   variables) so it always renders as plain white paper + dark ink, regardless
+   of the app's light/dark theme, on screen, in print, and in the PDF export. */
+.informe-sheet{ background:#FFFFFF; color:#16324A; border:1px solid #DDE6EE; border-radius:var(--radius-l); box-shadow:var(--shadow-card); padding:34px 38px; max-width:780px; margin:0 auto; }
+.informe-sheet *{ color:#16324A; }
+.informe-sheet h2{ text-align:center; font-size:19px; margin-bottom:2px; color:#16324A; }
+.informe-sub{ text-align:center; color:#8CA0AF; font-size:11.5px; margin-bottom:22px; }
+.informe-sect{ margin-top:20px; }
+.informe-sect h4{
+  font-size:11px; letter-spacing:.05em; font-weight:800; color:#154D77;
+  display:inline-block; padding:0 0 4px; margin-bottom:10px;
+  border-bottom:2px solid #154D77; background:none;
+}
+.informe-line{ font-size:13px; padding:5px 0; border-bottom:1px solid #E7EEF3; }
+.informe-line:last-child{ border-bottom:none; }
+.informe-charts{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:6px; }
+.informe-sheet .badge{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+.sign-box{ margin-top:40px; text-align:center; }
+.sign-line{ width:280px; border-top:1.5px solid #16324A; margin:46px auto 8px; }
+.sign-box .name{ font-weight:800; font-size:13px; color:#16324A; }
+.sign-box .sub{ font-size:11.5px; color:#8CA0AF; }
+.informe-sheet textarea, .informe-sheet input{ background:#FBFCFD; border-color:#DDE6EE; color:#16324A; }
+/* Keep individual lines, rows, charts and the signature block whole across a
+   page break in native print — so a line of text or a chart is never cut
+   in half top/bottom, it just moves entirely to the next page. */
+.informe-sheet .informe-line, .informe-sheet .qual-row, .informe-sheet .reason-row{ break-inside:avoid; page-break-inside:avoid; }
+.informe-sheet .informe-charts{ break-inside:avoid; page-break-inside:avoid; }
+.informe-sheet .sign-box{ break-inside:avoid; page-break-inside:avoid; }
+.informe-sheet h4{ break-after:avoid; page-break-after:avoid; }
+#il-familysigns > div{ break-inside:avoid; page-break-inside:avoid; }
+
+.ia-box{ background:var(--surface-alt); border:1px dashed var(--border); border-radius:12px; padding:12px; font-size:11.5px; color:var(--text-dim); white-space:pre-wrap; max-height:230px; overflow-y:auto; font-family:ui-monospace, monospace; line-height:1.55;}
+
+@page{ margin: 16mm 12mm; }
+@media print{
+  .sidebar, .topbar, .no-print{ display:none !important; }
+  .view{ padding:0; max-width:none; }
+  body{ background:#fff; }
+  .informe-sheet{ box-shadow:none; border:none; padding:0; max-width:none; }
+  .card{ box-shadow:none; }
+}
+@media (max-width:880px){
+  .sidebar{ position:fixed; left:-260px; z-index:50; transition:left .2s ease; box-shadow:0 0 40px rgba(0,0,0,.3);}
+  .sidebar.open{ left:0; }
+  .menu-btn{ display:inline-flex; }
+  .grid.cols-2, .grid.cols-3{ grid-template-columns:1fr; }
+  .informe-charts{ grid-template-columns:1fr; }
+}
+.menu-btn{ display:none; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3); color:#fff; width:32px; height:32px; border-radius:8px; align-items:center; justify-content:center; cursor:pointer; }
+.overlay{ position:fixed; inset:0; background:rgba(10,25,40,.4); z-index:40; }
+.overlay[hidden]{ display:none; }
+
+.informe-sheet svg text{ fill:#16324A !important; }
+.informe-sheet svg line{ stroke:#E7EEF3 !important; }
+/* ---- Botón de tema claro / oscuro ---- */
+:root{ color-scheme:light; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ color-scheme:dark; } }
+:root[data-theme="dark"]{ color-scheme:dark; }
+.theme-btn{
+  display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+  background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25); color:#fff;
+  padding:6px 12px; border-radius:999px; font:600 12px var(--font-body);
+}
+.theme-btn:hover{ background:rgba(255,255,255,.24); }
+.theme-btn svg{ width:15px; height:15px; flex:0 0 auto; }
+.theme-btn .ic-sun{ display:none; }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .theme-btn .ic-sun{ display:block; }
+  :root:not([data-theme="light"]) .theme-btn .ic-moon{ display:none; }
+}
+:root[data-theme="dark"] .theme-btn .ic-sun{ display:block; }
+:root[data-theme="dark"] .theme-btn .ic-moon{ display:none; }
+@media (max-width:600px){ .theme-btn .theme-lbl{ display:none; } .theme-btn{ padding:7px; } }
+/* ---- Marcar / desmarcar todos por área ---- */
+.component-title{ flex-wrap:wrap; }
+.component-title .pct{ margin-left:auto; }
+.comp-tools{ display:flex; gap:6px; }
+.mini-btn{ padding:3px 10px; border-radius:999px; font-size:10.5px; font-weight:800; border:1.5px solid var(--border); background:var(--surface); color:var(--text-dim); cursor:pointer; white-space:nowrap; font-family:inherit; }
+.mini-btn:hover{ border-color:var(--cyan-500); color:var(--cyan-600); }
+/* ---- Pantallas pequeñas (celular / tablet) ---- */
+#chartPie{ max-width:280px; margin:0 auto; }
+@media (max-width:600px){
+  .topbar{ padding-left:14px; padding-right:14px; gap:8px; }
+  .topbar .crumb, .topbar .pill-inst{ display:none; }
+  .view{ padding:16px 12px 40px; }
+  .card{ padding:16px 14px; border-radius:16px; }
+  .page-head h2{ font-size:19px; }
+  table.xtable{ font-size:11.5px; }
+  table.xtable th, table.xtable td{ padding:6px 5px; }
+  .mini-bar{ min-width:54px; }
+  .qual-row{ flex-direction:column; gap:4px; }
+  .qual-row .name{ width:auto; }
+  .item-row{ flex-wrap:wrap; row-gap:6px; }
+  .item-row .item-text{ flex:1 1 calc(100% - 40px); }
+  .item-row .badge{ margin-left:34px; }
+  .item-row .na-btn{ margin-left:auto; }
+  .informe-sheet{ padding:20px 16px; }
+  .sign-line{ width:100%; max-width:280px; }
+}
+/* ---- Teclado: foco visible ---- */
+[tabindex="0"]:focus-visible, button:focus-visible, a:focus-visible{ outline:2px solid var(--cyan-500); outline-offset:2px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <img class="brand-mark" data-logo alt="CISADDE" style="object-fit:contain; background:#fff; padding:3px;">
+      <div class="brand-text">Desarrollo Infantil<small>INTEGRACIÓN SENSORIAL</small></div>
+    </div>
+    <div class="user-chip">
+      <div class="user-avatar" id="evalAvatar">—</div>
+      <div class="user-meta">
+        <div class="user-name" id="evalNameChip">Sin evaluador</div>
+        <div class="user-role">Integración sensorial infantil</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a class="nav-item" href="Inicio%20CISADDE.html" data-home>
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        Inicio · Todas las valoraciones
+      </a>
+      <div class="nav-label">EXPEDIENTE</div>
+      <a class="nav-item active" data-view="portada">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+        Portada
+      </a>
+      <a class="nav-item" data-view="evaluacion">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg>
+        Evaluación
+        <span class="nav-badge" id="navBadge">0%</span>
+      </a>
+      <a class="nav-item" data-view="resumen">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+        Resumen
+      </a>
+      <a class="nav-item" data-view="informe">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+        Informe
+      </a>
+      <div class="nav-label">ARCHIVO</div>
+      <button class="nav-item" type="button" id="fileExportBtn" style="width:100%; text-align:left;">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+        Exportar valoración
+      </button>
+      <button class="nav-item" type="button" id="fileImportBtn" style="width:100%; text-align:left;">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
+        Importar valoración
+      </button>
+      <button class="nav-item" type="button" id="fileNewBtn" style="width:100%; text-align:left;">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Nueva valoración
+      </button>
+      <input type="file" id="fileImportInput" accept=".json,application/json" hidden>
+      <div id="autosaveTag" style="padding:4px 12px 0; font-size:11px; color:#8FB4CE; line-height:1.5;">Guardado automático activado</div>
+      <div class="nav-label">TOTAL BATERÍA</div>
+      <div style="padding:0 12px 10px; font-size:11.5px; color:#8FB4CE; line-height:1.6;">
+        <b style="color:#fff;" id="sideTotalItems">129</b> ítems · 10 componentes
+      </div>
+    </nav>
+  </aside>
+  <div class="overlay" id="overlay" hidden></div>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn" aria-label="Abrir menú">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <h1 id="topTitle">Portada</h1>
+      <span class="crumb" id="topCrumb">· Expediente del niño/a</span>
+      <div class="topbar-right"><button class="theme-btn" type="button" id="themeBtn" aria-label="Cambiar entre modo claro y oscuro"><svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="theme-lbl">Modo oscuro</span></button><span class="pill-inst">Centro de Desarrollo Infantil</span></div>
+    </div>
+
+    <!-- ===================== PORTADA ===================== -->
+    <section class="view" id="view-portada">
+      <div class="page-head">
+        <div style="display:flex; align-items:center; gap:14px;">
+          <img data-logo alt="CISADDE" style="width:52px;height:52px;object-fit:contain;">
+          <div><h2>Formato de valoración de integración sensorial infantil</h2><p>Lista de chequeo del procesamiento sensorial, la praxis y la autorregulación para niños y niñas de 0 a 10 años</p></div>
+        </div>
+      </div>
+      <div class="age-chips" id="ageChips"></div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="card-head"><h3>Datos del niño / niña</h3></div>
+          <div class="grid cols-2">
+            <label class="field" style="grid-column:1/-1;"><span class="lbl">Nombres y apellidos</span><input class="input" id="childName" placeholder="Ej. Valentina Gómez" /></label>
+            <label class="field"><span class="lbl">Tipo de identificación</span>
+              <select class="input" id="tipoId">
+                <option value="">—</option>
+                <option value="RC">Registro civil (RC)</option>
+                <option value="TI">Tarjeta de identidad (TI)</option>
+                <option value="CC">Cédula de ciudadanía (CC)</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </label>
+            <label class="field"><span class="lbl">Número de identificación</span><input class="input" id="numeroId" placeholder="Ej. 1002030405" /></label>
+            <label class="field"><span class="lbl">Fecha de nacimiento</span><input class="input" id="birthDate" type="date" /></label>
+            <label class="field"><span class="lbl">Fecha de valoración</span><input class="input" id="evalDate" type="date" /></label>
+            <label class="field" style="grid-column:1/-1;"><span class="lbl">Edad (automática)</span><input class="input" id="ageOut" readonly value="—" /></label>
+            <label class="field"><span class="lbl">Grado escolar</span><input class="input" id="escolaridad" placeholder="Ej. Preescolar / Grado 1°" /></label>
+            <label class="field"><span class="lbl">Colegio / institución educativa</span><input class="input" id="colegio" placeholder="Ej. Colegio San José" /></label>
+            <label class="field"><span class="lbl">EPS</span><input class="input" id="eps" placeholder="Ej. Nueva EPS" /></label>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Evaluador(a)</h3><span class="sub">Terapeuta ocupacional — Integración sensorial</span></div>
+          <label class="field">
+            <span class="lbl">Nombres y apellidos</span>
+            <input class="input" id="evalName" placeholder="Escribe el nombre del/de la terapeuta ocupacional…" autocomplete="off" />
+          </label>
+          <div class="grid cols-2" style="margin-top:12px;">
+            <label class="field" style="grid-column:1/-1;">
+              <span class="lbl">Tarjeta profesional (opcional)</span>
+              <input class="input" id="evalCard" placeholder="Escríbela si aplica…" autocomplete="off" />
+            </label>
+          </div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn ghost" id="evalCardSaveBtn" type="button">💾 Guardar tarjeta</button>
+            <span id="evalCardSavedTag" class="badge green" style="display:none; align-self:center;"><span class="dot"></span>Tarjeta guardada</span>
+          </div>
+          <p class="tag-note" style="margin-top:8px;">Es opcional. Solo se guarda — y solo aparece en el Informe — si escribes el número y le das "Guardar tarjeta".</p>
+          <div style="margin-top:12px; display:flex; align-items:center; gap:12px;">
+            <div id="sealPreviewBox" style="width:64px;height:64px;border:1.5px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--surface-alt);flex:0 0 auto;">
+              <span id="sealPreviewEmpty" style="font-size:9.5px;color:var(--text-faint);text-align:center;padding:4px;">Sin sello</span>
+              <img id="sealPreviewImg" hidden style="width:100%;height:100%;object-fit:contain;">
+            </div>
+            <div style="flex:1;">
+              <div class="btn-row">
+                <label class="btn ghost" style="cursor:pointer;" id="sealUploadLabel">
+                  📎 Subir imagen del sello
+                  <input type="file" id="sealUploadInput" accept="image/*" style="display:none;">
+                </label>
+                <button class="btn ghost" id="sealRemoveBtn" type="button" style="display:none;">🗑️ Quitar</button>
+              </div>
+              <p class="tag-note" style="margin-top:8px;">Se guarda por evaluador. Apenas la subas, aparece también en la firma del Informe.</p>
+            </div>
+          </div>
+          <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+            <span class="lbl" style="display:block; margin-bottom:8px;">Firma manuscrita (mouse o dedo en pantalla táctil)</span>
+            <canvas id="sigPad" width="380" height="120" style="width:100%; max-width:380px; height:120px; border:1.5px dashed var(--border); border-radius:10px; background:#fff; touch-action:none; cursor:crosshair; display:block;"></canvas>
+            <div class="btn-row" style="margin-top:8px;">
+              <button class="btn ghost" id="sigClearBtn" type="button">🧹 Limpiar</button>
+              <button class="btn primary" id="sigSaveBtn" type="button">✍️ Guardar firma</button>
+              <span id="sigSavedTag" class="badge green" style="display:none; align-self:center;"><span class="dot"></span>Firma guardada</span>
+            </div>
+            <p class="tag-note" style="margin-top:8px;">Dibuja la firma sobre el recuadro. Se guarda por evaluador y aparece sobre la línea de firma del Informe.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Motivo de consulta</h3></div>
+        <p class="tag-note">Los motivos se marcan en <b>Evaluación → Motivo de consulta</b> (lista de chequeo del formato). Aquí puedes agregar detalles que no estén en esa lista.</p>
+        <label class="field" style="margin-top:14px;"><span class="lbl">Otro motivo / detalles adicionales</span><textarea class="input" id="motivoTxt" placeholder="Escribe aquí cualquier detalle adicional…"></textarea></label>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Antecedentes prenatales, perinatales y posnatales</h3><span class="sub">Embarazo, parto, primeros meses…</span></div>
+        <label class="field"><textarea class="input" id="antecedentesTxt" style="min-height:110px;" placeholder="Escribe aquí los antecedentes prenatales, perinatales y posnatales relevantes (embarazo, parto, complicaciones, hitos tempranos)…"></textarea></label>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Diagnóstico (CIE-10)</h3><span class="sub">Escribe el código y se sugiere el diagnóstico</span></div>
+        <div class="grid cols-2">
+          <label class="field"><span class="lbl">Código CIE-10</span><input class="input" id="cie10Code" placeholder="Ej. F84.0" autocomplete="off" /></label>
+          <label class="field"><span class="lbl">Diagnóstico</span><input class="input" id="cie10Diag" placeholder="Se sugiere automáticamente, o escríbelo tú" /></label>
+        </div>
+        <p class="tag-note" id="cie10Hint" style="margin-top:8px;">Incluye códigos comunes en integración sensorial (TEA, TDAH, trastorno de la coordinación, movimientos estereotipados, retraso del desarrollo). Si no reconoce el código, escribe el diagnóstico manualmente.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Padre, madre o responsable</h3><span class="sub">Activa a quienes vayan a firmar el informe</span></div>
+        <div id="familyBox"></div>
+      </div>
+
+      <div class="tag-note">Esta información alimenta automáticamente Evaluación, Resumen e Informe — igual que en tu archivo de Excel.</div>
+    </section>
+
+    <!-- ===================== EVALUACIÓN ===================== -->
+    <section class="view" id="view-evaluacion" hidden>
+      <div class="page-head"><div><h2>Evaluación</h2><p>Marca los hallazgos observados o referidos por la familia en cada ítem del chequeo de integración sensorial.</p></div></div>
+      <div class="age-chips" id="ageChipsEval"></div>
+
+      <div class="card">
+        <div class="stat-row">
+          <div class="stat"><div class="k">ÍTEMS TOTALES</div><div class="v" id="stTotal">0</div></div>
+          <div class="stat"><div class="k">MARCADOS</div><div class="v amber" id="stDone">0</div></div>
+          <div class="stat"><div class="k">% MARCADO</div><div class="v blue" id="stPct">0%</div></div>
+          <div class="stat"><div class="k">SIN MARCAR</div><div class="v green" id="stPending">0</div></div>
+          <div class="stat"><div class="k">NO APLICA</div><div class="v amber" id="stNa">0</div></div>
+          <div class="stat"><div class="k">ES LA EDAD ACTUAL</div><div class="v" id="stMatch" style="font-size:15px;">—</div></div>
+        </div>
+        <div style="margin-top:14px;"><div class="bar"><i id="mainBar" style="width:0%"></i></div></div>
+      </div>
+
+      <div class="card" id="checklistCard">
+        <div class="card-head"><h3 id="checklistTitle">Ítems</h3><span class="sub" id="checklistSub"></span></div>
+        <div id="checklistBody"></div>
+      </div>
+    </section>
+
+    <!-- ===================== RESUMEN ===================== -->
+    <section class="view" id="view-resumen" hidden>
+      <div class="page-head"><div><h2>Resumen de valoración</h2><p>Hallazgos de procesamiento sensorial, praxis y autorregulación; se actualiza según lo que marques en el chequeo.</p></div></div>
+
+      <div class="card">
+        <div class="card-head"><h3>Datos del niño / niña</h3></div>
+        <div class="grid cols-4" id="resumenDatos"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Avance por componente</h3></div>
+        <table class="xtable" id="tableComp"></table>
+      </div>
+
+      <div class="card chart-card">
+        <div class="card-head"><h3>% marcado por componente</h3></div>
+        <svg id="chartComp" viewBox="0 0 900 220"></svg>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card chart-card">
+          <div class="card-head"><h3>Distribución general de la batería</h3></div>
+          <svg id="chartPie" viewBox="0 0 220 220"></svg>
+          <div class="legend"><span><i style="background:var(--cyan-500)"></i>Marcados</span><span><i style="background:var(--gray)"></i>Sin marcar</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Resumen cualitativo — hallazgos por área</h3></div>
+        <div id="qualBody"></div>
+      </div>
+    </section>
+
+    <!-- ===================== INFORME ===================== -->
+    <section class="view" id="view-informe" hidden>
+      <div class="page-head">
+        <div><h2>Informe para entregar</h2><p>Procesamiento sensorial, praxis y autorregulación — versión lista para imprimir o descargar.</p></div>
+        <div class="btn-row no-print">
+          <button class="btn ghost" id="printBtn">🖨️ Imprimir</button>
+          <button class="btn primary" id="pdfBtn">⬇️ Guardar como PDF</button>
+        </div>
+      </div>
+
+      <div class="card no-print" style="max-width:780px; margin:0 auto 18px;">
+        <div class="card-head"><h3>Recomendaciones a incluir</h3><span class="sub">Activa solo las que apliquen; las demás no aparecerán en el informe</span></div>
+        <div id="recsSelectList"></div>
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+          <span class="lbl" style="display:block; margin-bottom:8px;">Recomendaciones propias para este niño/a</span>
+          <div id="customRecsList"></div>
+          <div class="btn-row" style="margin-top:8px; flex-wrap:nowrap;">
+            <input class="input" id="customRecInput" placeholder="Escribe una recomendación y pulsa Agregar (o Enter)…" autocomplete="off" />
+            <button class="btn primary" type="button" id="customRecAddBtn" style="flex:0 0 auto;">➕ Agregar</button>
+          </div>
+          <p class="tag-note" style="margin-top:8px;">Aparecen en el Informe después de las recomendaciones activadas arriba. Puedes corregirlas aquí mismo o quitarlas con 🗑️.</p>
+        </div>
+      </div>
+
+      <div class="tag-note no-print" id="faltanNote" style="display:none; max-width:780px; margin:0 auto 18px; border-color:var(--amber); color:var(--amber); font-weight:600;"></div>
+
+      <div class="informe-sheet" id="informeSheet">
+        <div style="text-align:center; margin-bottom:10px;"><img data-logo alt="CISADDE" style="width:64px;height:64px;object-fit:contain;"></div>
+        <h2>Informe de valoración de integración sensorial infantil</h2>
+        <div class="informe-sub">Centro de Desarrollo Infantil</div>
+
+        <div class="informe-sect">
+          <h4>DATOS DEL NIÑO / NIÑA</h4>
+          <div class="informe-line" id="il-name">Nombres y apellidos: —</div>
+          <div class="informe-line" id="il-birth">Fecha de nacimiento: —</div>
+          <div class="informe-line" id="il-age">Edad actual: —</div>
+          <div class="informe-line" id="il-eval">Evaluador(a): —</div>
+          <div class="informe-line" id="il-date">Fecha de valoración: —</div>
+          <div class="informe-line" id="il-ident">Identificación: —</div>
+          <div class="informe-line" id="il-escolaridad">Grado escolar: —</div>
+          <div class="informe-line" id="il-colegio">Colegio / institución educativa: —</div>
+          <div class="informe-line" id="il-eps">EPS: —</div>
+        </div>
+
+        <div class="informe-sect">
+          <h4>MOTIVO DE CONSULTA</h4>
+          <p style="font-size:13px; line-height:1.6;" id="il-motivo">—</p>
+        </div>
+
+        <div class="informe-sect" id="il-antecedentesWrap" style="display:none;">
+          <h4>ANTECEDENTES PRENATALES, PERINATALES Y POSNATALES</h4>
+          <p style="font-size:13px; line-height:1.6; white-space:pre-wrap;" id="il-antecedentes">—</p>
+        </div>
+
+        <div class="informe-sect" id="il-cieWrap" style="display:none;">
+          <h4>DIAGNÓSTICO</h4>
+          <div class="informe-line" id="il-cie">—</div>
+        </div>
+
+        <div class="informe-sect">
+          <h4>RESUMEN CUALITATIVO DEL PROCESAMIENTO SENSORIAL</h4>
+          <div id="il-qual"></div>
+        </div>
+
+        <div class="informe-sect">
+          <h4>GRÁFICAS DEL DESEMPEÑO</h4>
+          <div class="informe-charts" style="grid-template-columns:1fr;">
+            <svg id="il-chartComp" viewBox="0 0 900 220"></svg>
+          </div>
+        </div>
+
+        <div class="informe-sect" id="il-iawrap" style="display:none;">
+          <h4>INTERPRETACIÓN CLÍNICA Y CONCLUSIÓN</h4>
+          <div id="il-iatext" contenteditable="true" style="font-size:13px; line-height:1.65; white-space:pre-wrap; outline:none; border:1px dashed transparent; border-radius:6px; padding:2px;"></div>
+          <p class="tag-note no-print" style="margin-top:6px;">Puedes corregir este texto directamente aquí antes de imprimir o guardar el PDF.</p>
+        </div>
+
+        <div class="informe-sect">
+          <h4>RECOMENDACIONES GENERALES</h4>
+          <div id="recsBody"></div>
+        </div>
+
+        <div class="sign-box">
+          <div id="il-sealimg" style="min-height:70px; display:flex; align-items:flex-end; justify-content:center;"></div>
+          <div id="il-signatureimg" style="height:60px; display:flex; align-items:flex-end; justify-content:center; margin:0 auto; width:280px;"></div>
+          <div class="sign-line" id="il-signline"></div>
+          <div class="name" id="il-signname">Firma del evaluador(a)</div>
+          <div class="sub" id="il-signcard">—</div>
+        </div>
+
+        <div class="informe-sect" id="il-familywrap" style="display:none;">
+          <h4>FIRMAS PADRE / MADRE / RESPONSABLE</h4>
+          <div id="il-familysigns" style="display:flex; flex-wrap:wrap; gap:18px; justify-content:center;"></div>
+        </div>
+      </div>
+
+      <div class="card" style="max-width:780px; margin:22px auto 0;">
+        <div class="card-head"><h3>✨ Redacción técnica con IA (opcional)</h3></div>
+        <p class="tag-note" style="margin-bottom:12px;">Copia el texto de abajo y pégalo en Claude, ChatGPT u otra IA, pidiéndole que redacte el informe en lenguaje técnico de integración sensorial. Luego pega su respuesta en el recuadro de abajo.</p>
+        <div class="ia-box" id="iaPrompt"></div>
+        <div class="btn-row no-print" style="margin-top:10px;">
+          <button class="btn primary" id="genIaBtn">✨ Generar informe con IA</button>
+          <button class="btn dark" id="copyIaBtn">📋 Copiar texto para la IA</button>
+        </div>
+        <p class="tag-note no-print" id="iaStatusNote" style="margin-top:8px; display:none;"></p>
+        <label class="field" style="margin-top:14px;">
+          <span class="lbl">Redacción de la IA (se genera aquí, o puedes pegarla si la copiaste de otro lado)</span>
+          <textarea class="input" id="iaResponse" style="min-height:160px;" placeholder="Haz clic en &quot;Generar informe con IA&quot;, o pega aquí el texto que te devuelva la IA…"></textarea>
+        </label>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+const AGE_SHEETS_RAW = [{"key": "general", "label": "Valoración general (0 a 10 años)", "minM": 0, "maxM": 120, "comp": {"Motivo de consulta": [{"text": "Selectividad alimentaria", "minM": 0, "maxM": 120}, {"text": "Rechazo a determinadas texturas, sabores u olores", "minM": 0, "maxM": 120}, {"text": "Dificultad para masticar o aceptar alimentos sólidos", "minM": 0, "maxM": 120}, {"text": "Arcadas o vómito ante algunos alimentos", "minM": 0, "maxM": 120}, {"text": "Alimentación muy limitada", "minM": 0, "maxM": 120}, {"text": "Molestia excesiva ante ruidos", "minM": 0, "maxM": 120}, {"text": "Molestia ante luces, olores o estímulos visuales", "minM": 0, "maxM": 120}, {"text": "Rechazo al contacto físico o determinadas texturas", "minM": 0, "maxM": 120}, {"text": "Busca constantemente movimiento (correr, girar, saltar)", "minM": 0, "maxM": 120}, {"text": "Busca presión fuerte, abrazos intensos o golpes", "minM": 0, "maxM": 120}, {"text": "Baja respuesta al dolor o al frío/calor", "minM": 0, "maxM": 120}, {"text": "Irritabilidad frecuente", "minM": 0, "maxM": 120}, {"text": "Rabietas intensas o difíciles de controlar", "minM": 0, "maxM": 120}, {"text": "Baja tolerancia a la frustración", "minM": 0, "maxM": 120}, {"text": "Dificultad para adaptarse a cambios de rutina", "minM": 0, "maxM": 120}, {"text": "Conductas repetitivas o autoestimulación", "minM": 0, "maxM": 120}, {"text": "Impulsividad", "minM": 0, "maxM": 120}, {"text": "Hiperactividad", "minM": 0, "maxM": 120}, {"text": "Dificultad para permanecer sentado", "minM": 0, "maxM": 120}, {"text": "Dificultad para mantener la atención", "minM": 0, "maxM": 120}, {"text": "Fácil distracción", "minM": 0, "maxM": 120}, {"text": "Dificultad para seguir instrucciones", "minM": 0, "maxM": 120}, {"text": "Bajo rendimiento escolar", "minM": 0, "maxM": 120}, {"text": "Dificultades en funciones ejecutivas (planificación, organización e inhibición)", "minM": 0, "maxM": 120}, {"text": "Retraso en el desarrollo motor", "minM": 0, "maxM": 120}, {"text": "Torpeza motora", "minM": 0, "maxM": 120}, {"text": "Dificultad para el equilibrio", "minM": 0, "maxM": 120}, {"text": "Problemas de coordinación", "minM": 0, "maxM": 120}, {"text": "Dificultades en motricidad fina", "minM": 0, "maxM": 120}, {"text": "Dificultad para escribir, colorear o recortar", "minM": 0, "maxM": 120}, {"text": "Baja planeación motora (praxis)", "minM": 0, "maxM": 120}, {"text": "Dificultad para vestirse", "minM": 0, "maxM": 120}, {"text": "Rechazo al baño", "minM": 0, "maxM": 120}, {"text": "Molestia durante el cepillado dental", "minM": 0, "maxM": 120}, {"text": "Rechazo al corte de uñas o cabello", "minM": 0, "maxM": 120}, {"text": "Dependencia para actividades de autocuidado", "minM": 0, "maxM": 120}, {"text": "Alteraciones del sueño", "minM": 0, "maxM": 120}, {"text": "Poco interés por el juego", "minM": 0, "maxM": 120}, {"text": "Juego repetitivo", "minM": 0, "maxM": 120}, {"text": "Dificultad para interactuar con otros niños", "minM": 0, "maxM": 120}, {"text": "Dificultad para compartir o esperar turnos", "minM": 0, "maxM": 120}, {"text": "Escaso contacto visual", "minM": 0, "maxM": 120}, {"text": "Baja intención comunicativa", "minM": 0, "maxM": 120}, {"text": "Retraso del lenguaje", "minM": 0, "maxM": 120}, {"text": "Dificultad para expresar necesidades", "minM": 0, "maxM": 120}, {"text": "Comprensión limitada de instrucciones", "minM": 0, "maxM": 120}], "Antecedentes": [{"text": "Embarazo a término", "minM": 0, "maxM": 120}, {"text": "Embarazo de alto riesgo", "minM": 0, "maxM": 120}, {"text": "Prematuridad", "minM": 0, "maxM": 120}, {"text": "Bajo peso", "minM": 0, "maxM": 120}, {"text": "UCI neonatal", "minM": 0, "maxM": 120}, {"text": "Convulsiones", "minM": 0, "maxM": 120}, {"text": "Retraso motor", "minM": 0, "maxM": 120}, {"text": "Retraso lenguaje", "minM": 0, "maxM": 120}, {"text": "Terapias previas", "minM": 0, "maxM": 120}, {"text": "Medicación", "minM": 0, "maxM": 120}, {"text": "Alteraciones del sueño", "minM": 0, "maxM": 120}, {"text": "Selectividad alimentaria", "minM": 0, "maxM": 120}], "Observación general": [{"text": "Contacto visual", "minM": 0, "maxM": 120}, {"text": "Responde al nombre", "minM": 0, "maxM": 120}, {"text": "Atención", "minM": 0, "maxM": 120}, {"text": "Permanece sentado", "minM": 0, "maxM": 120}, {"text": "Sigue instrucciones", "minM": 0, "maxM": 120}, {"text": "Interacción con terapeuta", "minM": 0, "maxM": 120}], "Táctil": [{"text": "Evita arena", "minM": 0, "maxM": 120}, {"text": "Evita plastilina", "minM": 0, "maxM": 120}, {"text": "Evita pintura", "minM": 0, "maxM": 120}, {"text": "Evita espuma", "minM": 0, "maxM": 120}, {"text": "Tolera texturas", "minM": 0, "maxM": 120}, {"text": "Busca texturas", "minM": 0, "maxM": 120}, {"text": "Busca presión profunda", "minM": 0, "maxM": 120}, {"text": "Tolera etiquetas", "minM": 0, "maxM": 120}, {"text": "Tolera zapatos", "minM": 0, "maxM": 120}, {"text": "Tolera corte de cabello", "minM": 0, "maxM": 120}, {"text": "Tolera corte de uñas", "minM": 0, "maxM": 120}, {"text": "Tolera crema", "minM": 0, "maxM": 120}, {"text": "Se limpia constantemente", "minM": 0, "maxM": 120}, {"text": "Reacciona al contacto", "minM": 0, "maxM": 120}], "Vestibular": [{"text": "Busca girar", "minM": 0, "maxM": 120}, {"text": "Busca correr", "minM": 0, "maxM": 120}, {"text": "Busca saltar", "minM": 0, "maxM": 120}, {"text": "Busca brincar", "minM": 0, "maxM": 120}, {"text": "Le gusta columpiarse", "minM": 0, "maxM": 120}, {"text": "Tolera alturas", "minM": 0, "maxM": 120}, {"text": "Presenta miedo", "minM": 0, "maxM": 120}, {"text": "Mantiene equilibrio", "minM": 0, "maxM": 120}, {"text": "Se cae frecuentemente", "minM": 0, "maxM": 120}, {"text": "Busca movimiento constante", "minM": 0, "maxM": 120}], "Propioceptivo": [{"text": "Choca con objetos", "minM": 0, "maxM": 120}, {"text": "Empuja personas", "minM": 0, "maxM": 120}, {"text": "Hala objetos", "minM": 0, "maxM": 120}, {"text": "Carga peso", "minM": 0, "maxM": 120}, {"text": "Muerde objetos", "minM": 0, "maxM": 120}, {"text": "Aprieta objetos", "minM": 0, "maxM": 120}, {"text": "Busca abrazos fuertes", "minM": 0, "maxM": 120}, {"text": "Rompe juguetes", "minM": 0, "maxM": 120}, {"text": "Gradúa la fuerza", "minM": 0, "maxM": 120}, {"text": "Se deja caer", "minM": 0, "maxM": 120}], "Praxis e ideación": [{"text": "Inicia juego", "minM": 0, "maxM": 120}, {"text": "Imita acción", "minM": 0, "maxM": 120}, {"text": "Planea movimientos", "minM": 0, "maxM": 120}, {"text": "Sigue secuencias", "minM": 0, "maxM": 120}, {"text": "Usa herramientas", "minM": 0, "maxM": 120}, {"text": "Resuelve problemas", "minM": 0, "maxM": 120}, {"text": "Cambia estrategias", "minM": 0, "maxM": 120}], "Regulación emocional": [{"text": "Tolera frustración", "minM": 0, "maxM": 120}, {"text": "Acepta cambios", "minM": 0, "maxM": 120}, {"text": "Se calma con ayuda", "minM": 0, "maxM": 120}, {"text": "Presenta crisis", "minM": 0, "maxM": 120}, {"text": "Espera turnos", "minM": 0, "maxM": 120}, {"text": "Expresa emociones", "minM": 0, "maxM": 120}], "Alimentación": [{"text": "Acepta texturas", "minM": 0, "maxM": 120}, {"text": "Acepta sabores", "minM": 0, "maxM": 120}, {"text": "Tolera olores", "minM": 0, "maxM": 120}, {"text": "Mastica", "minM": 0, "maxM": 120}, {"text": "Presenta arcadas", "minM": 0, "maxM": 120}, {"text": "Usa cubiertos", "minM": 0, "maxM": 120}, {"text": "Selectividad", "minM": 0, "maxM": 120}, {"text": "Intolerancia / alergia", "minM": 0, "maxM": 120}], "Conductas": [{"text": "Aleteo", "minM": 0, "maxM": 120}, {"text": "Balanceo", "minM": 0, "maxM": 120}, {"text": "Autoestimulación", "minM": 0, "maxM": 120}, {"text": "Camina en puntas", "minM": 0, "maxM": 120}, {"text": "Deambula", "minM": 0, "maxM": 120}, {"text": "Agresión", "minM": 0, "maxM": 120}, {"text": "Autoagresión", "minM": 0, "maxM": 120}, {"text": "Intereses restringidos", "minM": 0, "maxM": 120}, {"text": "Impulsividad", "minM": 0, "maxM": 120}, {"text": "Rigidez", "minM": 0, "maxM": 120}]}}];
+const REASONS = ["Hipersensibilidad o hiporreactividad a estímulos sensoriales (táctiles, auditivos, visuales)", "Búsqueda constante de movimiento, presión profunda o estímulos sensoriales intensos", "Dificultades de autorregulación (rabietas, baja tolerancia a la frustración, irritabilidad)", "Selectividad alimentaria o dificultades sensoriales con la comida", "Torpeza motora, dificultades de equilibrio, coordinación o planificación motora (praxis)", "Dificultades de atención, aprendizaje o funciones ejecutivas", "Dificultades en el juego, la interacción social o la comunicación", "Antecedente de diagnóstico o sospecha de trastorno del espectro autista u otro trastorno del neurodesarrollo"];
+const DEFAULT_RECS = ["Implementar una dieta sensorial personalizada según las necesidades de modulación identificadas (evitación o búsqueda sensorial).", "Incorporar actividades de estimulación vestibular y propioceptiva graduada dentro de las rutinas diarias y en terapia.", "Favorecer la exposición gradual y controlada a texturas, sabores y estímulos táctiles evitados, respetando el umbral de tolerancia del niño/a.", "Fortalecer habilidades de praxis mediante juegos de planificación motora, secuencias e ideación de nuevas acciones.", "Establecer estrategias de autorregulación (pausas sensoriales, técnicas de calma) para apoyar la conducta y la atención.", "Mantener comunicación con la familia y el colegio para generalizar las estrategias sensoriales a los distintos entornos del niño/a.", "Realizar seguimiento periódico del procesamiento sensorial y ajustar el plan de intervención según la evolución.", "Establecer rutinas visuales y anticipatorias que faciliten la transición entre actividades y reduzcan la ansiedad ante cambios.", "Brindar apoyo gradual, retirando la ayuda progresivamente a medida que el niño/a logre mayor independencia en las actividades.", "Promover el juego social con pares en espacios estructurados, favoreciendo turnos y reciprocidad.", "Enseñar y practicar estrategias de autorregulación emocional que el niño/a pueda usar de forma autónoma fuera de terapia.", "Mantener seguimiento periódico con terapia ocupacional / integración sensorial para ajustar el plan según la evolución.", "Involucrar activamente a la familia en las estrategias sensoriales, capacitándola para aplicarlas de forma consistente en casa.", "Adecuar el entorno físico (luz, ruido, organización de espacios) para reducir estímulos que generen sobrecarga sensorial.", "Reforzar la planeación motora y la praxis mediante actividades secuenciadas de dificultad creciente."];
+
+/* ======================================================================
+   BUILD AGE_SHEETS from raw data (assign stable ids)
+   ====================================================================== */
+const LOGO_SRC = window.CISADDE_LOGO || ""; // logo en logo.js
+document.addEventListener("DOMContentLoaded", ()=>{ document.querySelectorAll("[data-logo]").forEach(img=>img.src=LOGO_SRC); });
+if(document.readyState!=="loading"){ document.querySelectorAll("[data-logo]").forEach(img=>img.src=LOGO_SRC); }
+
+const COMPONENTS = ["Motivo de consulta", "Antecedentes", "Observación general", "Táctil", "Vestibular", "Propioceptivo", "Praxis e ideación", "Regulación emocional", "Alimentación", "Conductas"];
+const AGE_SHEETS = AGE_SHEETS_RAW;
+AGE_SHEETS.forEach(sheet=>{
+  COMPONENTS.forEach(c=>{
+    sheet.comp[c].forEach((it,i)=>{ it.id = sheet.key+'::'+c+'::'+i; });
+  });
+});
+const TOTAL_ITEMS = AGE_SHEETS.reduce((s,sh)=>s+COMPONENTS.reduce((s2,c)=>s2+sh.comp[c].length,0),0);
+document.getElementById('sideTotalItems').textContent = TOTAL_ITEMS;
+
+/* ======================================================================
+   STATE  (borrador guardado en localStorage — ver "Guardado automático" en INIT)
+   ====================================================================== */
+const FAMILY_ROLES = [
+  {key:'padre', label:'Padre'},
+  {key:'madre', label:'Madre'},
+  {key:'responsable', label:'Responsable'}
+];
+const CIE10_MAP = {
+  'F84.0':'Autismo infantil', 'F84.1':'Autismo atípico', 'F84.5':'Síndrome de Asperger',
+  'F84.8':'Otros trastornos generalizados del desarrollo', 'F84.9':'Trastorno generalizado del desarrollo, no especificado',
+  'F90.0':'Trastorno de la actividad y de la atención (TDAH)', 'F90.1':'Trastorno hipercinético disocial',
+  'F82':'Trastorno específico del desarrollo psicomotor', 'F82.0':'Trastorno del desarrollo de la coordinación (dispraxia)',
+  'F98.4':'Trastorno de movimientos estereotipados', 'F98.8':'Otros trastornos del comportamiento y de las emociones de comienzo habitual en la infancia',
+  'F89':'Trastorno del desarrollo psicológico, no especificado',
+  'F98.2':'Trastorno de la conducta alimentaria de la infancia',
+  'R27':'Otras anomalías de la coordinación', 'R27.8':'Otras anomalías especificadas de la coordinación y no especificadas',
+  'R62.0':'Retraso del desarrollo', 'R41.8':'Otros síntomas y signos relativos a las funciones cognitivas y a la conciencia',
+  'Z00.4':'Examen físico general (sin patología identificada)'
+};
+const state = {
+  childName:'', birthDate:'', evalDate:'',
+  tipoId:'', numeroId:'',
+  escolaridad:'', colegio:'', eps:'',
+  evaluator:{ name:'', savedCard:'', signatureImg:null, sealImg:null },
+  reasons: REASONS.map(()=>false),
+  motivoTxt:'',
+  antecedentesTxt:'',
+  cie10Code:'', cie10Diag:'',
+  familiares: FAMILY_ROLES.reduce((acc,r)=>{ acc[r.key] = {enabled:false, nombre:'', cedula:'', signatureImg:null}; return acc; }, {}),
+  activeSheetKey:'general',
+  answers:{},
+  compNotes:{},
+  conclusiones:'',
+  recs: DEFAULT_RECS.map(()=>true),
+  customRecs: [],
+  iaResponse:'',
+};
+
+/* ======================================================================
+   HELPERS
+   ====================================================================== */
+function monthsBetween(birth, ref){
+  if(!birth) return null;
+  const b = new Date(birth+'T00:00:00');
+  const r = ref ? new Date(ref+'T00:00:00') : new Date();
+  if(isNaN(b)) return null;
+  let months = (r.getFullYear()-b.getFullYear())*12 + (r.getMonth()-b.getMonth());
+  if(r.getDate() < b.getDate()) months -= 1;
+  return Math.max(0, months);
+}
+function ageLabel(months){
+  if(months==null) return '—';
+  const y = Math.floor(months/12), m = months%12;
+  return `${y} años, ${m} meses`;
+}
+function sheetForMonths(months){
+  if(months==null) return AGE_SHEETS[0];
+  return AGE_SHEETS.find(s=>months>=s.minM && months<s.maxM) || AGE_SHEETS[AGE_SHEETS.length-1];
+}
+function pct(done,total){ return total? Math.round(done/total*100) : 0; }
+function initials(name){
+  if(!name) return '—';
+  const p = name.trim().split(/\s+/);
+  return ((p[0]?.[0]||'')+(p[1]?.[0]||'')).toUpperCase();
+}
+function qualText(p, total){
+  if(total===0) return {label:'⚪ Área no evaluada (todos sus ítems se marcaron como no aplica)', cls:'gray'};
+  if(p>=70) return {label:'🔴 Se identifican múltiples hallazgos en esta área; se sugiere profundizar en la evaluación e intervención de integración sensorial', cls:'red'};
+  if(p>=30) return {label:'🟡 Se identifican hallazgos relevantes en esta área a tener en cuenta en el plan de intervención', cls:'amber'};
+  if(p>0) return {label:'🟡 Se identifican hallazgos aislados en esta área', cls:'amber'};
+  return {label:'🟢 No se identificaron hallazgos relevantes en esta área durante la valoración', cls:'green'};
+}
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function fmtDate(iso){
+  if(!iso) return '—';
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+/* ======================================================================
+   NAV
+   ====================================================================== */
+const views = ['portada','evaluacion','resumen','informe'];
+const titles = {portada:['Portada','· Expediente del niño/a'], evaluacion:['Evaluación','· Lista de chequeo por edad'], resumen:['Resumen','· Tableros y gráficas'], informe:['Informe','· Documento para entregar']};
+function goto(view){
+  views.forEach(v=>{ document.getElementById('view-'+v).hidden = (v!==view); });
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active', el.dataset.view===view));
+  document.getElementById('topTitle').textContent = titles[view][0];
+  document.getElementById('topCrumb').textContent = titles[view][1];
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('overlay').hidden = true;
+  if(view==='resumen') renderResumen();
+  if(view==='informe') renderInforme();
+  if(view==='evaluacion') renderChecklist();
+}
+document.querySelectorAll('.nav-item[data-view]').forEach(el=> el.addEventListener('click', ()=>goto(el.dataset.view)) );
+document.getElementById('menuBtn').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.add('open'); document.getElementById('overlay').hidden = false; });
+document.getElementById('overlay').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('overlay').hidden = true; });
+
+/* ======================================================================
+   PORTADA
+   ====================================================================== */
+function renderAgeChips(){
+  const months = monthsBetween(state.birthDate, state.evalDate);
+  const matchKey = sheetForMonths(months).key;
+  [ ['ageChips', false], ['ageChipsEval', true] ].forEach(([id, clickable])=>{
+    const box = document.getElementById(id);
+    box.innerHTML = '';
+    AGE_SHEETS.forEach(s=>{
+      const c = document.createElement('div');
+      c.className = 'chip' + (s.key===state.activeSheetKey?' on':'') + (s.key===matchKey?' match':'');
+      c.textContent = s.label + (s.key===matchKey ? ' •' : '');
+      if(clickable){
+        c.style.cursor='pointer';
+        c.addEventListener('click', ()=>{ state.activeSheetKey = s.key; renderAgeChips(); renderChecklist(); });
+      }
+      box.appendChild(c);
+    });
+  });
+}
+function updateAgeOutput(){
+  const months = monthsBetween(state.birthDate, state.evalDate);
+  document.getElementById('ageOut').value = ageLabel(months);
+  renderAgeChips();
+  updateNavBadge();
+}
+document.getElementById('childName').addEventListener('input', e=>{ state.childName = e.target.value; });
+document.getElementById('birthDate').addEventListener('change', e=>{ state.birthDate = e.target.value; updateAgeOutput(); });
+document.getElementById('evalDate').addEventListener('change', e=>{ state.evalDate = e.target.value; updateAgeOutput(); });
+document.getElementById('motivoTxt').addEventListener('input', e=>{ state.motivoTxt = e.target.value; });
+document.getElementById('escolaridad').addEventListener('input', e=>{ state.escolaridad = e.target.value; });
+document.getElementById('colegio').addEventListener('input', e=>{ state.colegio = e.target.value; });
+document.getElementById('eps').addEventListener('input', e=>{ state.eps = e.target.value; });
+document.getElementById('tipoId').addEventListener('change', e=>{ state.tipoId = e.target.value; });
+document.getElementById('numeroId').addEventListener('input', e=>{ state.numeroId = e.target.value; });
+document.getElementById('antecedentesTxt').addEventListener('input', e=>{ state.antecedentesTxt = e.target.value; });
+document.getElementById('cie10Code').addEventListener('input', e=>{
+  const code = e.target.value.toUpperCase().trim();
+  state.cie10Code = e.target.value;
+  const diagField = document.getElementById('cie10Diag');
+  const found = CIE10_MAP[code] || CIE10_MAP[code.split('.')[0]];
+  if(found){ diagField.value = found; state.cie10Diag = found; diagField.dataset.auto = '1'; }
+  else if(diagField.dataset.auto === '1'){ diagField.value = ''; state.cie10Diag = ''; diagField.dataset.auto = ''; }
+});
+document.getElementById('cie10Diag').addEventListener('input', e=>{ state.cie10Diag = e.target.value; e.target.dataset.auto = ''; });
+
+/* ---- Padre / madre / responsable: campos + firma manuscrita por cada uno ---- */
+function famPos(canvas, e){
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+  const t = e.touches && e.touches[0] ? e.touches[0] : e;
+  return { x:(t.clientX-rect.left)*scaleX, y:(t.clientY-rect.top)*scaleY };
+}
+function renderFamilyBox(){
+  const box = document.getElementById('familyBox');
+  box.innerHTML = '';
+  FAMILY_ROLES.forEach(role=>{
+    const rec = state.familiares[role.key];
+    const wrap = document.createElement('div');
+    wrap.style.borderBottom = '1px solid var(--border)';
+    wrap.style.padding = '12px 4px';
+    wrap.innerHTML = `
+      <div class="reason-row" style="border-bottom:none; padding:0;">
+        <span><b>${role.label}</b> — vendrá a firmar el informe</span>
+        <div class="switch${rec.enabled?' on':''}" data-role="${role.key}" data-act="toggle"><i></i></div>
+      </div>
+      <div class="fam-fields" data-role="${role.key}" style="display:${rec.enabled?'grid':'none'}; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px;">
+        <label class="field"><span class="lbl">Nombre completo</span><input class="input" data-role="${role.key}" data-field="nombre" value="${esc(rec.nombre)}" placeholder="Ej. Juan Pérez"/></label>
+        <label class="field"><span class="lbl">Cédula</span><input class="input" data-role="${role.key}" data-field="cedula" value="${esc(rec.cedula)}" placeholder="Ej. 1.020.304.050"/></label>
+        <div style="grid-column:1/-1;">
+          <span class="lbl" style="display:block; margin-bottom:8px;">Firma manuscrita</span>
+          <canvas data-role="${role.key}" data-sig="1" width="380" height="110" style="width:100%; max-width:380px; height:100px; border:1.5px dashed var(--border); border-radius:10px; background:#fff; touch-action:none; cursor:crosshair; display:block;"></canvas>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn ghost" type="button" data-role="${role.key}" data-act="clearSig">🧹 Limpiar</button>
+            <button class="btn primary" type="button" data-role="${role.key}" data-act="saveSig">✍️ Guardar firma</button>
+            <span class="badge green" data-role="${role.key}" data-tag="sigSaved" style="display:${rec.signatureImg?'inline-flex':'none'}; align-self:center;"><span class="dot"></span>Firma guardada</span>
+          </div>
+        </div>
+      </div>`;
+    box.appendChild(wrap);
+  });
+
+  // Wire toggles
+  box.querySelectorAll('[data-act="toggle"]').forEach(sw=>{
+    sw.addEventListener('click', ()=>{
+      const key = sw.dataset.role;
+      state.familiares[key].enabled = !state.familiares[key].enabled;
+      renderFamilyBox();
+    });
+  });
+  // Wire nombre/cedula inputs
+  box.querySelectorAll('input[data-field]').forEach(inp=>{
+    inp.addEventListener('input', ()=>{ state.familiares[inp.dataset.role][inp.dataset.field] = inp.value; });
+  });
+  // Wire each canvas signature pad
+  box.querySelectorAll('canvas[data-sig]').forEach(canvas=>{
+    const key = canvas.dataset.role;
+    const ctx = canvas.getContext('2d');
+    let drawing = false, hasStroke = false;
+    const rec = state.familiares[key];
+    if(rec.signatureImg){
+      const img = new Image();
+      img.onload = ()=>{ ctx.drawImage(img,0,0,canvas.width,canvas.height); hasStroke = true; };
+      img.src = rec.signatureImg;
+    }
+    function start(e){ e.preventDefault(); drawing = true; hasStroke = true; const p = famPos(canvas,e); ctx.beginPath(); ctx.moveTo(p.x,p.y); }
+    function move(e){ if(!drawing) return; e.preventDefault(); const p = famPos(canvas,e); ctx.lineTo(p.x,p.y); ctx.stroke(); }
+    function end(){ drawing = false; }
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    canvas.addEventListener('touchstart', start, {passive:false});
+    canvas.addEventListener('touchmove', move, {passive:false});
+    canvas.addEventListener('touchend', end);
+    const clearBtn = box.querySelector(`[data-act="clearSig"][data-role="${key}"]`);
+    const saveBtn = box.querySelector(`[data-act="saveSig"][data-role="${key}"]`);
+    const tag = box.querySelector(`[data-tag="sigSaved"][data-role="${key}"]`);
+    clearBtn.addEventListener('click', ()=>{ ctx.clearRect(0,0,canvas.width,canvas.height); hasStroke = false; state.familiares[key].signatureImg = null; tag.style.display = 'none'; });
+    saveBtn.addEventListener('click', ()=>{
+      if(!hasStroke){ alert('Dibuja la firma en el recuadro antes de guardar.'); return; }
+      state.familiares[key].signatureImg = canvas.toDataURL('image/png');
+      tag.style.display = 'inline-flex';
+      setTimeout(()=>{ tag.style.display = 'none'; }, 2200);
+    });
+  });
+}
+
+const evalName = document.getElementById('evalName');
+evalName.addEventListener('input', e=>{
+  state.evaluator.name = e.target.value;
+  document.getElementById('evalNameChip').textContent = state.evaluator.name || 'Sin evaluador';
+  document.getElementById('evalAvatar').textContent = state.evaluator.name ? initials(state.evaluator.name) : '—';
+});
+function updateEvaluatorFields(){
+  // No hay listado de terapeutas: el nombre y la tarjeta se escriben
+  // manualmente. La tarjeta solo queda guardada — y solo aparece en el
+  // Informe — si el evaluador escribe el número y hace clic en "Guardar
+  // tarjeta" (ver evalCardSaveBtn).
+  evalName.value = state.evaluator.name || '';
+  document.getElementById('evalCard').value = state.evaluator.savedCard || '';
+  document.getElementById('evalCardSavedTag').style.display = state.evaluator.savedCard ? 'inline-flex' : 'none';
+  document.getElementById('evalNameChip').textContent = state.evaluator.name || 'Sin evaluador';
+  document.getElementById('evalAvatar').textContent = state.evaluator.name ? initials(state.evaluator.name) : '—';
+  renderSealPreview();
+  loadSignatureForEvaluator();
+}
+document.getElementById('evalCardSaveBtn').addEventListener('click', ()=>{
+  if(!state.evaluator.name.trim()){ alert('Escribe primero el nombre del evaluador(a).'); return; }
+  const val = document.getElementById('evalCard').value.trim();
+  const tag = document.getElementById('evalCardSavedTag');
+  if(val){
+    state.evaluator.savedCard = val;
+    tag.style.display = 'inline-flex';
+  } else {
+    state.evaluator.savedCard = '';
+    tag.style.display = 'none';
+  }
+});
+/* ---- Firma manuscrita (canvas, mouse + táctil) ---- */
+const sigCanvas = document.getElementById('sigPad');
+const sigCtx = sigCanvas.getContext('2d');
+let sigDrawing = false, sigHasStroke = false;
+sigCtx.lineWidth = 2.4; sigCtx.lineCap = 'round'; sigCtx.lineJoin = 'round'; sigCtx.strokeStyle = '#16324A';
+function sigPos(e){
+  const rect = sigCanvas.getBoundingClientRect();
+  const scaleX = sigCanvas.width / rect.width, scaleY = sigCanvas.height / rect.height;
+  const p = e.touches ? e.touches[0] : e;
+  return { x:(p.clientX-rect.left)*scaleX, y:(p.clientY-rect.top)*scaleY };
+}
+function sigStart(e){
+  e.preventDefault(); sigDrawing = true; sigHasStroke = true;
+  const pos = sigPos(e); sigCtx.beginPath(); sigCtx.moveTo(pos.x,pos.y);
+}
+function sigMove(e){
+  if(!sigDrawing) return; e.preventDefault();
+  const pos = sigPos(e); sigCtx.lineTo(pos.x,pos.y); sigCtx.stroke();
+}
+function sigEnd(){ sigDrawing = false; }
+sigCanvas.addEventListener('mousedown', sigStart);
+sigCanvas.addEventListener('mousemove', sigMove);
+window.addEventListener('mouseup', sigEnd);
+sigCanvas.addEventListener('touchstart', sigStart, {passive:false});
+sigCanvas.addEventListener('touchmove', sigMove, {passive:false});
+sigCanvas.addEventListener('touchend', sigEnd);
+function sigClearCanvas(){ sigCtx.clearRect(0,0,sigCanvas.width,sigCanvas.height); sigHasStroke = false; }
+document.getElementById('sigClearBtn').addEventListener('click', ()=>{
+  sigClearCanvas();
+  state.evaluator.signatureImg = null;
+  document.getElementById('sigSavedTag').style.display = 'none';
+});
+document.getElementById('sigSaveBtn').addEventListener('click', ()=>{
+  if(!sigHasStroke){ alert('Dibuja la firma en el recuadro antes de guardar.'); return; }
+  state.evaluator.signatureImg = sigCanvas.toDataURL('image/png');
+  const tag = document.getElementById('sigSavedTag');
+  tag.style.display = 'inline-flex';
+  setTimeout(()=>{ tag.style.display='none'; }, 2200);
+});
+function loadSignatureForEvaluator(){
+  sigClearCanvas();
+  if(state.evaluator.signatureImg){
+    const img = new Image();
+    img.onload = ()=>{ sigCtx.drawImage(img,0,0,sigCanvas.width,sigCanvas.height); sigHasStroke = true; };
+    img.src = state.evaluator.signatureImg;
+  }
+}
+
+function renderSealPreview(){
+  const img = document.getElementById('sealPreviewImg');
+  const empty = document.getElementById('sealPreviewEmpty');
+  const removeBtn = document.getElementById('sealRemoveBtn');
+  const has = state.evaluator.sealImg;
+  if(has){
+    img.src = state.evaluator.sealImg; img.hidden = false; empty.hidden = true; removeBtn.style.display='inline-flex';
+  } else {
+    img.hidden = true; empty.hidden = false; removeBtn.style.display='none';
+  }
+}
+document.getElementById('sealUploadInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    state.evaluator.sealImg = reader.result;
+    renderSealPreview();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+document.getElementById('sealRemoveBtn').addEventListener('click', ()=>{
+  state.evaluator.sealImg = null; renderSealPreview();
+});
+
+function renderReasons(){
+  const box = document.getElementById('reasonsList');
+  if(!box) return; // En IS el motivo se marca en el componente "Motivo de consulta"
+  box.innerHTML = '';
+  REASONS.forEach((r,i)=>{
+    const row = document.createElement('div');
+    row.className = 'reason-row';
+    row.innerHTML = `<span>${r}</span>`;
+    const sw = document.createElement('div');
+    sw.className = 'switch' + (state.reasons[i] ? ' on' : '');
+    sw.innerHTML = '<i></i>';
+    sw.addEventListener('click', ()=>{ state.reasons[i] = !state.reasons[i]; sw.classList.toggle('on', state.reasons[i]); });
+    row.appendChild(sw);
+    box.appendChild(row);
+  });
+}
+
+/* ======================================================================
+   EVALUACIÓN (checklist)
+   ====================================================================== */
+function checkSvg(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'; }
+function renderChecklist(){
+  const sheet = AGE_SHEETS.find(s=>s.key===state.activeSheetKey);
+  const months = monthsBetween(state.birthDate, state.evalDate);
+  const matchKey = sheetForMonths(months).key;
+  document.getElementById('checklistTitle').textContent = 'Ítems — ' + sheet.label;
+  document.getElementById('checklistSub').textContent = months!=null ? ('Edad actual: '+ageLabel(months)) : 'Registra la fecha de nacimiento en Portada';
+  document.getElementById('stMatch').innerHTML = sheet.key===matchKey ? '<span class="badge blue"><span class="dot"></span>Sí</span>' : '<span class="badge gray"><span class="dot"></span>No</span>';
+
+  const body = document.getElementById('checklistBody');
+  body.innerHTML = '';
+  let total=0, done=0, naTot=0;
+  COMPONENTS.forEach(c=>{
+    const items = sheet.comp[c];
+    if(!items.length) return;
+    let compTotal=0, compDone=0, compNa=0;
+    items.forEach(it=>{ const v=state.answers[it.id]; if(v==='na'){ compNa++; return; } compTotal++; if(v===true) compDone++; });
+    total += compTotal; done += compDone; naTot += compNa;
+    const block = document.createElement('div');
+    block.className = 'component-block';
+    block.innerHTML = `<div class="component-title"><h4>${c}</h4><span class="pct">${compDone}/${compTotal} · ${pct(compDone,compTotal)}%${compNa?(' · '+compNa+' N/A'):''}</span></div>`;
+    /* Marcar / desmarcar todos los ítems del área (los N/A no se tocan) */
+    {
+      const tools = document.createElement('div');
+      tools.className = 'comp-tools no-print';
+      tools.innerHTML = '<button type="button" class="mini-btn">✓ Marcar todos</button><button type="button" class="mini-btn">✕ Desmarcar todos</button>';
+      const [allBtn, noneBtn] = tools.querySelectorAll('button');
+      allBtn.setAttribute('aria-label', 'Marcar todos los ítems de ' + c);
+      noneBtn.setAttribute('aria-label', 'Desmarcar todos los ítems de ' + c);
+      const rerender = (btn)=>{
+        const lbl = btn.getAttribute('aria-label');
+        renderChecklist();
+        const again = Array.from(document.querySelectorAll('.mini-btn')).find(b=>b.getAttribute('aria-label')===lbl);
+        if(again) again.focus();
+      };
+      allBtn.addEventListener('click', ()=>{
+        items.forEach(it=>{ if(state.answers[it.id] !== 'na') state.answers[it.id] = true; });
+        rerender(allBtn);
+      });
+      noneBtn.addEventListener('click', ()=>{
+        const marcados = items.filter(it=>state.answers[it.id] === true).length;
+        if(!marcados) return;
+        if(!confirm('¿Desmarcar los ' + marcados + ' ítems marcados de ' + c + '?')) return;
+        items.forEach(it=>{ if(state.answers[it.id] === true) state.answers[it.id] = false; });
+        rerender(noneBtn);
+      });
+      block.querySelector('.component-title').appendChild(tools);
+    }
+    const list = document.createElement('div');
+    items.forEach(it=>{
+      const row = document.createElement('div');
+      const v = state.answers[it.id];
+      const isNa = v==='na';
+      row.className = 'item-row' + (isNa?' is-na':'');
+      const checked = v===true;
+      row.innerHTML = `<div class="check ${checked?'checked':''}" data-id="${it.id}">${checkSvg()}</div><div class="item-text">${it.text}</div><div class="na-btn${isNa?' on':''}" data-id="${it.id}" title="Marcar como no aplica / no evaluado (se recomienda una edad menor)">N/A</div>`;
+      row.querySelector('.check').addEventListener('click', (e)=>{
+        const id = e.currentTarget.dataset.id;
+        state.answers[id] = state.answers[id]===true ? false : true;
+        renderChecklist();
+      });
+      row.querySelector('.na-btn').addEventListener('click', (e)=>{
+        const id = e.currentTarget.dataset.id;
+        state.answers[id] = state.answers[id]==='na' ? false : 'na';
+        renderChecklist();
+      });
+      list.appendChild(row);
+    });
+    block.appendChild(list);
+    const notesKey = sheet.key+'::'+c;
+    const notesWrap = document.createElement('label');
+    notesWrap.className = 'field comp-notes';
+    notesWrap.innerHTML = `<span class="lbl">Observaciones de ${c} (matices que el checklist no captura)</span><textarea class="input"></textarea>`;
+    const ta = notesWrap.querySelector('textarea');
+    ta.value = state.compNotes[notesKey] || '';
+    ta.addEventListener('input', e=>{ state.compNotes[notesKey] = e.target.value; });
+    block.appendChild(notesWrap);
+    body.appendChild(block);
+  });
+
+  const p = pct(done,total);
+  document.getElementById('stTotal').textContent = total;
+  document.getElementById('stDone').textContent = done;
+  document.getElementById('stPct').textContent = p+'%';
+  document.getElementById('stPending').textContent = total-done;
+  document.getElementById('stNa').textContent = naTot;
+  document.getElementById('mainBar').style.width = p+'%';
+  updateNavBadge();
+}
+function updateNavBadge(){
+  const sheet = AGE_SHEETS.find(s=>s.key===state.activeSheetKey);
+  let total=0, done=0;
+  COMPONENTS.forEach(c=>{ sheet.comp[c].forEach(it=>{ const v=state.answers[it.id]; if(v==='na') return; total++; if(v===true) done++; }); });
+  document.getElementById('navBadge').textContent = pct(done,total)+'%';
+}
+
+/* ======================================================================
+   AGGREGATES (shared by Resumen + Informe)
+   ====================================================================== */
+function sheetAgg(sheet){
+  let total=0, done=0;
+  COMPONENTS.forEach(c=>{ sheet.comp[c].forEach(it=>{ const v=state.answers[it.id]; if(v==='na') return; total++; if(v===true) done++; }); });
+  return {total, done, pct: pct(done,total)};
+}
+function componentAgg(c){
+  let total=0, done=0;
+  AGE_SHEETS.forEach(sheet=>{ sheet.comp[c].forEach(it=>{ const v=state.answers[it.id]; if(v==='na') return; total++; if(v===true) done++; }); });
+  return {total, done, pct: pct(done,total)};
+}
+function activeSheet(){ return AGE_SHEETS.find(s=>s.key===state.activeSheetKey); }
+function achievedTextsFor(sheet, c){
+  return sheet.comp[c].filter(it=>state.answers[it.id]===true).map(it=>it.text.trim().replace(/[.;]+$/,'').trim()).join('; ');
+}
+function compAggForSheet(sheet, c){
+  let total=0, done=0, na=0;
+  sheet.comp[c].forEach(it=>{ const v=state.answers[it.id]; if(v==='na'){ na++; return; } total++; if(v===true) done++; });
+  return {total, done, na, pct: pct(done,total)};
+}
+
+/* ======================================================================
+   CHARTS (inline SVG, no external chart lib)
+   ====================================================================== */
+/* Las gráficas se dibujan al ancho real que tienen en pantalla, así el texto
+   se lee igual en computador, tablet o celular. Si no cabe una columna por
+   barra, se usa la versión horizontal (una fila por barra). */
+function barChart(svgEl, labels, values, color, vw, vh){
+  const real = Math.round(svgEl.getBoundingClientRect().width);
+  if(real && real/labels.length < 100) return hBarChart(svgEl, labels, values, color, real);
+  const W=real||vw||420, H=vh||220, padL=34, padB=52, padT=16, padR=10;
+  const innerW = W-padL-padR, innerH = H-padT-padB;
+  const n = labels.length, gap = Math.min(24, Math.max(10, innerW/n*0.25));
+  const barW = Math.min(90, (innerW - gap*(n-1)) / n);
+  const offset = (innerW - (barW*n + gap*(n-1))) / 2;
+  let s = '';
+  for(let g=0; g<=4; g++){
+    const y = padT + innerH - (g/4)*innerH;
+    s += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
+    s += `<text x="${padL-6}" y="${y+4}" font-size="11" text-anchor="end" fill="var(--text-faint)">${g*25}%</text>`;
+  }
+  values.forEach((v,i)=>{
+    const x = padL + offset + i*(barW+gap);
+    const h = (v/100)*innerH;
+    const y = padT+innerH-h;
+    s += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="5" fill="${color}"/>`;
+    s += `<text x="${x+barW/2}" y="${y-6}" font-size="12" font-weight="700" text-anchor="middle" fill="var(--text)">${v}%</text>`;
+    // Etiqueta en dos renglones si tiene varias palabras (ej. "Juego / social")
+    const words = String(labels[i]).split(' ');
+    const l1 = words.length>1 ? words[0] : labels[i], l2 = words.length>1 ? words.slice(1).join(' ') : '';
+    s += `<text x="${x+barW/2}" y="${H-padB+17}" font-size="11" text-anchor="middle" fill="var(--text-dim)">${esc(l1)}</text>`;
+    if(l2) s += `<text x="${x+barW/2}" y="${H-padB+31}" font-size="11" text-anchor="middle" fill="var(--text-dim)">${esc(l2)}</text>`;
+  });
+  svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgEl.innerHTML = s;
+}
+function hBarChart(svgEl, labels, values, color, W){
+  const rowH = 30, padT = 4;
+  const labelW = Math.min(170, Math.round(W*0.42)), padR = 44;
+  const barMax = Math.max(20, W - labelW - padR);
+  const H = padT*2 + rowH*labels.length;
+  const track = svgEl.closest('.informe-sheet') ? '#EEF1F3' : 'var(--gray-bg)';
+  let s = '';
+  labels.forEach((lab,i)=>{
+    const y = padT + i*rowH;
+    const w = Math.max(0, (values[i]/100)*barMax);
+    s += `<text x="${labelW-8}" y="${y+rowH/2+4}" font-size="12" text-anchor="end" fill="var(--text-dim)">${esc(lab)}</text>`;
+    s += `<rect x="${labelW}" y="${y+7}" width="${barMax}" height="${rowH-14}" rx="5" fill="${track}"/>`;
+    s += `<rect x="${labelW}" y="${y+7}" width="${w}" height="${rowH-14}" rx="5" fill="${color}"/>`;
+    s += `<text x="${labelW+w+6}" y="${y+rowH/2+4}" font-size="12" font-weight="700" fill="var(--text)">${values[i]}%</text>`;
+  });
+  svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgEl.innerHTML = s;
+}
+/* Al girar el celular o cambiar el tamaño de la ventana, se vuelven a dibujar. */
+let lastW = window.innerWidth, resizeTimer = null;
+window.addEventListener('resize', ()=>{
+  if(window.innerWidth === lastW) return; // en celular, la barra del navegador cambia solo el alto
+  lastW = window.innerWidth;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(()=>{
+    if(!document.getElementById('view-resumen').hidden) renderResumen();
+    if(!document.getElementById('view-informe').hidden) renderInforme();
+  }, 200);
+});
+function pieChart(svgEl, done, pending){
+  const total = done+pending || 1;
+  const cx=110, cy=110, r=90;
+  const doneAngle = (done/total)*360;
+  function arc(startAngle, endAngle, color){
+    if(endAngle-startAngle<=0) return '';
+    const large = (endAngle-startAngle)>180?1:0;
+    const sx = cx + r*Math.cos(Math.PI*(startAngle-90)/180);
+    const sy = cy + r*Math.sin(Math.PI*(startAngle-90)/180);
+    const ex = cx + r*Math.cos(Math.PI*(endAngle-90)/180);
+    const ey = cy + r*Math.sin(Math.PI*(endAngle-90)/180);
+    return `<path d="M${cx},${cy} L${sx},${sy} A${r},${r} 0 ${large} 1 ${ex},${ey} Z" fill="${color}"/>`;
+  }
+  let s = arc(0, doneAngle, 'var(--cyan-500)') + arc(doneAngle,360,'var(--gray)');
+  s += `<circle cx="${cx}" cy="${cy}" r="52" fill="var(--surface)"/>`;
+  s += `<text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="20" font-weight="800" fill="var(--text)">${Math.round(done/total*100)}%</text>`;
+  s += `<text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">marcado</text>`;
+  svgEl.setAttribute('viewBox','0 0 220 220');
+  svgEl.innerHTML = s;
+}
+
+/* ======================================================================
+   RESUMEN
+   ====================================================================== */
+function renderResumenDatos(){
+  const months = monthsBetween(state.birthDate, state.evalDate);
+  const box = document.getElementById('resumenDatos');
+  box.innerHTML = `
+    <label class="field"><span class="lbl">Nombre</span><input class="input" readonly value="${esc(state.childName||'—')}"/></label>
+    <label class="field"><span class="lbl">Edad actual</span><input class="input" readonly value="${ageLabel(months)}"/></label>
+    <label class="field"><span class="lbl">Evaluador(a)</span><input class="input" readonly value="${esc(state.evaluator.name||'—')}"/></label>
+    <label class="field"><span class="lbl">Fecha de valoración</span><input class="input" readonly value="${fmtDate(state.evalDate)}"/></label>`;
+}
+function renderTableAge(){
+  const rows = AGE_SHEETS.map(s=>{
+    const a = sheetAgg(s);
+    return `<tr><td><a class="rowlink" data-sheet="${s.key}">${s.label}</a></td><td>${a.total}</td><td>${a.done}</td><td><div class="mini-bar"><i style="width:${a.pct}%"></i><span>${a.pct}%</span></div></td></tr>`;
+  }).join('');
+  let totT=0, totD=0;
+  AGE_SHEETS.forEach(s=>{ const a=sheetAgg(s); totT+=a.total; totD+=a.done; });
+  const totalPct = pct(totD,totT);
+  const html = `<thead><tr><th>Rango de edad</th><th>Ítems</th><th>Marcados</th><th>% Marcado</th></tr></thead>
+    <tbody>${rows}<tr class="total"><td>TOTAL GENERAL</td><td>${totT}</td><td>${totD}</td><td><div class="mini-bar"><i style="width:${totalPct}%"></i><span>${totalPct}%</span></div></td></tr></tbody>`;
+  document.getElementById('tableAge').innerHTML = html;
+  document.querySelectorAll('#tableAge .rowlink').forEach(a=>{
+    a.addEventListener('click', ()=>{ state.activeSheetKey = a.dataset.sheet; goto('evaluacion'); });
+  });
+}
+function renderTableComp(){
+  const rows = COMPONENTS.map(c=>{
+    const a = componentAgg(c);
+    return `<tr><td>${c}</td><td>${a.total}</td><td>${a.done}</td><td><div class="mini-bar"><i style="width:${a.pct}%"></i><span>${a.pct}%</span></div></td></tr>`;
+  }).join('');
+  document.getElementById('tableComp').innerHTML = `<thead><tr><th>Componente</th><th>Ítems</th><th>Marcados</th><th>% Marcado</th></tr></thead><tbody>${rows}</tbody>`;
+}
+function renderQual(targetId){
+  const sheet = activeSheet();
+  const box = document.getElementById(targetId);
+  box.innerHTML = '';
+  COMPONENTS.forEach(c=>{
+    const items = sheet.comp[c];
+    if(!items.length) return;
+    if(c===MOTIVO_COMP && targetId!=='qualBody') return; // en el Informe ya va en "Motivo de consulta"
+    const agg = compAggForSheet(sheet, c);
+    const p = agg.pct;
+    const q = qualText(p, agg.total);
+    const achieved = achievedTextsFor(sheet, c);
+    const notes = (state.compNotes[sheet.key+'::'+c] || '').trim();
+    const row = document.createElement('div');
+    row.className = targetId==='qualBody' ? 'qual-row' : 'informe-line';
+    if(targetId==='qualBody'){
+      row.innerHTML = `<div class="name">${c}</div><div class="txt"><b>${q.label}.</b> ${achieved?('Hallazgos: '+achieved+'.'):''}${agg.na?(' <i>('+agg.na+' ítem(s) marcados como no aplica/no evaluado.)</i>'):''}${notes?(' <i>Observaciones: '+esc(notes)+'.</i>'):''}</div>`;
+    } else {
+      row.innerHTML = `<b>${c}:</b> ${q.label}.${achieved?(' Hallazgos: '+achieved+'.'):''}${notes?(' Observaciones: '+esc(notes)+'.'):''}`;
+    }
+    box.appendChild(row);
+  });
+}
+function renderResumen(){
+  renderResumenDatos();
+  renderTableComp();
+  const compVals = COMPONENTS.map(c=>componentAgg(c).pct);
+  barChart(document.getElementById('chartComp'), COMPONENTS, compVals, 'var(--navy-700)', 900, 220);
+  let total=0, done=0;
+  AGE_SHEETS.forEach(s=>{ const r=sheetAgg(s); total+=r.total; done+=r.done; });
+  pieChart(document.getElementById('chartPie'), done, total-done);
+  renderQual('qualBody');
+}
+
+/* ======================================================================
+   INFORME
+   ====================================================================== */
+function renderRecsSelect(){
+  const box = document.getElementById('recsSelectList');
+  box.innerHTML = '';
+  DEFAULT_RECS.forEach((r,i)=>{
+    const row = document.createElement('div');
+    row.className = 'reason-row';
+    row.innerHTML = `<span>${r}</span>`;
+    const sw = document.createElement('div');
+    sw.className = 'switch' + (state.recs[i] ? ' on' : '');
+    sw.innerHTML = '<i></i>';
+    sw.addEventListener('click', ()=>{ state.recs[i] = !state.recs[i]; sw.classList.toggle('on', state.recs[i]); renderRecs(); });
+    row.appendChild(sw);
+    box.appendChild(row);
+  });
+}
+function renderRecs(){
+  const box = document.getElementById('recsBody');
+  box.innerHTML = '';
+  DEFAULT_RECS.forEach((r,i)=>{
+    if(!state.recs[i]) return;
+    const row = document.createElement('div');
+    row.className = 'informe-line';
+    row.textContent = '• ' + r;
+    box.appendChild(row);
+  });
+  (state.customRecs || []).forEach(r=>{
+    if(!r.trim()) return;
+    const row = document.createElement('div');
+    row.className = 'informe-line';
+    row.textContent = '• ' + r.trim();
+    box.appendChild(row);
+  });
+}
+/* ---- Recomendaciones propias de cada niño/a ---- */
+function renderCustomRecs(){
+  const box = document.getElementById('customRecsList');
+  box.innerHTML = '';
+  state.customRecs.forEach((r,i)=>{
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    row.style.cssText = 'flex-wrap:nowrap; margin-bottom:6px;';
+    const inp = document.createElement('input');
+    inp.className = 'input'; inp.value = r;
+    inp.setAttribute('aria-label', 'Recomendación propia ' + (i+1));
+    inp.addEventListener('input', ()=>{ state.customRecs[i] = inp.value; renderRecs(); });
+    const del = document.createElement('button');
+    del.className = 'btn ghost'; del.type = 'button'; del.textContent = '🗑️';
+    del.title = 'Quitar esta recomendación'; del.setAttribute('aria-label', 'Quitar recomendación ' + (i+1));
+    del.style.flex = '0 0 auto';
+    del.addEventListener('click', ()=>{ state.customRecs.splice(i,1); renderCustomRecs(); renderRecs(); });
+    row.appendChild(inp); row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+function addCustomRec(){
+  const inp = document.getElementById('customRecInput');
+  const txt = inp.value.trim();
+  if(!txt){ inp.focus(); return; }
+  state.customRecs.push(txt);
+  inp.value = '';
+  renderCustomRecs(); renderRecs();
+  inp.focus();
+}
+document.getElementById('customRecAddBtn').addEventListener('click', addCustomRec);
+document.getElementById('customRecInput').addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); addCustomRec(); } });
+/* El motivo de consulta sale de lo marcado en el componente "Motivo de consulta"
+   de la lista de chequeo, más los detalles escritos en Portada. */
+const MOTIVO_COMP = 'Motivo de consulta';
+function motivoText(emptyTxt){
+  const marked = activeSheet().comp[MOTIVO_COMP].filter(it=>state.answers[it.id]===true).map(it=>it.text);
+  let motivo = marked.length ? ('Motivos señalados: ' + marked.join('; ') + '. ') : '';
+  motivo += state.motivoTxt || (marked.length ? '' : emptyTxt);
+  return motivo;
+}
+function buildIaPrompt(){
+  const months = monthsBetween(state.birthDate, state.evalDate);
+  const motivo = motivoText('No especificado.');
+  const sheet = activeSheet();
+  const lines = COMPONENTS.map(c=>{
+    const items = sheet.comp[c];
+    if(!items.length || c===MOTIVO_COMP) return null;
+    const agg = compAggForSheet(sheet, c);
+    const q = qualText(agg.pct, agg.total);
+    const notes = (state.compNotes[sheet.key+'::'+c] || '').trim();
+    return `- ${c}: ${q.label}.${notes?(' Observaciones: '+notes+'.'):''}`;
+  }).filter(Boolean);
+  return `Actúa como terapeuta ocupacional especializado en integración sensorial infantil. Con base en los siguientes datos de una valoración del procesamiento sensorial, redacta ÚNICAMENTE estas 2 secciones, en lenguaje técnico profesional propio de la integración sensorial (marco de Ayres).
+
+Usa de forma consistente terminología propia de integración sensorial, en especial los conceptos de MODULACIÓN SENSORIAL (hiperrespuesta/defensividad sensorial, hiporrespuesta/bajo registro, o búsqueda sensorial ante estímulos táctiles, vestibulares o propioceptivos), DISCRIMINACIÓN SENSORIAL, PRAXIS (ideación, planificación motora y ejecución), AUTORREGULACIÓN y PARTICIPACIÓN en el juego, las actividades de la vida diaria (AVD) y los entornos escolar y social. Combínalos con otros términos propios de la disciplina como umbral sensorial, sistemas táctil/vestibular/propioceptivo, dispraxia y conducta adaptativa.
+
+1. Interpretación clínica
+2. Conclusión
+
+Reglas importantes:
+- NO escribas una sección de "Datos generales", "Motivo de consulta", "Resultados por área" ni "Recomendaciones": esa información ya aparece en otra parte del informe impreso y no debe repetirse.
+- NO repitas al inicio el nombre, edad, fechas ni evaluador(a) del niño/a; ve directo a las 2 secciones pedidas.
+- Usa como encabezado de cada sección solo su número y nombre (ej: "1. Interpretación clínica"), sin viñetas decorativas.
+- No inventes datos que no te doy. Usa el motivo de consulta y los resultados por área que te doy abajo únicamente como contexto para fundamentar tu interpretación y conclusión, sin transcribirlos ni resumirlos como secciones propias.
+
+DATOS DE REFERENCIA (contexto para tu análisis, no los repitas tal cual ni los conviertas en secciones):
+EDAD: ${ageLabel(months)}. FECHA DE VALORACIÓN: ${fmtDate(state.evalDate)}
+
+MOTIVO DE CONSULTA (marcado en el formulario): ${motivo}
+
+RESULTADOS POR ÁREA (marcados en el formulario):
+${lines.join('\n')}`;
+}
+function renderIaText(){
+  const wrap = document.getElementById('il-iawrap');
+  const box = document.getElementById('il-iatext');
+  const txt = (state.iaResponse || '').trim();
+  // Don't overwrite the box while the user is actively editing it in place
+  // (avoids kicking the cursor around); it's already showing their edits.
+  if(document.activeElement !== box){
+    box.textContent = txt;
+  }
+  wrap.style.display = txt ? '' : 'none';
+}
+// Editing the report text directly inside the printable sheet: keep it in
+// sync with state and with the plain textarea below, so both stay correct
+// whichever one the person used last.
+document.getElementById('il-iatext').addEventListener('input', e=>{
+  state.iaResponse = e.target.textContent;
+  const out = document.getElementById('iaResponse');
+  if(out) out.value = state.iaResponse;
+});
+function renderInforme(){
+  actualizarAvisoFaltantes();
+  document.getElementById('il-name').textContent = 'Nombres y apellidos: ' + (state.childName || '—');
+  document.getElementById('il-birth').textContent = 'Fecha de nacimiento: ' + fmtDate(state.birthDate);
+  const months = monthsBetween(state.birthDate, state.evalDate);
+  document.getElementById('il-age').textContent = 'Edad actual: ' + ageLabel(months);
+  document.getElementById('il-eval').textContent = 'Evaluador(a): ' + (state.evaluator.name || '—');
+  document.getElementById('il-date').textContent = 'Fecha de valoración: ' + fmtDate(state.evalDate);
+  const identTxt = (state.tipoId || state.numeroId) ? ([state.tipoId, state.numeroId].filter(Boolean).join(' ')) : '—';
+  document.getElementById('il-ident').textContent = 'Identificación: ' + identTxt;
+  document.getElementById('il-escolaridad').textContent = 'Grado escolar: ' + (state.escolaridad || '—');
+  document.getElementById('il-colegio').textContent = 'Colegio / institución educativa: ' + (state.colegio || '—');
+  document.getElementById('il-eps').textContent = 'EPS: ' + (state.eps || '—');
+
+  document.getElementById('il-motivo').textContent = motivoText('No se registraron motivos.');
+
+  const anteWrap = document.getElementById('il-antecedentesWrap');
+  if((state.antecedentesTxt||'').trim()){ anteWrap.style.display = ''; document.getElementById('il-antecedentes').textContent = state.antecedentesTxt; }
+  else { anteWrap.style.display = 'none'; }
+
+  const cieWrap = document.getElementById('il-cieWrap');
+  if((state.cie10Code||'').trim() || (state.cie10Diag||'').trim()){
+    cieWrap.style.display = '';
+    const code = (state.cie10Code||'—').trim() || '—';
+    const diag = (state.cie10Diag||'').trim();
+    document.getElementById('il-cie').textContent = 'CIE-10: ' + code + (diag ? ' — ' + diag : '');
+  } else { cieWrap.style.display = 'none'; }
+
+  renderQual('il-qual');
+
+  const compVals = COMPONENTS.map(c=>componentAgg(c).pct);
+  barChart(document.getElementById('il-chartComp'), COMPONENTS, compVals, 'var(--navy-700)', 900, 220);
+
+  renderRecs();
+
+  document.getElementById('il-signname').textContent = state.evaluator.name ? (state.evaluator.name+' — Terapeuta Ocupacional') : 'Firma del evaluador(a)';
+  document.getElementById('il-signcard').textContent = state.evaluator.savedCard ? ('Tarjeta profesional: '+state.evaluator.savedCard) : '';
+  const sigBox = document.getElementById('il-signatureimg');
+  const sigLine = document.getElementById('il-signline');
+  if(state.evaluator.signatureImg){
+    sigBox.innerHTML = `<img src="${esc(state.evaluator.signatureImg)}" style="max-height:58px; max-width:280px; object-fit:contain;">`;
+    sigLine.style.marginTop = '4px';
+  } else {
+    sigBox.innerHTML = '';
+    sigLine.style.marginTop = '46px';
+  }
+  const sealBox = document.getElementById('il-sealimg');
+  sealBox.innerHTML = state.evaluator.sealImg
+    ? `<img src="${esc(state.evaluator.sealImg)}" style="max-height:70px; max-width:200px; object-fit:contain;">`
+    : '';
+
+  const famWrap = document.getElementById('il-familywrap');
+  const famBox = document.getElementById('il-familysigns');
+  const activeFam = FAMILY_ROLES.filter(r=>state.familiares[r.key].enabled);
+  if(activeFam.length){
+    famWrap.style.display = '';
+    famBox.innerHTML = activeFam.map(role=>{
+      const rec = state.familiares[role.key];
+      const sigImg = rec.signatureImg ? `<img src="${esc(rec.signatureImg)}" style="max-height:50px; max-width:200px; object-fit:contain;">` : '';
+      return `<div style="width:220px; text-align:center;">
+        <div style="min-height:54px; display:flex; align-items:flex-end; justify-content:center;">${sigImg}</div>
+        <div style="width:200px; border-top:1.5px solid #16324A; margin:${sigImg?'4px':'40px'} auto 8px;"></div>
+        <div style="font-weight:800; font-size:12.5px; color:#16324A;">${esc(rec.nombre||role.label)} — ${role.label}</div>
+        <div style="font-size:11px; color:#8CA0AF;">${rec.cedula ? 'C.C. '+esc(rec.cedula) : ''}</div>
+      </div>`;
+    }).join('');
+  } else {
+    famWrap.style.display = 'none';
+    famBox.innerHTML = '';
+  }
+
+  document.getElementById('iaPrompt').textContent = buildIaPrompt();
+  renderIaText();
+}
+document.getElementById('iaResponse').addEventListener('input', e=>{ state.iaResponse = e.target.value; renderIaText(); });
+/* Antes de imprimir o guardar el PDF: revisa que no falten los datos básicos
+   (si no, el informe sale con "—") y que las fechas tengan sentido. */
+function hoyISO(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function datosFaltantes(){
+  const falta = [], revisar = [];
+  const evalField = document.getElementById('evalSearch') ? 'evalSearch' : 'evalName';
+  if(!(state.childName || '').trim()) falta.push(['nombre del niño/a', 'childName']);
+  if(!state.birthDate) falta.push(['fecha de nacimiento', 'birthDate']);
+  if(!state.evalDate) falta.push(['fecha de valoración', 'evalDate']);
+  if(!(state.evaluator && (state.evaluator.name || '').trim())) falta.push(['evaluador(a)', evalField]);
+  if(state.birthDate && state.birthDate > hoyISO()) revisar.push(['la fecha de nacimiento está en el futuro', 'birthDate']);
+  if(state.birthDate && state.evalDate && state.evalDate < state.birthDate) revisar.push(['la fecha de valoración es anterior a la de nacimiento', 'evalDate']);
+  return { falta, revisar };
+}
+function textoFaltantes(r){
+  const partes = [];
+  if(r.falta.length) partes.push('Falta: ' + r.falta.map(x=>x[0]).join(', ') + '.');
+  if(r.revisar.length) partes.push('Revisa: ' + r.revisar.map(x=>x[0]).join('; ') + '.');
+  return partes.join(' ');
+}
+function actualizarAvisoFaltantes(){
+  const note = document.getElementById('faltanNote');
+  if(!note) return;
+  const txt = textoFaltantes(datosFaltantes());
+  note.style.display = txt ? '' : 'none';
+  note.textContent = txt ? '⚠️ ' + txt + ' Complétalo en Portada antes de entregar el informe.' : '';
+}
+function revisarAntesDeImprimir(){
+  const r = datosFaltantes();
+  if(r.falta.length || r.revisar.length){
+    const msg = textoFaltantes(r).split('. ').join('.\n') +
+      (r.falta.length ? '\n\nEn el informe esos datos saldrán con "—".' : '') +
+      '\n\nAceptar = continuar de todas formas\nCancelar = ir a completarlos';
+    if(!confirm(msg)){
+      goto('portada');
+      const el = document.getElementById((r.falta[0] || r.revisar[0])[1]);
+      if(el){ el.scrollIntoView({ block:'center' }); el.focus(); }
+      return false;
+    }
+  }
+  return (typeof confirmarAreasVacias === 'function') ? confirmarAreasVacias() : true;
+}
+document.getElementById('printBtn').addEventListener('click', ()=>{ if(revisarAntesDeImprimir()) window.print(); });
+
+/* El botón "Generar informe con IA" solo funciona dentro de Claude. Si el
+   archivo se abre directamente en el navegador, se oculta y queda la opción
+   de "Copiar texto para la IA". */
+function iaDisponible(){ return !!(window.claude && typeof window.claude.use === 'function'); }
+function syncIaBtn(){ document.getElementById('genIaBtn').style.display = iaDisponible() ? '' : 'none'; }
+syncIaBtn(); setTimeout(syncIaBtn, 1000); setTimeout(syncIaBtn, 3000);
+/* ---- IA real, conectada (capability "sample" del entorno de artefactos) ---- */
+let sampleFn = null;
+function wait(ms){ return new Promise(res=>setTimeout(res,ms)); }
+async function getSample(){
+  // Never permanently cache a "not available" result: window.claude can attach
+  // a little after page load, so retry a few times with short waits before
+  // giving up, instead of failing forever after one early check.
+  if(sampleFn) return sampleFn;
+  for(let attempt=0; attempt<4; attempt++){
+    try{
+      if(window.claude && typeof window.claude.use === 'function'){
+        const r = await window.claude.use('sample');
+        if(r){ sampleFn = r; return sampleFn; }
+      }
+    }catch(err){ /* keep retrying */ }
+    await wait(500 + attempt*500);
+  }
+  return null;
+}
+function setIaStatus(msg, kind){
+  const note = document.getElementById('iaStatusNote');
+  if(!msg){ note.style.display='none'; return; }
+  note.style.display='block'; note.textContent = msg;
+  note.style.borderColor = kind==='error' ? 'var(--red)' : 'var(--border)';
+  note.style.color = kind==='error' ? 'var(--red)' : 'var(--text-faint)';
+}
+document.getElementById('genIaBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('genIaBtn');
+  const out = document.getElementById('iaResponse');
+  btn.disabled = true; const preOriginal = btn.textContent; btn.textContent = '⏳ Conectando…';
+  const sample = await getSample();
+  if(!sample){
+    btn.disabled = false; btn.textContent = preOriginal;
+    const reason = (window.claude && typeof window.claude.use === 'function')
+      ? 'La IA no respondió en esta sesión (puede que no hayas dado el permiso, o que esta vista no lo soporte).'
+      : 'Esta página no está corriendo dentro del entorno de Claude que habilita la IA en vivo (por ejemplo, si se abrió como archivo suelto o en una pestaña sin ese soporte).';
+    setIaStatus(reason + ' Mientras tanto usa "Copiar texto para la IA" y pégalo en tu IA de preferencia.', 'error');
+    return;
+  }
+  btn.textContent = preOriginal;
+  const prompt = buildIaPrompt();
+  btn.disabled = true; const original = btn.textContent; btn.textContent = '⏳ Redactando…';
+  setIaStatus('Generando el informe con IA…');
+  out.value = '';
+  try{
+    const result = await sample(prompt, {
+      modelTier: 'default',
+      onText: ({text}) => { out.value = text; out.scrollTop = out.scrollHeight; state.iaResponse = text; renderIaText(); }
+    });
+    out.value = result.text; state.iaResponse = result.text; renderIaText();
+    setIaStatus(result.truncated ? 'Listo (respuesta recortada por longitud).' : 'Informe generado ✅');
+    btn.textContent = '✅ Generado';
+  }catch(err){
+    const code = err && err.code;
+    if(code==='not_granted') setIaStatus('No diste permiso para usar la IA en esta sesión. Puedes usar "Copiar texto para la IA" en su lugar.', 'error');
+    else if(code==='rate_limited') setIaStatus('Demasiadas solicitudes por ahora — espera un momento e intenta de nuevo.', 'error');
+    else setIaStatus('No se pudo generar el informe. Intenta de nuevo o usa "Copiar texto para la IA".', 'error');
+    if(err && err.text){ out.value = err.text; state.iaResponse = err.text; renderIaText(); }
+  }finally{
+    setTimeout(()=>{ btn.disabled=false; btn.textContent = original; }, 1400);
+  }
+});
+
+document.getElementById('copyIaBtn').addEventListener('click', async ()=>{
+  const txt = document.getElementById('iaPrompt').textContent;
+  const btn = document.getElementById('copyIaBtn');
+  try{
+    await navigator.clipboard.writeText(txt);
+    const old = btn.textContent; btn.textContent = '✅ Copiado';
+    setTimeout(()=>{ btn.textContent = old; }, 1600);
+  }catch(err){
+    const ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    btn.textContent = '✅ Copiado';
+  }
+});
+
+function librariesReady(){
+  return typeof html2canvas === 'function' && window.jspdf && typeof window.jspdf.jsPDF === 'function';
+}
+function fallbackToPrint(reason){
+  alert((reason ? reason+'\n\n' : '') +
+    'Vamos a abrir el cuadro de impresión de tu navegador en su lugar.\n' +
+    'Ahí, en "Destino" elige "Guardar como PDF" y pulsa Guardar.');
+  window.print();
+}
+let downloadsCap = null, downloadsChecked = false;
+async function getDownloads(){
+  if(downloadsChecked) return downloadsCap;
+  downloadsChecked = true;
+  try{
+    if(window.claude && typeof window.claude.use === 'function'){
+      downloadsCap = await window.claude.use('downloads');
+    }
+  }catch(err){ downloadsCap = null; }
+  return downloadsCap;
+}
+document.getElementById('pdfBtn').addEventListener('click', async ()=>{
+  if(!revisarAntesDeImprimir()) return;
+  const btn = document.getElementById('pdfBtn');
+  const original = btn.textContent;
+
+  if(!librariesReady()){
+    fallbackToPrint('No se pudieron cargar los componentes para generar el PDF automáticamente.');
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = '⏳ Generando PDF…';
+  try{
+    const target = document.getElementById('informeSheet');
+    const canvas = await html2canvas(target, { scale:2, backgroundColor:'#ffffff', useCORS:true });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p','mm','a4');
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    // Leave a real margin on every side, on every page, and cut each page
+    // from a non-overlapping slice of the source canvas — but instead of
+    // always cutting at the exact ideal height (which can land mid-line of
+    // text or mid-chart, cropping it top/bottom), search backwards from
+    // that ideal cut for a blank row (a real gap between paragraphs/rows)
+    // and cut there instead, so a line or a chart is never sliced in half:
+    // it moves whole to the top of the next page.
+    const marginX = 12, marginY = 16;
+    const imgW = pageW - marginX*2;
+    const usableH = pageH - marginY*2;
+    const pxPerMM = canvas.width / imgW;
+    const sliceHeightPx = Math.max(1, Math.floor(usableH * pxPerMM));
+    // Never cut a page through the middle of a row, a recommendation toggle,
+    // a chart or the signature block: measure exactly where those elements
+    // sit (in the live, on-screen layout, before rasterizing) and treat each
+    // one as a solid block a page break must jump over, moving the whole
+    // block to the next page instead of slicing it in half. A blank-pixel
+    // scan alone missed this for rows with a colored toggle switch, since
+    // the switch's own color filled what would otherwise be a blank gap.
+    const sheetRect = target.getBoundingClientRect();
+    const scale = canvas.width / sheetRect.width;
+    const atomSelectors = '.informe-line, .qual-row, .reason-row, .informe-charts, .sign-box, #il-familysigns > div';
+    const zones = Array.from(target.querySelectorAll(atomSelectors)).map(el=>{
+      const r = el.getBoundingClientRect();
+      return { top:(r.top - sheetRect.top) * scale, bottom:(r.bottom - sheetRect.top) * scale };
+    }).filter(z => z.bottom > z.top);
+    function findCut(sy, idealEnd){
+      if(idealEnd >= canvas.height) return canvas.height;
+      const minEnd = sy + Math.floor(sliceHeightPx*0.35);
+      let cut = idealEnd;
+      for(let pass=0; pass<6; pass++){
+        const hit = zones.find(z => cut > z.top && cut < z.bottom);
+        if(!hit) break;
+        cut = hit.top;
+      }
+      if(cut <= sy || cut < minEnd) cut = idealEnd; // a block taller than the search range: fall back rather than get stuck
+      return cut;
+    }
+    const sliceCanvas = document.createElement('canvas');
+    const sliceCtx = sliceCanvas.getContext('2d');
+    sliceCanvas.width = canvas.width;
+    let sy = 0, pageIndex = 0;
+    while(sy < canvas.height){
+      const idealEnd = Math.min(sy + sliceHeightPx, canvas.height);
+      const cutY = findCut(sy, idealEnd);
+      const sh = Math.max(1, cutY - sy);
+      sliceCanvas.height = sh;
+      sliceCtx.clearRect(0, 0, sliceCanvas.width, sh);
+      sliceCtx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+      const sliceData = sliceCanvas.toDataURL('image/png');
+      const sliceHmm = sh / pxPerMM;
+      if(pageIndex>0) pdf.addPage();
+      pdf.addImage(sliceData, 'PNG', marginX, marginY, imgW, sliceHmm);
+      sy = cutY;
+      pageIndex++;
+    }
+    const fname = 'Informe_' + (state.childName? state.childName.replace(/\s+/g,'_') : 'valoracion') + '.pdf';
+    const blob = pdf.output('blob');
+
+    // The published-artifact runtime blocks raw browser downloads (the page can
+    // never trigger a save on its own); the "downloads" capability is the
+    // sanctioned way to hand the viewer a generated file, with their confirmation.
+    const downloads = await getDownloads();
+    if(downloads){
+      try{
+        await downloads.save({ filename: fname, data: blob });
+        btn.textContent = '✅ PDF descargado';
+      }catch(derr){
+        const code = derr && derr.code;
+        if(code === 'declined'){ btn.textContent = original; }
+        else if(code === 'rate_limited'){ btn.textContent = '⏳ Intenta de nuevo en un momento'; }
+        else { fallbackToPrint('No se pudo entregar el PDF por esta vía.'); btn.textContent = original; }
+      }
+    } else {
+      // Not running inside the artifact runtime (e.g. opened as a local file) —
+      // a normal browser download works fine there.
+      const fallbackUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = fallbackUrl; a.download = fname; document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(fallbackUrl), 4000);
+      btn.textContent = '✅ PDF descargado';
+    }
+  }catch(err){
+    console.error(err);
+    btn.textContent = original; btn.disabled = false;
+    fallbackToPrint('Hubo un problema generando el PDF automáticamente.');
+    return;
+  }finally{
+    setTimeout(()=>{ btn.disabled=false; btn.textContent = original; }, 1800);
+  }
+});
+
+/* ======================================================================
+   INIT
+   ====================================================================== */
+/* ---- Guardado automático (localStorage) + Exportar / Importar (.json) ----
+   El borrador de la valoración en curso se guarda en este navegador con cada
+   cambio, así que recargar o cerrar la pestaña no borra nada. Exportar baja un
+   .json con el expediente completo del niño/a; Importar lo vuelve a abrir. */
+const FORM_ID = 'is', FORM_TITLE = 'Integración sensorial';
+const DRAFT_KEY = 'cisadde.borrador.' + FORM_ID;
+const STATE_DEFAULTS = JSON.parse(JSON.stringify(state));
+function mergeState(saved){
+  if(!saved || typeof saved !== 'object') return;
+  Object.keys(STATE_DEFAULTS).forEach(k=>{
+    if(!(k in saved)) return;
+    const def = STATE_DEFAULTS[k], val = saved[k];
+    if(k === 'customRecs'){
+      state.customRecs = Array.isArray(val) ? val.filter(x=>typeof x === 'string') : [];
+    } else if(Array.isArray(def)){
+      if(Array.isArray(val)) state[k] = def.map((d,i)=> i < val.length ? val[i] : d);
+    } else if(k === 'familiares'){
+      Object.keys(def).forEach(r=>{ state.familiares[r] = Object.assign({}, def[r], (val||{})[r]); });
+    } else if(k === 'evaluator'){
+      state.evaluator = (val && typeof val === 'object') ? Object.assign({}, def || {}, val) : (def === null ? null : Object.assign({}, def));
+    } else if(def !== null && typeof def === 'object'){
+      state[k] = (val && typeof val === 'object') ? val : def;
+    } else {
+      state[k] = val;
+    }
+  });
+}
+function fillSimpleFields(){
+  Object.keys(state).forEach(k=>{
+    if(typeof state[k] !== 'string') return;
+    const el = document.getElementById(k);
+    if(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !el.readOnly) el.value = state[k];
+  });
+  const sToggle = document.getElementById('sensoryToggle');
+  if(sToggle && 'sensoryEnabled' in state){
+    sToggle.classList.toggle('on', !!state.sensoryEnabled);
+    document.getElementById('sensoryCard').style.display = state.sensoryEnabled ? '' : 'none';
+  }
+  if(typeof evalSearch !== 'undefined') evalSearch.value = state.evaluator ? state.evaluator.name : '';
+}
+function packState(){
+  return { formato:FORM_ID, titulo:FORM_TITLE, version:1, guardado:new Date().toISOString(), state:state };
+}
+function readDraft(){
+  try{ const raw = localStorage.getItem(DRAFT_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+let lastSaved = '', saveTimer = null;
+function setSaveTag(txt, warn){
+  const t = document.getElementById('autosaveTag');
+  t.textContent = txt; t.style.color = warn ? '#FFB4AE' : '#8FB4CE';
+}
+function saveDraft(){
+  clearTimeout(saveTimer);
+  const json = JSON.stringify(state);
+  if(json === lastSaved) return;
+  try{
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(packState()));
+    lastSaved = json;
+    setSaveTag('✓ Guardado automáticamente · ' + new Date().toLocaleTimeString('es-CO',{hour:'2-digit', minute:'2-digit'}));
+  }catch(e){
+    setSaveTag('⚠ No se pudo guardar en este navegador (firmas o sello muy pesados). Usa "Exportar valoración".', true);
+  }
+}
+function queueSave(){ clearTimeout(saveTimer); saveTimer = setTimeout(saveDraft, 400); }
+
+const draft = readDraft();
+if(draft && draft.formato === FORM_ID && draft.state){
+  mergeState(draft.state);
+  lastSaved = JSON.stringify(state);
+  const when = draft.guardado ? new Date(draft.guardado) : null;
+  setTimeout(()=> setSaveTag('✓ Borrador recuperado' + (when ? ' (' + when.toLocaleString('es-CO',{day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) + ')' : '')), 0);
+}
+fillSimpleFields();
+
+['input','change','click','mouseup','touchend'].forEach(ev=> document.addEventListener(ev, queueSave, true));
+setInterval(saveDraft, 5000);
+window.addEventListener('pagehide', saveDraft);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') saveDraft(); });
+
+function slug(s){ return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,''); }
+document.getElementById('fileExportBtn').addEventListener('click', ()=>{
+  saveDraft();
+  const blob = new Blob([JSON.stringify(packState(), null, 1)], {type:'application/json'});
+  const fecha = state.evalDate || new Date().toISOString().slice(0,10);
+  const name = ['Valoracion', slug(FORM_TITLE), slug(state.childName) || 'sin_nombre', fecha].join('_') + '.json';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+});
+document.getElementById('fileImportBtn').addEventListener('click', ()=> document.getElementById('fileImportInput').click());
+document.getElementById('fileImportInput').addEventListener('change', e=>{
+  const file = e.target.files[0]; e.target.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    let data;
+    try{ data = JSON.parse(reader.result); }catch(err){ alert('El archivo no es una valoración válida (.json).'); return; }
+    if(!data || !data.state){ alert('El archivo no es una valoración válida.'); return; }
+    if(data.formato !== FORM_ID){
+      alert('Este archivo es de "' + (data.titulo || 'otro formato') + '". Ábrelo desde ese formato.'); return;
+    }
+    const nombre = data.state.childName || 'sin nombre';
+    if(!confirm('¿Abrir la valoración de ' + nombre + '?\nSe reemplazará lo que hay ahora en pantalla (exporta primero si lo necesitas).')) return;
+    try{
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+      location.reload();
+    }catch(err){
+      // Sin espacio en el navegador: se carga en pantalla directamente.
+      mergeState(data.state); fillSimpleFields();
+      renderReasons(); renderFamilyBox(); renderRecsSelect(); renderCustomRecs(); updateEvaluatorFields(); updateAgeOutput(); renderChecklist();
+      if(typeof renderSensory === 'function') renderSensory();
+      setSaveTag('⚠ Valoración abierta, pero es muy pesada para guardarse sola. Exporta antes de cerrar.', true);
+    }
+  };
+  reader.readAsText(file);
+});
+document.getElementById('fileNewBtn').addEventListener('click', ()=>{
+  if(!confirm('¿Empezar una valoración nueva?\nSe borrarán los datos del niño/a que hay ahora en pantalla. Si no la has exportado, cancela y usa "Exportar valoración" primero.\n(Se conserva el evaluador.)')) return;
+  const fresh = JSON.parse(JSON.stringify(STATE_DEFAULTS));
+  fresh.evaluator = state.evaluator;
+  clearTimeout(saveTimer);
+  try{
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ formato:FORM_ID, titulo:FORM_TITLE, version:1, guardado:new Date().toISOString(), state:fresh }));
+  }catch(err){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e2){} }
+  lastSaved = JSON.stringify(state); // evita que pagehide vuelva a guardar lo anterior
+  window.removeEventListener('pagehide', saveDraft);
+  location.reload();
+});
+
+/* Evaluador(a) que llega desde la portada (Inicio CISADDE.html) */
+(function(){
+  let n = '';
+  try{ n = (new URLSearchParams(location.search).get('evaluador') || '').trim(); }catch(e){}
+  if(n) state.evaluator.name = n;
+})();
+renderReasons();
+renderFamilyBox();
+renderRecsSelect();
+renderCustomRecs();
+updateEvaluatorFields();
+updateAgeOutput();
+renderChecklist();
+</script>
+<script>
+/* Accesibilidad: los interruptores, casillas, botones N/A, rangos de edad y el
+   menú se pueden usar con el teclado (Tab para moverse, Enter o Espacio para
+   activar, Escape para cerrar el menú). */
+(function(){
+  const SEL = '.switch, .check, .na-btn, #ageChipsEval .chip, .nav-item[data-view], a.rowlink, .combo-opt, label.btn';
+  function labelFor(el){
+    const row = el.parentElement;
+    if(!row) return '';
+    if(el.classList.contains('switch')){ const s = row.querySelector('span'); return s ? s.textContent.trim() : ''; }
+    const t = row.querySelector('.item-text');
+    if(el.classList.contains('check') && t) return t.textContent.trim();
+    if(el.classList.contains('na-btn') && t) return 'No aplica: ' + t.textContent.trim();
+    return '';
+  }
+  function decorate(el){
+    if(!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    const isSwitch = el.classList.contains('switch'), isCheck = el.classList.contains('check');
+    if(!el.hasAttribute('role')) el.setAttribute('role', isSwitch ? 'switch' : isCheck ? 'checkbox' : 'button');
+    if(isSwitch || isCheck) el.setAttribute('aria-checked', (el.classList.contains('on') || el.classList.contains('checked')) ? 'true' : 'false');
+    if(el.classList.contains('na-btn') || el.classList.contains('chip')) el.setAttribute('aria-pressed', el.classList.contains('on') ? 'true' : 'false');
+    if(!el.hasAttribute('aria-label')){ const l = labelFor(el); if(l) el.setAttribute('aria-label', l); }
+  }
+  function scan(root){
+    if(root.matches && root.matches(SEL)) decorate(root);
+    if(root.querySelectorAll) root.querySelectorAll(SEL).forEach(decorate);
+  }
+  scan(document);
+  new MutationObserver(muts=>muts.forEach(m=>{
+    if(m.type === 'attributes'){ if(m.target.matches && m.target.matches(SEL)) decorate(m.target); }
+    else m.addedNodes.forEach(n=>{ if(n.nodeType === 1) scan(n); });
+  })).observe(document.body, { subtree:true, childList:true, attributes:true, attributeFilter:['class'] });
+
+  document.addEventListener('keydown', e=>{
+    if(e.key === 'Escape'){
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('overlay').hidden = true;
+      const list = document.getElementById('evalList'); if(list) list.hidden = true;
+      return;
+    }
+    if(e.key !== 'Enter' && e.key !== ' ') return;
+    if(!e.target.matches || !e.target.matches(SEL)) return;
+    e.preventDefault();
+    // Muchas listas se vuelven a dibujar al hacer clic: se devuelve el foco
+    // al mismo control para no perder la posición.
+    const i = Array.from(document.querySelectorAll(SEL)).indexOf(e.target);
+    e.target.click();
+    if(!document.body.contains(e.target)){ scan(document); const again = document.querySelectorAll(SEL)[i]; if(again) again.focus(); }
+  });
+})();
+</script>
+<script>
+/* Botón de tema claro / oscuro */
+(function(){
+  const btn = document.getElementById('themeBtn');
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const isDark = ()=>{ const t = document.documentElement.getAttribute('data-theme'); return t ? t==='dark' : mq.matches; };
+  const paint = ()=>{ btn.querySelector('.theme-lbl').textContent = isDark() ? 'Modo claro' : 'Modo oscuro'; };
+  btn.addEventListener('click', ()=>{
+    const next = isDark() ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try{ localStorage.setItem('cisadde.tema', next); }catch(e){}
+    paint();
+  });
+  if(mq.addEventListener) mq.addEventListener('change', paint);
+  paint();
+})();
+</script>
+</body>
+</html>
