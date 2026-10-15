@@ -292,6 +292,29 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
 
 .informe-sheet svg text{ fill:#16324A !important; }
 .informe-sheet svg line{ stroke:#E7EEF3 !important; }
+/* ---- Protección de datos: aviso de exportar + borrar datos del equipo ---- */
+.export-pill{ display:none; align-items:center; gap:6px; cursor:pointer; border:1px solid #FFD27A; background:rgba(255,196,77,.18); color:#FFE3A6; padding:6px 12px; border-radius:999px; font:700 12px var(--font-body); white-space:nowrap; }
+.export-pill.show{ display:inline-flex; }
+.export-pill:hover{ background:rgba(255,196,77,.3); }
+.cz-modal{ position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(10,25,40,.55); }
+.cz-modal[hidden]{ display:none; }
+.cz-box{ width:100%; max-width:460px; max-height:calc(100vh - 32px); overflow:auto; background:var(--surface); color:var(--text); border-radius:18px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,.35); }
+.cz-box h3{ font-family:var(--font-display); font-size:18px; font-weight:800; margin-bottom:8px; }
+.cz-box p{ font-size:14px; line-height:1.55; color:var(--text-dim); margin-bottom:10px; }
+.cz-box label{ display:flex; gap:10px; align-items:flex-start; font-size:14px; line-height:1.45; padding:10px 0; cursor:pointer; }
+.cz-box input[type=checkbox]{ width:22px; height:22px; flex:0 0 auto; margin-top:1px; }
+.cz-actions{ display:flex; flex-direction:column; gap:10px; margin-top:14px; }
+.cz-actions button{ min-height:48px; border-radius:12px; font:700 15px var(--font-body); cursor:pointer; border:1.5px solid var(--border); background:var(--surface-alt); color:var(--text); padding:10px 14px; }
+.cz-actions .cz-primary{ background:var(--cyan-600); border-color:var(--cyan-600); color:#fff; }
+.cz-actions .cz-danger{ background:#D64545; border-color:#D64545; color:#fff; }
+/* Tablets y pantallas táctiles: botones más grandes para el dedo */
+@media (pointer:coarse){
+  .menu-btn{ width:44px; height:44px; }
+  .nav-item{ min-height:46px; }
+  .export-pill{ padding:10px 14px; font-size:13px; }
+  .theme-btn{ min-height:40px; }
+}
+@media (max-width:600px){ .export-pill .ep-lbl{ display:none; } }
 /* ---- Botón de tema claro / oscuro ---- */
 :root{ color-scheme:light; }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ color-scheme:dark; } }
@@ -364,6 +387,10 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         Nueva valoración
       </button>
+      <button class="nav-item" type="button" id="fileWipeBtn" style="width:100%; text-align:left;">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+        Borrar datos de este equipo
+      </button>
       <input type="file" id="fileImportInput" accept=".json,application/json" hidden>
       <div id="autosaveTag" style="padding:4px 12px 0; font-size:11px; color:#8FB4CE; line-height:1.5;">Guardado automático activado</div>
       <div class="nav-label">TOTAL BATERÍA</div>
@@ -381,7 +408,7 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
       </button>
       <h1 id="topTitle">Portada</h1>
       <span class="crumb" id="topCrumb">· Expediente del niño/a</span>
-      <div class="topbar-right"><button class="theme-btn" type="button" id="themeBtn" aria-label="Cambiar entre modo claro y oscuro"><svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="theme-lbl">Modo oscuro</span></button><span class="pill-inst">Centro de Desarrollo Infantil</span></div>
+      <div class="topbar-right"><button class="export-pill" type="button" id="exportPill" title="Esta valoración tiene cambios que aún no has exportado">⚠ <span class="ep-lbl">Sin exportar</span></button><button class="theme-btn" type="button" id="themeBtn" aria-label="Cambiar entre modo claro y oscuro"><svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="theme-lbl">Modo oscuro</span></button><span class="pill-inst">Centro de Desarrollo Infantil</span></div>
     </div>
 
     <!-- ===================== PORTADA ===================== -->
@@ -789,7 +816,7 @@ function goto(view){
   if(view==='informe') renderInforme();
   if(view==='evaluacion') renderChecklist();
 }
-document.querySelectorAll('.nav-item').forEach(el=> el.addEventListener('click', ()=>goto(el.dataset.view)) );
+document.querySelectorAll('.nav-item[data-view]').forEach(el=> el.addEventListener('click', ()=>goto(el.dataset.view)) );
 document.getElementById('menuBtn').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.add('open'); document.getElementById('overlay').hidden = false; });
 document.getElementById('overlay').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('overlay').hidden = true; });
 
@@ -1868,6 +1895,146 @@ renderChecklist();
   });
   if(mq.addEventListener) mq.addEventListener('change', paint);
   paint();
+})();
+</script>
+<div class="cz-modal" id="czModal" hidden role="dialog" aria-modal="true" aria-labelledby="czTitle">
+  <div class="cz-box">
+    <h3 id="czTitle"></h3>
+    <div id="czBody"></div>
+    <div class="cz-actions" id="czActions"></div>
+  </div>
+</div>
+<script>
+/* ---- Protección de datos (opción sencilla) ----
+   · Avisa cuando la valoración tiene cambios sin exportar (botón ⚠ arriba y
+     recordatorio después de descargar el PDF o imprimir).
+   · "Borrar datos de este equipo" quita el borrador (y, si se marca, las demás
+     valoraciones guardadas) para que el siguiente usuario no vea nada.
+   · En tablets, "Exportar valoración" abre el menú Compartir (Archivos, Drive,
+     WhatsApp…) y "Importar" deja escoger cualquier archivo. */
+(function(){
+  const EXP_KEY = 'cisadde.exportado.' + FORM_ID;
+  const tactil = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+  const pill = document.getElementById('exportPill');
+  const modal = document.getElementById('czModal');
+
+  function huella(){ const s = JSON.stringify(state); let h = 0; for(let i=0;i<s.length;i++){ h = (h*31 + s.charCodeAt(i))|0; } return s.length + ':' + h; }
+  function sinDatos(){
+    const a = Object.assign({}, state, {evaluator:null}), b = Object.assign({}, STATE_DEFAULTS, {evaluator:null});
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  function exportada(){ try{ return localStorage.getItem(EXP_KEY) === huella(); }catch(e){ return false; } }
+  function pendiente(){ return !sinDatos() && !exportada(); }
+  function marcarExportada(){ try{ localStorage.setItem(EXP_KEY, huella()); }catch(e){} pintar(); }
+  function pintar(){ pill.classList.toggle('show', pendiente()); }
+  let pt = null;
+  ['input','change','click','touchend'].forEach(ev=> document.addEventListener(ev, ()=>{ clearTimeout(pt); pt = setTimeout(pintar, 500); }, true));
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]); }
+  function nombreNino(){ return (state.childName||'').trim() || 'este niño/a'; }
+  function abrir(titulo, html, botones){
+    document.getElementById('czTitle').textContent = titulo;
+    document.getElementById('czBody').innerHTML = html;
+    const acts = document.getElementById('czActions'); acts.innerHTML = '';
+    botones.forEach(b=>{
+      const el = document.createElement('button'); el.type = 'button'; el.textContent = b.txt;
+      if(b.cls) el.className = b.cls;
+      el.addEventListener('click', ()=>{ if(b.cerrar !== false) cerrar(); if(b.fn) b.fn(); });
+      acts.appendChild(el);
+    });
+    modal.hidden = false;
+    const f = acts.querySelector('button'); if(f) f.focus();
+  }
+  function cerrar(){ modal.hidden = true; }
+  modal.addEventListener('click', e=>{ if(e.target === modal) cerrar(); });
+  document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && !modal.hidden) cerrar(); });
+
+  /* ---- Exportar: en tablets, menú Compartir; al terminar queda marcada ---- */
+  const expBtn = document.getElementById('fileExportBtn');
+  function nombreArchivo(){
+    const fecha = state.evalDate || new Date().toISOString().slice(0,10);
+    return ['Valoracion', slug(FORM_TITLE), slug(state.childName) || 'sin_nombre', fecha].join('_') + '.json';
+  }
+  expBtn.addEventListener('click', e=>{
+    if(!tactil || !navigator.share || !window.File) return; // computador: descarga normal
+    let file;
+    try{ file = new File([JSON.stringify(packState(), null, 1)], nombreArchivo(), {type:'application/json'}); }catch(err){ return; }
+    if(!navigator.canShare || !navigator.canShare({files:[file]})) return;
+    e.stopImmediatePropagation();
+    saveDraft();
+    navigator.share({ files:[file], title:'Valoración ' + FORM_TITLE + ' — ' + nombreNino() })
+      .then(marcarExportada)
+      .catch(err=>{
+        if(err && err.name === 'AbortError') return; // la persona cerró el menú
+        const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+        marcarExportada();
+      });
+  }, true);
+  expBtn.addEventListener('click', ()=> setTimeout(marcarExportada, 0)); // descarga normal
+  function exportarAhora(){ expBtn.click(); }
+  pill.addEventListener('click', ()=> abrir('Exportar valoración',
+    '<p>La valoración de <b>' + esc(nombreNino()) + '</b> tiene cambios que todavía no has exportado.</p><p>Por ahora solo está guardada en este navegador: si se borra el historial o cambias de equipo, se pierde. Exporta el archivo (.json) y guárdalo en tu carpeta o en Drive.</p>',
+    [{txt:'Exportar ahora', cls:'cz-primary', fn:exportarAhora}, {txt:'Más tarde'}]));
+
+  /* Lo que se abre con "Importar" ya está en un archivo: cuenta como exportado. */
+  const imp = document.getElementById('fileImportInput');
+  if(tactil) imp.removeAttribute('accept'); // algunas tablets no dejan escoger el .json si se filtra
+  const IMP_KEY = 'cisadde.importado.' + FORM_ID;
+  try{
+    const g = sessionStorage.getItem(IMP_KEY); sessionStorage.removeItem(IMP_KEY);
+    if(g && draft && draft.guardado === g) marcarExportada(); // el import se completó y recargó
+  }catch(e){}
+  imp.addEventListener('change', ()=>{
+    const file = imp.files && imp.files[0]; if(!file) return;
+    const r = new FileReader();
+    r.onload = ()=>{ try{ const d = JSON.parse(r.result); if(d && d.guardado) sessionStorage.setItem(IMP_KEY, d.guardado); }catch(e){} };
+    r.readAsText(file);
+  }, true);
+  pintar();
+
+  /* ---- Recordatorio después de descargar el PDF o imprimir ---- */
+  function recordar(){
+    if(!pendiente() || !modal.hidden) return;
+    abrir('¿Ya exportaste esta valoración?',
+      '<p>El PDF es el informe para la familia. Para poder volver a abrir o corregir la valoración de <b>' + esc(nombreNino()) + '</b> necesitas también el archivo de la valoración (.json).</p><p>Si este equipo o tablet lo usan otras personas, borra los datos cuando termines.</p>',
+      [{txt:'Exportar valoración', cls:'cz-primary', fn:exportarAhora},
+       {txt:'Borrar datos de este equipo', fn:borrar},
+       {txt:'Más tarde'}]);
+  }
+  ['pdfBtn','printBtn'].forEach(id=>{
+    const b = document.getElementById(id);
+    if(b) b.addEventListener('click', ()=> setTimeout(recordar, id === 'pdfBtn' ? 2500 : 800));
+  });
+
+  /* ---- Borrar datos de este equipo ---- */
+  function borrar(){
+    const aviso = pendiente()
+      ? '<p style="color:#D64545;"><b>⚠ Esta valoración tiene cambios sin exportar.</b> Si la borras ahora no se podrá recuperar.</p>'
+      : '<p>Si ya la exportaste, la puedes volver a abrir con "Importar valoración".</p>';
+    abrir('Borrar datos de este equipo',
+      aviso +
+      '<p>Se borra de este navegador la valoración de <b>' + esc(nombreNino()) + '</b>, incluidos el evaluador, la firma y el sello.</p>' +
+      '<label><input type="checkbox" id="czTodo"> También borrar las valoraciones guardadas de los otros formatos y el nombre recordado en Inicio.</label>',
+      [{txt:'Exportar primero', cls:'cz-primary', fn:exportarAhora},
+       {txt:'Sí, borrar', cls:'cz-danger', cerrar:false, fn:()=>{
+          const todo = document.getElementById('czTodo').checked;
+          lastSaved = JSON.stringify(state); clearTimeout(saveTimer); // que no se vuelva a guardar al recargar
+          window.removeEventListener('pagehide', saveDraft);
+          try{
+            if(todo){
+              Object.keys(localStorage).forEach(k=>{ if(/^cisadde\.(borrador|exportado)\./.test(k) || k === 'cisadde.nombre' || k === 'cisadde.prof') localStorage.removeItem(k); });
+            } else { localStorage.removeItem(DRAFT_KEY); localStorage.removeItem(EXP_KEY); }
+          }catch(e){}
+          location.replace(location.href.replace(/[?#].*$/, '')); // sin ?evaluador=
+       }},
+       {txt:'Cancelar'}]);
+  }
+  document.getElementById('fileWipeBtn').addEventListener('click', ()=>{
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').hidden = true;
+    borrar();
+  });
 })();
 </script>
 </body>
