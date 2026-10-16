@@ -103,7 +103,7 @@ button,input{font-family:inherit; font-size:inherit;}
 .go .arrow{ margin-left:auto; }
 
 /* ---------- Las valoraciones ---------- */
-.val-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:16px; margin-top:18px; }
+.val-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-top:18px; }
 .val{
   display:flex; flex-direction:column; gap:10px; padding:20px; border-radius:var(--radius-m);
   border:1px solid var(--border); background:var(--surface-alt); color:var(--text); text-decoration:none;
@@ -119,6 +119,7 @@ button,input{font-family:inherit; font-size:inherit;}
 .t-psi .ico{ background:var(--violet-bg); color:var(--violet); }
 .t-to .ico{ background:var(--green-bg); color:var(--green); }
 .t-is .ico{ background:var(--amber-bg); color:var(--amber); }
+.t-taller .ico{ background:var(--cyan-100); color:var(--cyan-600); }
 .t-fono .ico{ background:var(--rose-bg); color:var(--rose); }
 .t-fisio .ico{ background:var(--teal-bg); color:var(--teal); }
 
@@ -170,7 +171,7 @@ footer{ text-align:center; color:var(--text-faint); font-size:12px; padding:0 16
     <div>
       <small>CISADDE · Centro de Desarrollo Infantil</small>
       <h1>Valoraciones infantiles</h1>
-      <p>Psicología, terapia ocupacional, integración sensorial, fonoaudiología y fisioterapia en un solo lugar.</p>
+      <p>Psicología, terapia ocupacional, integración sensorial, taller, fonoaudiología y fisioterapia en un solo lugar.</p>
     </div>
   </div>
 </header>
@@ -196,7 +197,7 @@ footer{ text-align:center; color:var(--text-faint); font-size:12px; padding:0 16
         <span class="ico" style="background:var(--green-bg); color:var(--green);">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/></svg>
         </span>
-        <span><b>Terapeuta ocupacional</b><span>Terapia ocupacional e integración sensorial</span></span>
+        <span><b>Terapeuta ocupacional</b><span>Terapia ocupacional, integración sensorial y taller</span></span>
         <span class="check"></span>
       </button>
       <button class="prof" type="button" data-prof="fono" aria-pressed="false">
@@ -231,7 +232,7 @@ footer{ text-align:center; color:var(--text-faint); font-size:12px; padding:0 16
   <section class="card">
     <div class="card-head">
       <h2>Todas las valoraciones</h2>
-      <p>Acceso directo a los cinco formatos.</p>
+      <p>Acceso directo a los seis formatos.</p>
     </div>
     <div class="val-grid">
       <a class="val t-psi" href="Psicológica JRG.html">
@@ -252,6 +253,13 @@ footer{ text-align:center; color:var(--text-faint); font-size:12px; padding:0 16
         <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></span>
         <h3>Integración sensorial</h3>
         <p>Procesamiento sensorial, praxis y autorregulación de 0 a 10 años.</p>
+        <span class="tag">Terapia ocupacional</span>
+        <span class="open">Abrir formato →</span>
+      </a>
+      <a class="val t-taller" href="Valoración de Taller JRG.html">
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3z"/><path d="M6 6l3 3M4 4l2 2"/></svg></span>
+        <h3>Valoración de taller</h3>
+        <p>Independencia y funcionalidad en actividades de taller y de la vida diaria.</p>
         <span class="tag">Terapia ocupacional</span>
         <span class="open">Abrir formato →</span>
       </a>
@@ -311,7 +319,7 @@ window.CISADDE_PSICOLOGOS = [
   "JARED JARITHZA ANAYA MUÑOZ",
   "KATHERINE JULIO PEREZ",
   "MARIA MILAGRO DE LEON CASTRO",
-  "AURA KRISTHINA ECHAVES GRANADOS",
+  "AURA KRISTHINA CHAVES GRANADOS",
   "nuevo 1",
   "nuevo 2",
   "nuevo 3"
@@ -331,7 +339,8 @@ const PSI_THERAPISTS = window.CISADDE_PSICOLOGOS || []; // lista en terapeutas.j
 const FORMS = {
   psi: [{ file:'Psicológica JRG.html', title:'Valoración psicológica', sub:'Abrir formato' }],
   to:  [{ file:'Terapia Ocupacional JRG.html', title:'Terapia ocupacional', sub:'Abrir formato' },
-        { file:'Integración Sensorial JRG.html', title:'Integración sensorial', sub:'Abrir formato' }],
+        { file:'Integración Sensorial JRG.html', title:'Integración sensorial', sub:'Abrir formato' },
+        { file:'Valoración de Taller JRG.html', title:'Valoración de taller', sub:'Abrir formato' }],
   fono:[{ file:'Fonoaudiologia JRG.html', title:'Fonoaudiología', sub:'Abrir formato' }],
   fisio:[{ file:'Fisioterapia JRG.html', title:'Fisioterapia', sub:'Abrir formato' }]
 };
