@@ -201,7 +201,60 @@ a{ color:var(--cyan-600); }
     </div>
   </section>
 
-  <!-- 4. Historial -->
+  <!-- 4. Reportes del equipo -->
+  <section class="card locked" id="cardRep">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <h2 style="flex:1;">4. Reportes del equipo</h2>
+      <button class="btn ghost" id="repReload">Actualizar</button>
+    </div>
+    <p class="sub">Lo que el equipo envía con “Reportar un problema” desde Inicio o un formato.</p>
+    <div class="levels" style="margin-top:12px;" id="repFilter">
+      <button class="level" data-f="Abierto" aria-pressed="true">Pendientes</button>
+      <button class="level" data-f="" aria-pressed="false">Todos</button>
+    </div>
+    <div id="repMsg" class="msg"></div>
+    <div class="list" id="repList"></div>
+  </section>
+
+  <!-- 5. Estadísticas -->
+  <section class="card locked" id="cardStats">
+    <h2>5. Estadísticas de uso</h2>
+    <p class="sub">Valoraciones terminadas (se cuenta una vez, al descargar el PDF o imprimir el informe). No incluye datos de los niños.</p>
+    <div class="levels" style="margin-top:12px;" id="statRange">
+      <button class="level" data-d="30" aria-pressed="true">30 días</button>
+      <button class="level" data-d="90" aria-pressed="false">3 meses</button>
+      <button class="level" data-d="365" aria-pressed="false">12 meses</button>
+    </div>
+    <div id="statMsg" class="msg"></div>
+    <div id="statBody"></div>
+  </section>
+
+  <!-- 6. Configuración del buzón -->
+  <section class="card locked" id="cardBuzon">
+    <h2>6. Configuración del buzón</h2>
+    <p class="sub">Los reportes y el conteo llegan a una hoja de Google tuya. Se configura una sola vez.</p>
+    <div id="buzonEstado" class="status"><i></i><span>Sin configurar</span></div>
+    <span class="lbl">Dirección del buzón (termina en /exec)</span>
+    <input class="input" id="buzonUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+    <span class="lbl">Clave de lectura (la que pusiste en el código)</span>
+    <input class="input" id="buzonClave" type="password" autocomplete="off" placeholder="Solo se guarda en este dispositivo">
+    <button class="btn big" id="buzonSave">Guardar y probar</button>
+    <div id="buzonMsg" class="msg"></div>
+    <details>
+      <summary>¿Cómo creo el buzón? (una sola vez, mejor desde el computador)</summary>
+      <ol>
+        <li>Abre <a href="https://sheets.new" target="_blank" rel="noopener">sheets.new</a> con la cuenta de Google del centro y ponle de nombre <b>Buzón CISADDE</b>.</li>
+        <li>Menú <b>Extensiones → Apps Script</b>. Borra lo que aparece escrito.</li>
+        <li>Pulsa <button class="btn ghost" id="buzonCopy" style="padding:4px 10px;font-size:13px;">Copiar código del buzón</button> y pégalo allí.</li>
+        <li>En la línea <code>const CLAVE = 'CAMBIA-ESTA-CLAVE';</code> cambia el texto por una clave tuya (ej. <code>cisadde-2026-xyz</code>). Pulsa 💾 Guardar.</li>
+        <li><b>Implementar → Nueva implementación</b> → engranaje ⚙ → <b>Aplicación web</b>. Ejecutar como: <b>Yo</b>. Quién tiene acceso: <b>Cualquier usuario</b>. Pulsa <b>Implementar</b> y autoriza con tu cuenta (si dice “Google no verificó esta app”: Configuración avanzada → Ir a…).</li>
+        <li>Copia la <b>URL de la aplicación web</b> (termina en /exec), pégala arriba junto con tu clave y pulsa <b>Guardar y probar</b>.</li>
+      </ol>
+      <p class="note">Si después cambias el código en Apps Script, usa <b>Implementar → Gestionar implementaciones → ✏️ → Versión: Nueva</b> para que la dirección siga siendo la misma.</p>
+    </details>
+  </section>
+
+  <!-- Historial -->
   <section class="card locked" id="cardHist">
     <h2>Últimos cambios publicados</h2>
     <p class="sub">Para confirmar qué se subió y cuándo.</p>
@@ -485,8 +538,160 @@ async function loadHistory(){
   }catch(e){}
 }
 
+/* ---------------- Buzón: reportes y estadísticas ---------------- */
+const CONFIG_FILE = 'config.json', CLAVE_KEY = 'cisadde.panel.buzonClave';
+let buzonUrl = '', buzonClave = '', datos = null, repFiltro = 'Abierto', statDias = 30;
+const esc = s=>String(s == null ? '' : s).replace(/[&<>"']/g, c=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const fmtFecha = iso=>new Date(iso).toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' });
+
+function setBuzonEstado(on, text){ $('buzonEstado').className = 'status' + (on ? ' on' : ''); $('buzonEstado').querySelector('span').textContent = text; }
+async function buzonGet(){
+  const r = await fetch(buzonUrl + '?accion=datos&clave=' + encodeURIComponent(buzonClave) + '&t=' + Date.now(), { cache:'no-store' });
+  const j = await r.json();
+  if(!j.ok) throw Object.assign(new Error(j.error), { buzon: j.error });
+  return j;
+}
+function buzonError(e){
+  if(e.buzon === 'clave') return 'La clave de lectura no coincide con la del código del buzón.';
+  if(e instanceof TypeError || e instanceof SyntaxError) return 'No se pudo leer el buzón. Revisa la dirección (debe terminar en /exec) y que el acceso sea “Cualquier usuario”.';
+  return 'Error del buzón: ' + e.message;
+}
+async function loadBuzon(){
+  try{ buzonClave = localStorage.getItem(CLAVE_KEY) || ''; }catch(e){}
+  try{ buzonUrl = (JSON.parse(await getFile(CONFIG_FILE, BRANCH)).buzon || ''); }catch(e){ buzonUrl = ''; }
+  $('buzonUrl').value = buzonUrl; $('buzonClave').value = buzonClave;
+  if(!buzonUrl){ setBuzonEstado(false, 'Sin configurar'); pintarSinBuzon(); return; }
+  if(!buzonClave){ setBuzonEstado(false, 'Falta la clave en este dispositivo'); pintarSinBuzon('Escribe la clave de lectura en “Configuración del buzón”.'); return; }
+  await refrescarDatos();
+}
+function pintarSinBuzon(texto){
+  const t = texto || 'Primero configura el buzón (sección 6).';
+  $('repList').innerHTML = '<p class="empty">' + esc(t) + '</p>';
+  $('statBody').innerHTML = '<p class="empty">' + esc(t) + '</p>';
+}
+async function refrescarDatos(){
+  hide($('repMsg')); hide($('statMsg'));
+  $('repList').innerHTML = '<p class="empty">Cargando…</p>';
+  try{
+    datos = await buzonGet();
+    setBuzonEstado(true, 'Buzón conectado');
+    pintarReportes(); pintarStats();
+  }catch(e){
+    setBuzonEstado(false, 'Buzón con problemas');
+    pintarSinBuzon(buzonError(e));
+  }
+}
+function pintarReportes(){
+  const box = $('repList'); box.innerHTML = '';
+  const lista = datos.reportes.filter(r=>!repFiltro || r.estado === repFiltro);
+  const abiertos = datos.reportes.filter(r=>r.estado === 'Abierto').length;
+  $('repFilter').querySelector('[data-f="Abierto"]').textContent = 'Pendientes (' + abiertos + ')';
+  if(!lista.length){ box.innerHTML = '<p class="empty">' + (repFiltro ? 'No hay reportes pendientes. 🎉' : 'Todavía no hay reportes.') + '</p>'; return; }
+  lista.forEach(r=>{
+    const el = document.createElement('div');
+    el.className = 'item'; el.style.display = 'block'; el.style.padding = '12px';
+    if(r.estado === 'Abierto') el.style.borderColor = 'var(--amber)';
+    el.innerHTML = '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;"><b style="flex:1;">' + esc(r.formato || '—') + '</b><small style="color:var(--text-faint);">' + esc(fmtFecha(r.fecha)) + '</small></div>'
+      + '<div style="font-size:13px;color:var(--text-dim);">' + esc(r.nombre || 'Sin nombre') + (r.pagina ? ' · ' + esc(r.pagina) : '') + '</div>'
+      + '<p style="margin:8px 0;white-space:pre-line;">' + esc(r.texto) + '</p>'
+      + '<button class="btn ' + (r.estado === 'Abierto' ? '' : 'ghost') + '" style="padding:8px 12px;font-size:13px;">' + (r.estado === 'Abierto' ? '✓ Marcar resuelto' : 'Reabrir') + '</button>';
+    el.querySelector('button').addEventListener('click', async ev=>{
+      const b = ev.currentTarget; b.disabled = true; b.textContent = 'Guardando…';
+      try{
+        const nuevo = r.estado === 'Abierto' ? 'Resuelto' : 'Abierto';
+        const res = await fetch(buzonUrl, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify({ tipo:'estado', clave: buzonClave, id: r.id, estado: nuevo }) });
+        const j = await res.json();
+        if(!j.ok) throw Object.assign(new Error(j.error), { buzon: j.error });
+        r.estado = nuevo; pintarReportes();
+      }catch(e){ show($('repMsg'), buzonError(e), 'err'); b.disabled = false; }
+    });
+    box.appendChild(el);
+  });
+}
+function barras(titulo, pares){
+  if(!pares.length) return '';
+  const max = Math.max(...pares.map(p=>p[1]), 1);
+  return '<span class="lbl">' + esc(titulo) + '</span>' + pares.map(([k, v])=>
+    '<div style="display:flex;align-items:center;gap:8px;margin:5px 0;font-size:13px;">'
+    + '<span style="flex:0 0 38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(k) + '">' + esc(k) + '</span>'
+    + '<span style="flex:1;height:14px;background:var(--surface-alt);border-radius:7px;overflow:hidden;"><span style="display:block;height:100%;width:' + (v / max * 100) + '%;background:var(--cyan-500);border-radius:7px;"></span></span>'
+    + '<b style="flex:0 0 32px;text-align:right;">' + v + '</b></div>').join('');
+}
+function contarPor(lista, campo){
+  const m = {};
+  lista.forEach(u=>{ const k = (u[campo] || 'Sin nombre').toString().trim() || 'Sin nombre'; m[k] = (m[k] || 0) + 1; });
+  return Object.entries(m).sort((a, b)=>b[1] - a[1]);
+}
+function pintarStats(){
+  const desde = Date.now() - statDias * 864e5;
+  const lista = datos.uso.filter(u=>new Date(u.fecha).getTime() >= desde);
+  const semana = datos.uso.filter(u=>new Date(u.fecha).getTime() >= Date.now() - 7 * 864e5).length;
+  // Por semana (lunes a domingo), las últimas semanas del rango
+  const nSem = Math.min(Math.ceil(statDias / 7), 12), semanas = [];
+  const lunes = d=>{ const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+  const hoy = lunes(new Date());
+  for(let i = nSem - 1; i >= 0; i--){
+    const ini = new Date(hoy); ini.setDate(ini.getDate() - i * 7);
+    const fin = new Date(ini); fin.setDate(fin.getDate() + 7);
+    const n = datos.uso.filter(u=>{ const t = new Date(u.fecha); return t >= ini && t < fin; }).length;
+    semanas.push(['Semana del ' + ini.toLocaleDateString('es-CO', { day:'numeric', month:'short' }), n]);
+  }
+  $('statBody').innerHTML =
+    '<div class="levels" style="margin-top:14px;">'
+    + '<div class="level" style="cursor:default;text-align:center;"><div style="font-size:24px;font-family:var(--font-display);">' + lista.length + '</div><div style="font-size:12px;color:var(--text-dim);font-weight:600;">en el periodo</div></div>'
+    + '<div class="level" style="cursor:default;text-align:center;"><div style="font-size:24px;font-family:var(--font-display);">' + semana + '</div><div style="font-size:12px;color:var(--text-dim);font-weight:600;">últimos 7 días</div></div>'
+    + '</div>'
+    + (lista.length ? barras('Por semana', semanas) + barras('Por área', contarPor(lista, 'area')) + barras('Por formato', contarPor(lista, 'formato')) + barras('Por terapeuta', contarPor(lista, 'terapeuta').slice(0, 15))
+      : '<p class="empty">Todavía no hay valoraciones terminadas en este periodo.</p>');
+}
+document.querySelectorAll('#repFilter .level').forEach(b=>b.addEventListener('click', ()=>{
+  repFiltro = b.dataset.f;
+  document.querySelectorAll('#repFilter .level').forEach(x=>x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  if(datos) pintarReportes();
+}));
+document.querySelectorAll('#statRange .level').forEach(b=>b.addEventListener('click', ()=>{
+  statDias = +b.dataset.d;
+  document.querySelectorAll('#statRange .level').forEach(x=>x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  if(datos) pintarStats();
+}));
+$('repReload').addEventListener('click', ()=>{ if(buzonUrl && buzonClave) refrescarDatos(); });
+$('buzonSave').addEventListener('click', async ()=>{
+  const url = $('buzonUrl').value.trim(), clave = $('buzonClave').value.trim();
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)){ show($('buzonMsg'), 'La dirección debe ser la de la aplicación web y terminar en /exec.', 'warn'); return; }
+  if(!clave){ show($('buzonMsg'), 'Escribe la clave de lectura.', 'warn'); return; }
+  const btn = $('buzonSave'); btn.disabled = true; btn.textContent = 'Probando…'; hide($('buzonMsg'));
+  const antes = [buzonUrl, buzonClave];
+  buzonUrl = url; buzonClave = clave;
+  try{
+    datos = await buzonGet();
+    try{ localStorage.setItem(CLAVE_KEY, clave); }catch(e){}
+    btn.textContent = 'Publicando…';
+    await commitFiles({ [CONFIG_FILE]: text=>{
+      let c = {}; try{ c = JSON.parse(text || '{}'); }catch(e){}
+      c.buzon = url;
+      return JSON.stringify(c, null, 2) + '\n';
+    } }, 'Panel: configura la dirección del buzón');
+    setBuzonEstado(true, 'Buzón conectado');
+    show($('buzonMsg'), '✓ Buzón funcionando. En 1–2 minutos los formatos empiezan a usarlo.', 'ok');
+    pintarReportes(); pintarStats(); loadHistory();
+  }catch(e){
+    [buzonUrl, buzonClave] = antes;
+    show($('buzonMsg'), e.status ? friendly(e) : buzonError(e), 'err');
+  }finally{ btn.disabled = false; btn.textContent = 'Guardar y probar'; }
+});
+$('buzonCopy').addEventListener('click', async ev=>{
+  ev.preventDefault();
+  const b = ev.currentTarget;
+  try{
+    const code = await getFile('buzon/Buzon.gs', BRANCH);
+    await navigator.clipboard.writeText(code);
+    b.textContent = '✓ Copiado';
+  }catch(e){ b.textContent = 'No se pudo copiar'; }
+  setTimeout(()=>{ b.textContent = 'Copiar código del buzón'; }, 2500);
+});
+
 /* ---------------- Conexión ---------------- */
-const SECTIONS = ['cardAviso', 'cardProf', 'cardRecs', 'cardHist'];
+const SECTIONS = ['cardAviso', 'cardProf', 'cardRecs', 'cardRep', 'cardStats', 'cardBuzon', 'cardHist'];
 function setStatus(on, text){ $('connStatus').className = 'status' + (on ? ' on' : ''); $('connStatus').querySelector('span').textContent = text; }
 async function connect(){
   token = $('token').value.trim();
@@ -500,7 +705,7 @@ async function connect(){
     setStatus(true, 'Conectado a ' + REPO);
     $('btnForget').style.display = '';
     SECTIONS.forEach(id=>$(id).classList.remove('locked'));
-    loadAviso(); profEditor.load(); recsEditor.load(); loadHistory();
+    loadAviso(); profEditor.load(); recsEditor.load(); loadBuzon(); loadHistory();
   }catch(e){
     setStatus(false, 'Sin conectar');
     show($('connMsg'), friendly(e), 'err');

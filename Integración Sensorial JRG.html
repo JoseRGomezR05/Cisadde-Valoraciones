@@ -775,6 +775,7 @@ const state = {
   recs: DEFAULT_RECS.map(()=>true),
   customRecs: [],
   iaResponse:'',
+  usoId:'',
 };
 
 /* ======================================================================
@@ -2187,6 +2188,116 @@ window.CISADDE_TO = [
 
 ];
 (function(){ var l = document.getElementById('evalList'); (window.CISADDE_TO || []).forEach(function(n){ var o = document.createElement('option'); o.value = n; l.appendChild(o); }); })();
+</script>
+<script>
+/* Buzón CISADDE: botón "Reportar un problema" y conteo de valoraciones (sin datos del niño).
+   La dirección del buzón la publica el Panel CISADDE en config.json. Sin internet, el conteo
+   queda en espera y se envía la próxima vez que se abra con conexión. */
+(function(){
+  var SITE = 'https://josergomezr05.github.io/Cisadde-Valoraciones/';
+  var KEY_URL = 'cisadde.buzon.url', KEY_COLA = 'cisadde.uso.pendientes';
+  var esFormato = typeof FORM_ID !== 'undefined';
+  var AREAS = { psi:'Psicología', to:'Terapia ocupacional', is:'Terapia ocupacional', taller:'Terapia ocupacional', fono:'Fonoaudiología', fisio:'Fisioterapia' };
+  var formato = esFormato ? FORM_TITLE : 'Inicio';
+  function leer(k){ try{ return localStorage.getItem(k) || ''; }catch(e){ return ''; } }
+  function guardar(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+  var buzon = leer(KEY_URL);
+
+  function enviar(datos){
+    if(!buzon) return Promise.reject(new Error('sin-buzon'));
+    return fetch(buzon, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(datos) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(!j || !j.ok) throw new Error((j && j.error) || 'error'); return j; });
+  }
+  function nombreEvaluador(){
+    try{ if(typeof state !== 'undefined' && state.evaluator && state.evaluator.name) return state.evaluator.name; }catch(e){}
+    return leer('cisadde.nombre');
+  }
+
+  /* ---------- Conteo de valoraciones ---------- */
+  function cola(){ try{ return JSON.parse(leer(KEY_COLA) || '[]'); }catch(e){ return []; } }
+  function vaciarCola(){
+    var c = cola(); if(!c.length || !buzon) return;
+    guardar(KEY_COLA, '[]');
+    c.forEach(function(d){ enviar(d).catch(function(){ var r = cola(); r.push(d); guardar(KEY_COLA, JSON.stringify(r.slice(-200))); }); });
+  }
+  function contar(){
+    if(!esFormato || typeof state === 'undefined') return;
+    if(!state.usoId){
+      state.usoId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try{ saveDraft(); }catch(e){}
+    }
+    var d = { tipo:'uso', formato: formato, area: AREAS[FORM_ID] || formato, terapeuta: nombreEvaluador(), valoracion: FORM_ID + '-' + state.usoId, fecha: new Date().toISOString() };
+    enviar(d).catch(function(){ var r = cola(); r.push(d); guardar(KEY_COLA, JSON.stringify(r.slice(-200))); });
+  }
+  ['pdfBtn', 'printBtn'].forEach(function(id){ var b = document.getElementById(id); if(b) b.addEventListener('click', contar); });
+
+  /* ---------- Reportar un problema ---------- */
+  var css = document.createElement('style');
+  css.textContent =
+    '#cz-rep{position:fixed;inset:0;z-index:99998;background:rgba(8,24,40,.55);display:flex;align-items:center;justify-content:center;padding:16px}' +
+    '#cz-rep[hidden]{display:none}' +
+    '#cz-rep .box{background:var(--surface,#fff);color:var(--text,#12314A);width:100%;max-width:480px;border-radius:18px;padding:20px;box-shadow:0 20px 50px -10px rgba(0,0,0,.45);font:14px/1.5 Inter,system-ui,sans-serif;max-height:calc(100vh - 32px);overflow:auto}' +
+    '#cz-rep h3{margin:0 0 4px;font:800 18px Manrope,system-ui,sans-serif}' +
+    '#cz-rep p{margin:0 0 12px;color:var(--text-dim,#5B7386);font-size:13px}' +
+    '#cz-rep label{display:block;font-size:12px;font-weight:700;color:var(--text-dim,#5B7386);margin:10px 0 4px}' +
+    '#cz-rep input,#cz-rep textarea{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1.5px solid var(--border,#DDE6EE);background:var(--surface-alt,#F5F8FB);color:inherit;font:inherit}' +
+    '#cz-rep textarea{min-height:110px;resize:vertical}' +
+    '#cz-rep .acc{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}' +
+    '#cz-rep button{border:0;border-radius:12px;padding:10px 16px;font-weight:700;cursor:pointer;font:inherit;font-weight:700}' +
+    '#cz-rep .pri{background:#17A2D6;color:#fff}#cz-rep .sec{background:var(--surface-alt,#F5F8FB);color:inherit;border:1.5px solid var(--border,#DDE6EE)}' +
+    '#cz-rep .est{margin-top:10px;font-size:13px;font-weight:600}' +
+    '.cz-rep-link{display:block;margin:8px auto 0;background:none;border:0;color:var(--text-dim,#5B7386);font:600 13px Inter,system-ui,sans-serif;text-decoration:underline;cursor:pointer}' +
+    '@media print{#cz-rep,.cz-rep-link,#cz-rep-btn{display:none!important}}';
+  document.head.appendChild(css);
+
+  var modal = document.createElement('div');
+  modal.id = 'cz-rep'; modal.hidden = true;
+  modal.innerHTML = '<div class="box" role="dialog" aria-modal="true" aria-labelledby="cz-rep-t">' +
+    '<h3 id="cz-rep-t">Reportar un problema</h3>' +
+    '<p>Le llega al coordinador para revisarlo. <b>No escribas datos del niño o la niña.</b></p>' +
+    '<label for="cz-rep-n">Tu nombre</label><input id="cz-rep-n" autocomplete="name">' +
+    '<label for="cz-rep-x">¿Qué pasó?</label><textarea id="cz-rep-x" maxlength="2000" placeholder="Ej.: al pulsar Descargar PDF no pasa nada; el informe sale sin las gráficas…"></textarea>' +
+    '<div class="est" id="cz-rep-e"></div>' +
+    '<div class="acc"><button type="button" class="sec" id="cz-rep-c">Cancelar</button><button type="button" class="pri" id="cz-rep-s">Enviar reporte</button></div></div>';
+  document.body.appendChild(modal);
+  var $n = modal.querySelector('#cz-rep-n'), $x = modal.querySelector('#cz-rep-x'), $e = modal.querySelector('#cz-rep-e'), $s = modal.querySelector('#cz-rep-s');
+  function abrir(){ $n.value = nombreEvaluador(); $e.textContent = ''; $s.disabled = false; modal.hidden = false; ($n.value ? $x : $n).focus(); }
+  function cerrar(){ modal.hidden = true; }
+  modal.querySelector('#cz-rep-c').onclick = cerrar;
+  modal.addEventListener('click', function(e){ if(e.target === modal) cerrar(); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !modal.hidden) cerrar(); });
+  $s.onclick = function(){
+    var texto = $x.value.trim();
+    if(!texto){ $e.style.color = '#D38D0A'; $e.textContent = 'Cuenta brevemente qué pasó.'; return; }
+    if(!buzon){ $e.style.color = '#D9487A'; $e.textContent = 'El buzón todavía no está configurado o no hay internet. Avísale al coordinador por otro medio.'; return; }
+    $s.disabled = true; $e.style.color = ''; $e.textContent = 'Enviando…';
+    enviar({ tipo:'reporte', formato: formato, nombre: $n.value.trim(), texto: texto, pagina: location.protocol === 'file:' ? 'Archivo en el computador' : location.href.split('?')[0], navegador: navigator.userAgent })
+      .then(function(){ $e.style.color = '#1EA672'; $e.textContent = '✓ Reporte enviado. Gracias.'; $x.value = ''; setTimeout(cerrar, 1800); })
+      .catch(function(){ $s.disabled = false; $e.style.color = '#D9487A'; $e.textContent = 'No se pudo enviar. Revisa el internet e inténtalo de nuevo.'; });
+  };
+
+  var wipe = document.getElementById('fileWipeBtn');
+  if(wipe){
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'nav-item'; b.id = 'cz-rep-btn';
+    b.style.cssText = 'width:100%; text-align:left;';
+    b.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg> Reportar un problema';
+    b.onclick = abrir;
+    wipe.parentNode.insertBefore(b, wipe.nextSibling);
+  } else {
+    var l = document.createElement('button');
+    l.type = 'button'; l.className = 'cz-rep-link'; l.textContent = '¿Algo no funciona? Reportar un problema';
+    l.onclick = abrir;
+    (document.querySelector('.wrap') || document.body).appendChild(l);
+  }
+
+  /* ---------- Dirección del buzón (config.json) ---------- */
+  if(window.fetch) fetch(SITE + 'config.json?t=' + Date.now(), { cache:'no-store' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(c){ if(c && typeof c.buzon === 'string'){ buzon = c.buzon; guardar(KEY_URL, buzon); } vaciarCola(); })
+    .catch(function(){ vaciarCola(); });
+})();
 </script>
 <script>
 /* Aviso para el equipo: lo publica el Panel CISADDE en aviso.json. Necesita internet; sin conexión no muestra nada. */
