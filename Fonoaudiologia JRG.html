@@ -448,7 +448,7 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
           <div class="card-head"><h3>Evaluador(a)</h3><span class="sub">Fonoaudiólogo(a)</span></div>
           <label class="field">
             <span class="lbl">Nombres y apellidos</span>
-            <input class="input" id="evalName" placeholder="Escribe el nombre del/de la fonoaudiólogo(a)…" autocomplete="off" />
+            <input class="input" id="evalName" placeholder="Escribe el nombre del/de la fonoaudiólogo(a)…" autocomplete="off" list="evalList" /><datalist id="evalList"></datalist>
           </label>
           <div class="grid cols-2" style="margin-top:12px;">
             <label class="field" style="grid-column:1/-1;">
@@ -2035,6 +2035,42 @@ renderChecklist();
     document.getElementById('overlay').hidden = true;
     borrar();
   });
+})();
+</script>
+<script>
+/* Lista de fonoaudiólogos(as) de CISADDE: la edita el Panel CISADDE (también está en Inicio y terapeutas.js). */
+window.CISADDE_FONO = [
+
+];
+(function(){ var l = document.getElementById('evalList'); (window.CISADDE_FONO || []).forEach(function(n){ var o = document.createElement('option'); o.value = n; l.appendChild(o); }); })();
+</script>
+<script>
+/* Aviso para el equipo: lo publica el Panel CISADDE en aviso.json. Necesita internet; sin conexión no muestra nada. */
+(function(){
+  var URL = 'https://josergomezr05.github.io/Cisadde-Valoraciones/aviso.json';
+  if(!window.fetch) return;
+  fetch(URL + '?t=' + Date.now(), { cache:'no-store' }).then(function(r){ return r.ok ? r.json() : null; }).then(function(a){
+    if(!a || !a.activo || !a.texto) return;
+    var cerrado = ''; try{ cerrado = localStorage.getItem('cisadde.aviso.cerrado') || ''; }catch(e){}
+    if(cerrado === a.id) return;
+    var c = { info:['#E4F6FC','#0B5F85','#17A2D6','Aviso'], importante:['#FDF3DF','#7A4F00','#D38D0A','Importante'], urgente:['#FCE9F0','#9C2149','#D9487A','Urgente'] }[a.nivel] || ['#E4F6FC','#0B5F85','#17A2D6','Aviso'];
+    var st = document.createElement('style');
+    st.textContent = '#cisaddeAviso{position:fixed;left:16px;right:16px;bottom:16px;max-width:640px;margin:0 auto;z-index:99999;display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:14px;border-left:6px solid '+c[2]+';background:'+c[0]+';color:'+c[1]+';box-shadow:0 10px 30px -8px rgba(0,0,0,.35);font:14px/1.45 Inter,system-ui,sans-serif}'
+      + '#cisaddeAviso b{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase}#cisaddeAviso p{margin:2px 0 0;white-space:pre-line}#cisaddeAviso small{display:block;opacity:.75;margin-top:4px;font-size:12px}'
+      + '#cisaddeAviso button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;background:'+c[2]+';color:#fff}'
+      + '@media print{#cisaddeAviso{display:none!important}}';
+    document.head.appendChild(st);
+    var d = document.createElement('div'); d.id = 'cisaddeAviso'; d.setAttribute('role', 'alert');
+    var box = document.createElement('div'); box.style.flex = '1';
+    var t = document.createElement('b'); t.textContent = c[3] + ' para el equipo';
+    var p = document.createElement('p'); p.textContent = a.texto;
+    box.appendChild(t); box.appendChild(p);
+    if(a.fecha){ var s = document.createElement('small'); s.textContent = 'Publicado: ' + new Date(a.fecha).toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' }); box.appendChild(s); }
+    var btn = document.createElement('button'); btn.type = 'button'; btn.textContent = 'Entendido';
+    btn.onclick = function(){ try{ localStorage.setItem('cisadde.aviso.cerrado', a.id); }catch(e){} d.remove(); };
+    d.appendChild(box); d.appendChild(btn);
+    document.body.appendChild(d);
+  }).catch(function(){});
 })();
 </script>
 </body>

@@ -324,6 +324,18 @@ window.CISADDE_PSICOLOGOS = [
   "nuevo 2",
   "nuevo 3"
 ];
+/* Lista de terapeutas ocupacionales: la edita el Panel CISADDE. */
+window.CISADDE_TO = [
+
+];
+/* Lista de fonoaudiólogos(as): la edita el Panel CISADDE. */
+window.CISADDE_FONO = [
+
+];
+/* Lista de fisioterapeutas: la edita el Panel CISADDE. */
+window.CISADDE_FISIO = [
+
+];
 </script>
 <script>
 /* Logo de CISADDE incluido en este mismo archivo: el formato funciona solo, sin logo.js. */
@@ -335,7 +347,7 @@ window.CISADDE_LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATYAAAEKCAY
 </script>
 <script>
 document.querySelectorAll("[data-logo]").forEach(img=>{ if(window.CISADDE_LOGO) img.src = window.CISADDE_LOGO; }); // logo en logo.js
-const PSI_THERAPISTS = window.CISADDE_PSICOLOGOS || []; // lista en terapeutas.js
+const AREA_LISTS = { psi: window.CISADDE_PSICOLOGOS || [], to: window.CISADDE_TO || [], fono: window.CISADDE_FONO || [], fisio: window.CISADDE_FISIO || [] }; // las edita el Panel CISADDE
 const FORMS = {
   psi: [{ file:'Psicológica JRG.html', title:'Valoración psicológica', sub:'Abrir formato' }],
   to:  [{ file:'Terapia Ocupacional JRG.html', title:'Terapia ocupacional', sub:'Abrir formato' },
@@ -370,8 +382,8 @@ function selectProf(p){
   document.querySelectorAll('.prof').forEach(b=>b.setAttribute('aria-pressed', b.dataset.prof===p ? 'true' : 'false'));
   const list = document.getElementById('therList');
   list.innerHTML = '';
-  if(p==='psi'){
-    PSI_THERAPISTS.forEach(n=>{ const o=document.createElement('option'); o.value=n; list.appendChild(o); });
+  if(AREA_LISTS[p].length){
+    AREA_LISTS[p].forEach(n=>{ const o=document.createElement('option'); o.value=n; list.appendChild(o); });
     document.getElementById('nameHint').textContent = 'Escoge tu nombre de la lista o escríbelo si no aparece; quedará puesto como evaluador(a) en el formato.';
   } else {
     document.getElementById('nameHint').textContent = 'Tu nombre quedará puesto como evaluador(a) en el formato.';
@@ -406,6 +418,35 @@ if(FORMS[savedProf]) selectProf(savedProf);
   });
   if(mq.addEventListener) mq.addEventListener('change', paint);
   paint();
+})();
+</script>
+<script>
+/* Aviso para el equipo: lo publica el Panel CISADDE en aviso.json. Necesita internet; sin conexión no muestra nada. */
+(function(){
+  var URL = 'https://josergomezr05.github.io/Cisadde-Valoraciones/aviso.json';
+  if(!window.fetch) return;
+  fetch(URL + '?t=' + Date.now(), { cache:'no-store' }).then(function(r){ return r.ok ? r.json() : null; }).then(function(a){
+    if(!a || !a.activo || !a.texto) return;
+    var cerrado = ''; try{ cerrado = localStorage.getItem('cisadde.aviso.cerrado') || ''; }catch(e){}
+    if(cerrado === a.id) return;
+    var c = { info:['#E4F6FC','#0B5F85','#17A2D6','Aviso'], importante:['#FDF3DF','#7A4F00','#D38D0A','Importante'], urgente:['#FCE9F0','#9C2149','#D9487A','Urgente'] }[a.nivel] || ['#E4F6FC','#0B5F85','#17A2D6','Aviso'];
+    var st = document.createElement('style');
+    st.textContent = '#cisaddeAviso{position:fixed;left:16px;right:16px;bottom:16px;max-width:640px;margin:0 auto;z-index:99999;display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:14px;border-left:6px solid '+c[2]+';background:'+c[0]+';color:'+c[1]+';box-shadow:0 10px 30px -8px rgba(0,0,0,.35);font:14px/1.45 Inter,system-ui,sans-serif}'
+      + '#cisaddeAviso b{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase}#cisaddeAviso p{margin:2px 0 0;white-space:pre-line}#cisaddeAviso small{display:block;opacity:.75;margin-top:4px;font-size:12px}'
+      + '#cisaddeAviso button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;background:'+c[2]+';color:#fff}'
+      + '@media print{#cisaddeAviso{display:none!important}}';
+    document.head.appendChild(st);
+    var d = document.createElement('div'); d.id = 'cisaddeAviso'; d.setAttribute('role', 'alert');
+    var box = document.createElement('div'); box.style.flex = '1';
+    var t = document.createElement('b'); t.textContent = c[3] + ' para el equipo';
+    var p = document.createElement('p'); p.textContent = a.texto;
+    box.appendChild(t); box.appendChild(p);
+    if(a.fecha){ var s = document.createElement('small'); s.textContent = 'Publicado: ' + new Date(a.fecha).toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' }); box.appendChild(s); }
+    var btn = document.createElement('button'); btn.type = 'button'; btn.textContent = 'Entendido';
+    btn.onclick = function(){ try{ localStorage.setItem('cisadde.aviso.cerrado', a.id); }catch(e){} d.remove(); };
+    d.appendChild(box); d.appendChild(btn);
+    document.body.appendChild(d);
+  }).catch(function(){});
 })();
 </script>
 </body>

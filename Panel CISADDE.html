@@ -37,7 +37,7 @@
 body{ margin:0; background:var(--bg); color:var(--text); font-family:var(--font-body); font-size:15px; line-height:1.5; padding-bottom:env(safe-area-inset-bottom,0px); }
 h1,h2,h3{ font-family:var(--font-display); margin:0; letter-spacing:-.01em; }
 p{ margin:0; }
-button,input{ font-family:inherit; font-size:inherit; }
+button,input,select,textarea{ font-family:inherit; font-size:inherit; }
 
 .hero{ background:linear-gradient(135deg, var(--navy-950), var(--navy-800) 60%, var(--cyan-600)); color:#fff; padding:calc(26px + env(safe-area-inset-top,0px)) 16px 70px; }
 .hero-in{ max-width:720px; margin:0 auto; display:flex; align-items:center; gap:14px; }
@@ -54,14 +54,16 @@ button,input{ font-family:inherit; font-size:inherit; }
 
 .input{ width:100%; padding:11px 13px; border-radius:12px; border:1.5px solid var(--border); background:var(--surface-alt); color:var(--text); }
 .input:focus{ outline:none; border-color:var(--cyan-500); }
+textarea.input{ resize:vertical; min-height:96px; }
 .row{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
 .row .input{ flex:1 1 200px; }
+.lbl{ display:block; font-size:12px; font-weight:700; color:var(--text-dim); margin:14px 0 6px; text-transform:uppercase; letter-spacing:.04em; }
 
 .btn{ border:0; border-radius:12px; padding:11px 16px; font-weight:700; cursor:pointer; background:var(--cyan-500); color:#fff; }
 .btn:disabled{ opacity:.5; cursor:not-allowed; }
 .btn.ghost{ background:var(--surface-alt); color:var(--text); border:1.5px solid var(--border); }
 .btn.danger{ background:var(--rose-bg); color:var(--rose); }
-.btn.big{ width:100%; padding:14px; font-size:16px; margin-top:14px; }
+.btn.big{ width:100%; padding:14px; font-size:16px; margin-top:10px; }
 
 .msg{ margin-top:12px; padding:10px 12px; border-radius:12px; font-size:13.5px; display:none; }
 .msg.show{ display:block; }
@@ -73,18 +75,25 @@ button,input{ font-family:inherit; font-size:inherit; }
 .status.on{ background:var(--green-bg); color:var(--green); }
 .status i{ width:8px; height:8px; border-radius:50%; background:currentColor; }
 
-.list{ margin-top:14px; display:flex; flex-direction:column; gap:7px; }
-.item{ display:flex; align-items:center; gap:6px; padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--surface-alt); }
-.item.new{ border-color:var(--green); }
+.levels{ display:flex; gap:8px; flex-wrap:wrap; }
+.level{ flex:1 1 0; min-width:96px; padding:10px; border-radius:12px; border:2px solid var(--border); background:var(--surface-alt); color:var(--text); font-weight:700; cursor:pointer; }
+.level[aria-pressed="true"]{ border-color:var(--cyan-500); background:var(--cyan-100); }
+.current{ margin-top:12px; padding:12px; border-radius:12px; border:1px dashed var(--border); font-size:13.5px; color:var(--text-dim); white-space:pre-line; }
+.current b{ color:var(--text); }
 
-.item .num{ width:26px; text-align:center; font-size:12px; color:var(--text-faint); flex:0 0 auto; }
-.item input{ flex:1; min-width:0; border:0; background:transparent; color:var(--text); padding:8px 4px; font-size:14px; }
-.item input:focus{ outline:2px solid var(--cyan-400); border-radius:8px; }
+.list{ margin-top:14px; display:flex; flex-direction:column; gap:7px; }
+.item{ display:flex; align-items:flex-start; gap:6px; padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--surface-alt); }
+.item.new{ border-color:var(--green); }
+.item .num{ width:26px; text-align:center; font-size:12px; color:var(--text-faint); flex:0 0 auto; padding-top:10px; }
+.item textarea{ flex:1; min-width:0; border:0; background:transparent; color:var(--text); padding:8px 4px; font-size:14px; resize:none; overflow:hidden; line-height:1.4; }
+.item textarea:focus{ outline:2px solid var(--cyan-400); border-radius:8px; }
 .ico-btn{ flex:0 0 auto; width:36px; height:36px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text-dim); cursor:pointer; font-size:16px; line-height:1; }
+.ico-btn:disabled{ opacity:.35; }
 .ico-btn.del{ color:var(--rose); }
 .empty{ color:var(--text-faint); font-size:13px; padding:12px 0; }
+.note{ font-size:12.5px; color:var(--text-faint); margin-top:8px; }
 
-.sticky{ position:sticky; bottom:0; padding:12px 0 calc(4px + env(safe-area-inset-bottom,0px)); background:linear-gradient(transparent, var(--bg) 30%); }
+.sticky{ position:sticky; bottom:0; padding:12px 0 calc(4px + env(safe-area-inset-bottom,0px)); background:linear-gradient(transparent, var(--surface) 30%); }
 .changes{ font-size:13px; color:var(--text-dim); text-align:center; }
 
 details{ margin-top:12px; font-size:13.5px; color:var(--text-dim); }
@@ -96,6 +105,7 @@ a{ color:var(--cyan-600); }
 .history li{ padding:8px 0; border-top:1px solid var(--border); }
 .history li:first-child{ border-top:0; }
 .history small{ color:var(--text-faint); display:block; }
+.locked{ display:none; }
 </style>
 </head>
 <body>
@@ -105,15 +115,15 @@ a{ color:var(--cyan-600); }
     <div>
       <small>CISADDE · Administración</small>
       <h1>Panel remoto</h1>
-      <p>Cambia la lista de psicólogos desde el celular y publícala al momento.</p>
+      <p>Avisos, profesionales y recomendaciones, desde el celular y al momento.</p>
     </div>
   </div>
 </header>
 
 <main class="wrap">
-  <!-- 1. Conexión -->
-  <section class="card" id="cardConn">
-    <h2>1. Conexión con GitHub</h2>
+  <!-- Conexión -->
+  <section class="card">
+    <h2>Conexión con GitHub</h2>
     <p class="sub">La clave se guarda solo en este dispositivo. Sin ella, nadie puede cambiar nada desde este panel.</p>
     <div class="row">
       <input class="input" id="token" type="password" autocomplete="off" placeholder="Pega aquí tu clave (github_pat_…)">
@@ -134,26 +144,66 @@ a{ color:var(--cyan-600); }
     </details>
   </section>
 
-  <!-- 2. Lista de psicólogos -->
-  <section class="card" id="cardList" style="display:none;">
-    <h2>2. Lista de psicólogos(as)</h2>
-    <p class="sub">Es la lista desplegable de <b>Inicio</b> y de <b>Psicológica</b>. Toca un nombre para corregirlo.</p>
-    <div class="row">
-      <input class="input" id="newName" placeholder="Nombre completo del nuevo profesional" autocapitalize="characters">
-      <button class="btn" id="btnAdd">Agregar</button>
+  <!-- 1. Aviso -->
+  <section class="card locked" id="cardAviso">
+    <h2>1. Aviso para el equipo</h2>
+    <p class="sub">Aparece abajo en Inicio y en todos los formatos al abrirlos con internet, hasta que cada persona pulse “Entendido”. No sale en el PDF.</p>
+    <div class="current" id="avisoActual">Cargando…</div>
+    <span class="lbl">Tipo de aviso</span>
+    <div class="levels" id="levels">
+      <button class="level" data-nivel="info" aria-pressed="true">ℹ️ Informativo</button>
+      <button class="level" data-nivel="importante" aria-pressed="false">⚠️ Importante</button>
+      <button class="level" data-nivel="urgente" aria-pressed="false">🚨 Urgente</button>
     </div>
-    <div id="listMsg" class="msg"></div>
-    <div class="list" id="list"></div>
+    <span class="lbl">Mensaje</span>
+    <textarea class="input" id="avisoTexto" maxlength="600" placeholder="Ej.: Hoy no usen el formato de Fonoaudiología, lo estoy corrigiendo. Usen el PDF de respaldo."></textarea>
+    <button class="btn big" id="btnAviso">Publicar aviso</button>
+    <button class="btn danger big" id="btnQuitarAviso" style="display:none;">Quitar el aviso actual</button>
+    <div id="avisoMsg" class="msg"></div>
+  </section>
+
+  <!-- 2. Profesionales -->
+  <section class="card locked" id="cardProf">
+    <h2>2. Profesionales por área</h2>
+    <p class="sub">Son los nombres de la lista desplegable de Inicio y del formato de cada área. Toca un nombre para corregirlo.</p>
+    <span class="lbl">Área</span>
+    <select class="input" id="profKey"></select>
+    <div class="row">
+      <input class="input" id="profNew" placeholder="Nombre completo del nuevo profesional" autocapitalize="characters">
+      <button class="btn" id="profAdd">Agregar</button>
+    </div>
+    <div id="profMsg" class="msg"></div>
+    <div class="list" id="profList"></div>
     <div class="sticky">
-      <p class="changes" id="changes">Sin cambios</p>
-      <button class="btn big" id="btnPublish" disabled>Publicar cambios</button>
-      <div id="pubMsg" class="msg"></div>
+      <p class="changes" id="profChanges">Sin cambios</p>
+      <button class="btn big" id="profPublish" disabled>Publicar cambios</button>
+      <div id="profPub" class="msg"></div>
     </div>
   </section>
 
-  <!-- 3. Últimos cambios -->
-  <section class="card" id="cardHist" style="display:none;">
-    <h2>3. Últimos cambios publicados</h2>
+  <!-- 3. Recomendaciones -->
+  <section class="card locked" id="cardRecs">
+    <h2>3. Recomendaciones por formato</h2>
+    <p class="sub">Son las recomendaciones generales que salen marcadas en el informe. Toca una para corregirla.</p>
+    <span class="lbl">Formato</span>
+    <select class="input" id="recsKey"></select>
+    <div class="row">
+      <textarea class="input" id="recsNew" style="min-height:70px;" placeholder="Escribe la nueva recomendación"></textarea>
+      <button class="btn" id="recsAdd">Agregar</button>
+    </div>
+    <div id="recsMsg" class="msg"></div>
+    <div class="list" id="recsList"></div>
+    <p class="note">Las nuevas se agregan al final. Si quitas o reordenas, en una valoración que alguien tenga a medio llenar las casillas marcadas pueden correrse de lugar; revísenlas antes de imprimir.</p>
+    <div class="sticky">
+      <p class="changes" id="recsChanges">Sin cambios</p>
+      <button class="btn big" id="recsPublish" disabled>Publicar cambios</button>
+      <div id="recsPub" class="msg"></div>
+    </div>
+  </section>
+
+  <!-- 4. Historial -->
+  <section class="card locked" id="cardHist">
+    <h2>Últimos cambios publicados</h2>
     <p class="sub">Para confirmar qué se subió y cuándo.</p>
     <ul class="history" id="history"></ul>
   </section>
@@ -165,15 +215,28 @@ document.querySelectorAll('[data-logo]').forEach(img=>{ if(window.CISADDE_LOGO) 
 
 const OWNER = 'JoseRGomezR05', REPO = 'Cisadde-Valoraciones', BRANCH = 'main';
 const SITE = 'https://josergomezr05.github.io/Cisadde-Valoraciones/';
-// Archivos que llevan la lista; el primero es la fuente que se lee al abrir el panel.
-const LIST_FILES = ['Psicológica JRG.html', 'Inicio CISADDE.html', 'terapeutas.js'];
-const LIST_RE = /window\.CISADDE_PSICOLOGOS = \[[\s\S]*?\];/;
 const TOKEN_KEY = 'cisadde.panel.token';
 
-let token = '';
-let original = [];   // lista tal como está publicada
-let names = [];      // lista en edición
+/* Listas de profesionales: cada una vive como `window.CISADDE_X = [...]` dentro de estos archivos.
+   El primero es el que se lee al abrir; al publicar se reescriben todos a la vez. */
+const PROF = {
+  psi:   { label:'Psicología', v:'PSICOLOGOS', files:['Psicológica JRG.html', 'Inicio CISADDE.html', 'terapeutas.js'] },
+  to:    { label:'Terapia ocupacional (TO, Integración sensorial y Taller)', v:'TO', files:['Terapia Ocupacional JRG.html', 'Integración Sensorial JRG.html', 'Valoración de Taller JRG.html', 'Inicio CISADDE.html', 'terapeutas.js'] },
+  fono:  { label:'Fonoaudiología', v:'FONO', files:['Fonoaudiologia JRG.html', 'Inicio CISADDE.html', 'terapeutas.js'] },
+  fisio: { label:'Fisioterapia', v:'FISIO', files:['Fisioterapia JRG.html', 'Inicio CISADDE.html', 'terapeutas.js'] }
+};
+/* Recomendaciones: `const DEFAULT_RECS = [...];` (una sola línea) en cada formato. */
+const RECS = {
+  psi:   { label:'Psicológica', files:['Psicológica JRG.html'] },
+  to:    { label:'Terapia ocupacional', files:['Terapia Ocupacional JRG.html'] },
+  is:    { label:'Integración sensorial', files:['Integración Sensorial JRG.html'] },
+  taller:{ label:'Valoración de taller', files:['Valoración de Taller JRG.html'] },
+  fono:  { label:'Fonoaudiología', files:['Fonoaudiologia JRG.html'] },
+  fisio: { label:'Fisioterapia', files:['Fisioterapia JRG.html'] }
+};
+const AVISO_FILE = 'aviso.json';
 
+let token = '';
 const $ = id => document.getElementById(id);
 function show(el, text, kind){ el.className = 'msg show ' + kind; el.textContent = text; }
 function hide(el){ el.className = 'msg'; }
@@ -207,21 +270,224 @@ function getFile(path, ref){
 function friendly(e){
   if(e.status === 401) return 'La clave no es válida o ya venció. Genera una nueva.';
   if(e.status === 403 || e.status === 404) return 'La clave no tiene permiso sobre Cisadde-Valoraciones (revisa “Contents: Read and write”).';
-  if(e.status === 409 || e.status === 422) return 'Alguien publicó otro cambio al mismo tiempo. Pulsa “Conectar” para recargar y vuelve a intentarlo.';
+  if(e.status === 409 || e.status === 422) return 'Se publicó otro cambio al mismo tiempo. Pulsa “Conectar” para recargar y vuelve a intentarlo.';
   if(e instanceof TypeError) return 'Sin conexión a internet. Revisa los datos o el wifi.';
   return 'No se pudo completar: ' + e.message;
 }
 
-function parseList(text){
-  const m = text.match(LIST_RE);
-  if(!m) return null;
-  return JSON.parse(m[0].replace(/^window\.CISADDE_PSICOLOGOS = /, '').replace(/;$/, '').replace(/,\s*\]$/, ']'));
+/* Sube varios archivos en UN solo cambio. edits: { ruta: texto => textoNuevo } */
+async function commitFiles(edits, message){
+  const ref = await gh('/git/ref/heads/' + BRANCH);
+  const headSha = ref.object.sha;
+  const head = await gh('/git/commits/' + headSha);
+  const tree = [];
+  for(const path of Object.keys(edits)){
+    let text = '';
+    try{ text = await getFile(path, headSha); }catch(e){ if(e.status !== 404) throw e; }
+    const updated = edits[path](text);
+    if(updated === text) continue;
+    const blob = await gh('/git/blobs', { method:'POST', body:{ content: updated, encoding:'utf-8' } });
+    tree.push({ path, mode:'100644', type:'blob', sha: blob.sha });
+  }
+  if(!tree.length) return false;
+  const newTree = await gh('/git/trees', { method:'POST', body:{ base_tree: head.tree.sha, tree } });
+  const commit = await gh('/git/commits', { method:'POST', body:{ message, tree: newTree.sha, parents:[headSha] } });
+  await gh('/git/refs/heads/' + BRANCH, { method:'PATCH', body:{ sha: commit.sha } });
+  return true;
 }
-function buildList(arr){
-  return 'window.CISADDE_PSICOLOGOS = [\n' + arr.map(n=>'  ' + JSON.stringify(n)).join(',\n') + '\n];';
+// Avisa cuando la página pública ya trae el texto nuevo.
+async function waitLive(file, needle, el, okText){
+  if(!needle) return;
+  for(let i=0; i<16; i++){
+    await new Promise(r=>setTimeout(r, 15000));
+    try{
+      const t = await (await fetch(SITE + encPath(file) + '?v=' + Date.now(), { cache:'no-store' })).text();
+      if(t.includes(needle)){ show(el, okText, 'ok'); return; }
+    }catch(e){}
+  }
+}
+
+/* ---------------- Editor de listas (profesionales y recomendaciones) ---------------- */
+function makeEditor(o){
+  // o: { configs, prefix, reFor(cfg), build(cfg, arr), clean(s), what, msgFor(diff, cfg) }
+  const sel = $(o.prefix + 'Key'), inNew = $(o.prefix + 'New'), box = $(o.prefix + 'List');
+  const msg = $(o.prefix + 'Msg'), pub = $(o.prefix + 'Pub'), btn = $(o.prefix + 'Publish'), changes = $(o.prefix + 'Changes');
+  let key = Object.keys(o.configs)[0], original = [], items = [];
+  Object.entries(o.configs).forEach(([k, c])=>{ const op = document.createElement('option'); op.value = k; op.textContent = c.label; sel.appendChild(op); });
+
+  function parse(text, cfg){
+    const m = text.match(o.reFor(cfg));
+    if(!m) return null;
+    return JSON.parse(m[0].slice(m[0].indexOf('['), m[0].lastIndexOf(']') + 1).replace(/,\s*\]$/, ']'));
+  }
+  async function load(){
+    const cfg = o.configs[key];
+    box.innerHTML = '<p class="empty">Cargando…</p>';
+    hide(msg); hide(pub);
+    try{
+      const arr = parse(await getFile(cfg.files[0], BRANCH), cfg);
+      if(!arr) throw new Error('No encontré la lista dentro de ' + cfg.files[0]);
+      original = arr.slice(); items = arr.slice();
+      render();
+    }catch(e){ box.innerHTML = ''; show(msg, friendly(e), 'err'); }
+  }
+  function diff(){
+    const added = items.filter(n=>!original.includes(n));
+    const removed = original.filter(n=>!items.includes(n));
+    const reordered = !added.length && !removed.length && items.join('\u0001') !== original.join('\u0001');
+    return { added, removed, reordered, any: !!(added.length || removed.length || reordered) };
+  }
+  function grow(ta){ ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+  function render(){
+    box.innerHTML = '';
+    if(!items.length) box.innerHTML = '<p class="empty">Todavía no hay ' + o.what + ' en esta lista. Agrega el primero arriba.</p>';
+    items.forEach((n, i)=>{
+      const row = document.createElement('div');
+      row.className = 'item' + (original.includes(n) ? '' : ' new');
+      row.innerHTML = '<span class="num">' + (i+1) + '</span><textarea rows="1"></textarea><button class="ico-btn" title="Subir" aria-label="Subir">↑</button><button class="ico-btn del" title="Quitar" aria-label="Quitar">✕</button>';
+      const ta = row.querySelector('textarea');
+      ta.value = n;
+      ta.addEventListener('input', ()=>grow(ta));
+      ta.addEventListener('change', ()=>{
+        const v = o.clean(ta.value);
+        if(!v){ ta.value = items[i]; grow(ta); return; }
+        items[i] = v; render();
+      });
+      const [up, del] = row.querySelectorAll('button');
+      up.disabled = i === 0;
+      up.addEventListener('click', ()=>{ [items[i-1], items[i]] = [items[i], items[i-1]]; render(); });
+      del.addEventListener('click', ()=>{ if(confirm('¿Quitar esto de la lista?\n\n' + items[i])){ items.splice(i, 1); render(); } });
+      box.appendChild(row);
+      requestAnimationFrame(()=>grow(ta));
+    });
+    const d = diff(), parts = [];
+    if(d.added.length) parts.push(d.added.length + ' nuevo(s)/corregido(s)');
+    if(d.removed.length) parts.push(d.removed.length + ' quitado(s)');
+    if(d.reordered) parts.push('orden cambiado');
+    changes.textContent = parts.length ? ('Pendiente de publicar: ' + parts.join(', ')) : 'Sin cambios';
+    btn.disabled = !d.any;
+  }
+  function add(){
+    const v = o.clean(inNew.value);
+    if(!v){ show(msg, 'Escribe primero el texto.', 'warn'); return; }
+    if(items.some(n=>n.toLowerCase() === v.toLowerCase())){ show(msg, 'Eso ya está en la lista.', 'warn'); return; }
+    items.push(v); inNew.value = '';
+    show(msg, 'Agregado. Pulsa “Publicar cambios” para subirlo.', 'ok');
+    render();
+  }
+  async function publish(){
+    const cfg = o.configs[key], d = diff();
+    if(!d.any) return;
+    btn.disabled = true; btn.textContent = 'Publicando…'; hide(pub);
+    try{
+      const block = o.build(cfg, items), re = o.reFor(cfg), edits = {};
+      cfg.files.forEach(f=>{ edits[f] = text=>{
+        if(!re.test(text)) throw new Error('No encontré la lista dentro de ' + f);
+        return text.replace(re, ()=>block);
+      }; });
+      const changed = await commitFiles(edits, o.msgFor(d, cfg));
+      original = items.slice(); render();
+      if(!changed){ show(pub, 'Ya estaba igual en la página. No hubo nada que subir.', 'ok'); return; }
+      show(pub, '✓ Publicado. En 1–2 minutos aparece en la página (cierra y vuelve a abrir la pestaña).', 'ok');
+      loadHistory();
+      if(d.added[0]) waitLive(cfg.files[0], JSON.stringify(d.added[0]), pub, '✓ Ya está en la página publicada.');
+    }catch(e){ show(pub, friendly(e), 'err'); }
+    finally{ btn.textContent = 'Publicar cambios'; render(); }
+  }
+  sel.addEventListener('change', ()=>{
+    if(diff().any && !confirm('Tienes cambios sin publicar en esta lista. ¿Descartarlos?')){ sel.value = key; return; }
+    key = sel.value; load();
+  });
+  $(o.prefix + 'Add').addEventListener('click', add);
+  if(inNew.tagName === 'INPUT') inNew.addEventListener('keydown', e=>{ if(e.key === 'Enter') add(); });
+  btn.addEventListener('click', publish);
+  return { load, dirty: ()=>diff().any };
+}
+
+const profEditor = makeEditor({
+  configs: PROF, prefix:'prof', what:'nombres',
+  reFor: c=>new RegExp('window\\.CISADDE_' + c.v + ' = \\[[\\s\\S]*?\\];'),
+  build: (c, a)=>'window.CISADDE_' + c.v + ' = [\n' + a.map(n=>'  ' + JSON.stringify(n)).join(',\n') + '\n];',
+  clean: s=>s.replace(/\s+/g, ' ').trim().toUpperCase(),
+  msgFor: (d, c)=>'Panel: profesionales de ' + c.label.split(' (')[0] + ' — ' + summary(d)
+});
+const recsEditor = makeEditor({
+  configs: RECS, prefix:'recs', what:'recomendaciones',
+  reFor: ()=>/const DEFAULT_RECS = \[.*?\];/,
+  build: (c, a)=>'const DEFAULT_RECS = [' + a.map(s=>JSON.stringify(s)).join(', ') + '];',
+  clean: s=>{ s = s.replace(/\s+/g, ' ').trim(); if(s && !/[.!?]$/.test(s)) s += '.'; return s ? s[0].toUpperCase() + s.slice(1) : s; },
+  msgFor: (d, c)=>'Panel: recomendaciones de ' + c.label + ' — ' + summary(d)
+});
+function summary(d){
+  const p = [];
+  if(d.added.length) p.push(d.added.length + ' nueva(s)/corregida(s)');
+  if(d.removed.length) p.push(d.removed.length + ' quitada(s)');
+  if(d.reordered) p.push('reordena');
+  return p.join('; ');
+}
+
+/* ---------------- Aviso ---------------- */
+let nivel = 'info', avisoActual = null;
+document.querySelectorAll('.level').forEach(b=>b.addEventListener('click', ()=>{
+  nivel = b.dataset.nivel;
+  document.querySelectorAll('.level').forEach(x=>x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+}));
+async function loadAviso(){
+  try{ avisoActual = JSON.parse(await getFile(AVISO_FILE, BRANCH)); }catch(e){ avisoActual = null; }
+  const el = $('avisoActual');
+  if(avisoActual && avisoActual.activo && avisoActual.texto){
+    const nombres = { info:'Informativo', importante:'Importante', urgente:'Urgente' };
+    el.innerHTML = '';
+    const b = document.createElement('b'); b.textContent = 'Aviso activo (' + (nombres[avisoActual.nivel] || 'Informativo') + '):';
+    el.appendChild(b); el.appendChild(document.createTextNode('\n' + avisoActual.texto + (avisoActual.fecha ? '\nPublicado: ' + new Date(avisoActual.fecha).toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' }) : '')));
+    $('btnQuitarAviso').style.display = '';
+  } else {
+    el.textContent = 'No hay ningún aviso activo.';
+    $('btnQuitarAviso').style.display = 'none';
+  }
+}
+async function saveAviso(data, btn, okText){
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Publicando…'; hide($('avisoMsg'));
+  try{
+    await commitFiles({ [AVISO_FILE]: ()=>JSON.stringify(data, null, 2) + '\n' }, data.activo ? 'Panel: publica aviso para el equipo' : 'Panel: quita el aviso');
+    show($('avisoMsg'), okText, 'ok');
+    await loadAviso(); loadHistory();
+  }catch(e){ show($('avisoMsg'), friendly(e), 'err'); }
+  finally{ btn.disabled = false; btn.textContent = label; }
+}
+$('btnAviso').addEventListener('click', ()=>{
+  const texto = $('avisoTexto').value.trim();
+  if(!texto){ show($('avisoMsg'), 'Escribe el mensaje.', 'warn'); return; }
+  const now = new Date().toISOString();
+  saveAviso({ activo:true, id: Date.now().toString(36), nivel, texto, fecha: now }, $('btnAviso'),
+    '✓ Aviso publicado. En 1–2 minutos le aparece a quien abra Inicio o un formato con internet.');
+  $('avisoTexto').value = '';
+});
+$('btnQuitarAviso').addEventListener('click', ()=>{
+  if(!confirm('¿Quitar el aviso para todos?')) return;
+  saveAviso(Object.assign({}, avisoActual, { activo:false }), $('btnQuitarAviso'), '✓ Aviso quitado. En 1–2 minutos deja de aparecer.');
+});
+
+/* ---------------- Historial ---------------- */
+async function loadHistory(){
+  try{
+    const commits = await gh('/commits?per_page=8&sha=' + BRANCH);
+    $('history').innerHTML = '';
+    commits.forEach(c=>{
+      const li = document.createElement('li');
+      li.textContent = c.commit.message.split('\n')[0];
+      const s = document.createElement('small');
+      s.textContent = new Date(c.commit.author.date).toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' });
+      li.appendChild(s);
+      $('history').appendChild(li);
+    });
+  }catch(e){}
 }
 
 /* ---------------- Conexión ---------------- */
+const SECTIONS = ['cardAviso', 'cardProf', 'cardRecs', 'cardHist'];
+function setStatus(on, text){ $('connStatus').className = 'status' + (on ? ' on' : ''); $('connStatus').querySelector('span').textContent = text; }
 async function connect(){
   token = $('token').value.trim();
   if(!token){ show($('connMsg'), 'Pega primero la clave.', 'warn'); return; }
@@ -231,12 +497,12 @@ async function connect(){
     const repo = await gh('');
     if(repo.permissions && !repo.permissions.push) throw Object.assign(new Error('sin permiso'), { status:403 });
     try{ localStorage.setItem(TOKEN_KEY, token); }catch(e){}
-    $('connStatus').className = 'status on'; $('connStatus').querySelector('span').textContent = 'Conectado a ' + REPO;
+    setStatus(true, 'Conectado a ' + REPO);
     $('btnForget').style.display = '';
-    await loadList();
-    loadHistory();
+    SECTIONS.forEach(id=>$(id).classList.remove('locked'));
+    loadAviso(); profEditor.load(); recsEditor.load(); loadHistory();
   }catch(e){
-    $('connStatus').className = 'status'; $('connStatus').querySelector('span').textContent = 'Sin conectar';
+    setStatus(false, 'Sin conectar');
     show($('connMsg'), friendly(e), 'err');
   }finally{
     $('btnConnect').disabled = false; $('btnConnect').textContent = 'Conectar';
@@ -246,155 +512,14 @@ function forget(){
   try{ localStorage.removeItem(TOKEN_KEY); }catch(e){}
   token = ''; $('token').value = '';
   $('btnForget').style.display = 'none';
-  $('cardList').style.display = 'none'; $('cardHist').style.display = 'none';
-  $('connStatus').className = 'status'; $('connStatus').querySelector('span').textContent = 'Sin conectar';
+  SECTIONS.forEach(id=>$(id).classList.add('locked'));
+  setStatus(false, 'Sin conectar');
   show($('connMsg'), 'Clave borrada de este dispositivo.', 'ok');
 }
-
-/* ---------------- Lista ---------------- */
-async function loadList(){
-  const text = await getFile(LIST_FILES[0], BRANCH);
-  const arr = parseList(text);
-  if(!arr) throw new Error('No encontré la lista dentro de ' + LIST_FILES[0]);
-  original = arr.slice();
-  names = arr.slice();
-  $('cardList').style.display = '';
-  hide($('pubMsg'));
-  renderList();
-}
-function renderList(){
-  const box = $('list');
-  box.innerHTML = '';
-  if(!names.length){ box.innerHTML = '<p class="empty">La lista está vacía.</p>'; }
-  names.forEach((n, i)=>{
-    const row = document.createElement('div');
-    row.className = 'item' + (original.includes(n) ? '' : ' new');
-    row.innerHTML = '<span class="num">' + (i+1) + '</span><input aria-label="Nombre ' + (i+1) + '"><button class="ico-btn" title="Subir" aria-label="Subir">↑</button><button class="ico-btn del" title="Quitar" aria-label="Quitar">✕</button>';
-    const inp = row.querySelector('input');
-    inp.value = n;
-    inp.addEventListener('change', ()=>{
-      const v = clean(inp.value);
-      if(!v){ inp.value = names[i]; return; }
-      names[i] = v; renderList();
-    });
-    const [up, del] = row.querySelectorAll('button');
-    up.disabled = i === 0;
-    up.addEventListener('click', ()=>{ [names[i-1], names[i]] = [names[i], names[i-1]]; renderList(); });
-    del.addEventListener('click', ()=>{
-      if(confirm('¿Quitar a ' + names[i] + ' de la lista?')){ names.splice(i, 1); renderList(); }
-    });
-    box.appendChild(row);
-  });
-  updateChanges();
-}
-function clean(s){ return s.replace(/\s+/g, ' ').trim().toUpperCase(); }
-function addName(){
-  const v = clean($('newName').value);
-  if(!v){ show($('listMsg'), 'Escribe el nombre.', 'warn'); return; }
-  if(names.some(n=>n.toUpperCase() === v)){ show($('listMsg'), v + ' ya está en la lista.', 'warn'); return; }
-  names.push(v);
-  $('newName').value = '';
-  show($('listMsg'), 'Agregado: ' + v + '. Pulsa “Publicar cambios” para subirlo.', 'ok');
-  renderList();
-}
-function diffSummary(){
-  const added = names.filter(n=>!original.includes(n));
-  const removed = original.filter(n=>!names.includes(n));
-  const reordered = !added.length && !removed.length && names.join('|') !== original.join('|');
-  return { added, removed, reordered, any: added.length || removed.length || reordered };
-}
-function updateChanges(){
-  const d = diffSummary();
-  const parts = [];
-  if(d.added.length) parts.push(d.added.length + ' nuevo(s)/corregido(s)');
-  if(d.removed.length) parts.push(d.removed.length + ' quitado(s)');
-  if(d.reordered) parts.push('orden cambiado');
-  $('changes').textContent = parts.length ? ('Pendiente de publicar: ' + parts.join(', ')) : 'Sin cambios';
-  $('btnPublish').disabled = !d.any;
-}
-
-/* ---------------- Publicar (un solo commit con los 3 archivos) ---------------- */
-async function publish(){
-  const d = diffSummary();
-  if(!d.any) return;
-  const btn = $('btnPublish');
-  btn.disabled = true; btn.textContent = 'Publicando…';
-  hide($('pubMsg'));
-  try{
-    const ref = await gh('/git/ref/heads/' + BRANCH);
-    const headSha = ref.object.sha;
-    const head = await gh('/git/commits/' + headSha);
-    const block = buildList(names);
-    const tree = [];
-    for(const path of LIST_FILES){
-      const text = await getFile(path, headSha);
-      if(!LIST_RE.test(text)) throw new Error('No encontré la lista dentro de ' + path);
-      const updated = text.replace(LIST_RE, ()=>block);
-      if(updated === text) continue;
-      const blob = await gh('/git/blobs', { method:'POST', body:{ content: updated, encoding:'utf-8' } });
-      tree.push({ path, mode:'100644', type:'blob', sha: blob.sha });
-    }
-    if(!tree.length){ original = names.slice(); renderList(); show($('pubMsg'), 'La lista publicada ya era igual. No hubo nada que subir.', 'ok'); return; }
-    const newTree = await gh('/git/trees', { method:'POST', body:{ base_tree: head.tree.sha, tree } });
-    const parts = [];
-    if(d.added.length) parts.push('agrega ' + d.added.join(', '));
-    if(d.removed.length) parts.push('quita ' + d.removed.join(', '));
-    if(d.reordered) parts.push('reordena');
-    const commit = await gh('/git/commits', { method:'POST', body:{
-      message: 'Panel: lista de psicólogos — ' + parts.join('; '),
-      tree: newTree.sha, parents: [headSha]
-    }});
-    await gh('/git/refs/heads/' + BRANCH, { method:'PATCH', body:{ sha: commit.sha } });
-    original = names.slice();
-    renderList();
-    show($('pubMsg'), '✓ Publicado. En 1–2 minutos aparece en la página (recarga con fuerza o cierra y abre la pestaña).', 'ok');
-    loadHistory();
-    waitLive(d.added[0]);
-  }catch(e){
-    show($('pubMsg'), friendly(e), 'err');
-  }finally{
-    btn.textContent = 'Publicar cambios';
-    updateChanges();
-  }
-}
-// Avisa cuando la página pública ya muestra el cambio.
-async function waitLive(name){
-  if(!name) return;
-  const url = SITE + encodeURIComponent('Psicológica JRG.html');
-  for(let i=0; i<16; i++){
-    await new Promise(r=>setTimeout(r, 15000));
-    try{
-      const t = await (await fetch(url + '?v=' + Date.now(), { cache:'no-store' })).text();
-      if(t.includes(JSON.stringify(name))){ show($('pubMsg'), '✓ Ya está en la página publicada: ' + name + ' aparece en la lista.', 'ok'); return; }
-    }catch(e){}
-  }
-}
-
-/* ---------------- Historial ---------------- */
-async function loadHistory(){
-  try{
-    const commits = await gh('/commits?per_page=6&sha=' + BRANCH);
-    $('history').innerHTML = '';
-    commits.forEach(c=>{
-      const li = document.createElement('li');
-      const when = new Date(c.commit.author.date).toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' });
-      li.textContent = c.commit.message.split('\n')[0];
-      const s = document.createElement('small'); s.textContent = when;
-      li.appendChild(s);
-      $('history').appendChild(li);
-    });
-    $('cardHist').style.display = '';
-  }catch(e){}
-}
-
-/* ---------------- Inicio ---------------- */
 $('btnConnect').addEventListener('click', connect);
 $('token').addEventListener('keydown', e=>{ if(e.key === 'Enter') connect(); });
 $('btnForget').addEventListener('click', forget);
-$('btnAdd').addEventListener('click', addName);
-$('newName').addEventListener('keydown', e=>{ if(e.key === 'Enter') addName(); });
-$('btnPublish').addEventListener('click', publish);
-window.addEventListener('beforeunload', e=>{ if(diffSummary().any){ e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e=>{ if(profEditor.dirty() || recsEditor.dirty()){ e.preventDefault(); e.returnValue = ''; } });
 try{
   const saved = localStorage.getItem(TOKEN_KEY);
   if(saved){ $('token').value = saved; connect(); }
