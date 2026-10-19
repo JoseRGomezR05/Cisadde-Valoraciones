@@ -1178,7 +1178,7 @@ function chartLabel(c){
   return {'Reacciones de enderezamiento y protectoras':'Enderezam.', 'Reacciones de equilibrio y balance':'Equilibrio'}[c] || c.split(' ')[0];
 }
 function achievedTextsFor(sheet, c){
-  return sheet.comp[c].filter(it=>state.answers[it.id]===true).map(itemLabel).join(' ');
+  return sheet.comp[c].filter(it=>state.answers[it.id]===true).map(itemLabel).join(', ');
 }
 function compAggForSheet(sheet, c){
   let total=0, done=0, na=0;
@@ -1290,7 +1290,7 @@ function renderQual(targetId){
     if(targetId==='qualBody'){
       row.innerHTML = `<div class="name">${c}</div><div class="txt"><b>${q.label}.</b> ${achieved?('Lo que sí logra: '+achieved+'.'):''}${agg.na?(' <i>('+agg.na+' ítem(s) marcados como no aplica/no evaluado.)</i>'):''}${notes?(' <i>Observaciones: '+notes+'.</i>'):''}${itemNotes?(' <i>Observaciones por ítem — '+itemNotes+'.</i>'):''}</div>`;
     } else {
-      row.innerHTML = `<b>${c}:</b> ${q.label}.${achieved?(' Lo que sí logra: '+achieved+'.'):''}${notes?(' Observaciones: '+notes+'.'):''}${itemNotes?(' Observaciones por ítem — '+itemNotes+'.'):''}`;
+      row.innerHTML = `<b>${c}:</b> ${achieved?(achieved+'.'):'Sin hallazgos registrados.'}${notes?(' Observaciones: '+notes+'.'):''}${itemNotes?(' Observaciones por ítem — '+itemNotes+'.'):''}`;
     }
     box.appendChild(row);
   });
@@ -1349,10 +1349,10 @@ function buildIaPrompt(){
     const items = sheet.comp[c];
     if(!items.length) return null;
     const agg = compAggForSheet(sheet, c);
-    const q = qualText(agg.pct);
+    const achieved = achievedTextsFor(sheet, c);
     const notes = (state.compNotes[sheet.key+'::'+c] || '').trim();
     const itemNotes = itemNotesFor(sheet, c);
-    return `- ${c}: ${q.label}.${notes?(' Observaciones: '+notes+'.'):''}${itemNotes?(' Observaciones por ítem: '+itemNotes+'.'):''}`;
+    return `- ${c}: ${achieved?('Hallazgos: '+achieved+'.'):'Sin hallazgos registrados.'}${notes?(' Observaciones: '+notes+'.'):''}${itemNotes?(' Observaciones por ítem: '+itemNotes+'.'):''}`;
   }).filter(Boolean);
   return `Actúa como fisioterapeuta infantil experto. Con base en los siguientes datos de una valoración fisioterapéutica, redacta ÚNICAMENTE estas 2 secciones, en lenguaje técnico profesional propio de la fisioterapia infantil.
 
