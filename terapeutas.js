@@ -46,7 +46,8 @@ window.CISADDE_TO = [
 
 /* Lista de fonoaudiólogos(as): la edita el Panel CISADDE. */
 window.CISADDE_FONO = [
-
+  "MARLYS JOHANA PACHECO MONTES",
+  "OLGA LUCIA ORTEGA CRUZ"
 ];
 
 /* Lista de fisioterapeutas: la edita el Panel CISADDE. */
