@@ -2510,5 +2510,639 @@ window.CISADDE_TO = [
   }).catch(function(){});
 })();
 </script>
+<!-- PLAN TERAPEUTICO:INICIO -->
+<script>
+/* ======================================================================
+   PLAN TERAPÉUTICO (formato R-AMI-055)
+   Se arma solo con lo registrado en la valoración: datos del niño/a,
+   hallazgos, objetivos e indicadores sugeridos. Todo se puede corregir antes
+   de descargarlo en Word (.docx con encabezado, pie y control de versiones).
+   Este bloque es igual en los 6 formatos: se edita en
+   herramientas/plan-terapeutico.js y se copia con
+   node herramientas/insertar-plan.js
+   ====================================================================== */
+(function(){
+const AREAS = { psi:'Psicología', to:'Terapia Ocupacional', is:'Integración Sensorial', fono:'Fonoaudiología', fisio:'Fisioterapia', taller:'Taller de independencia y funcionalidad' };
+/* Lenguaje de la guía R-AMI-055 (secciones 3 a 5 y Anexo 1).
+   Objetivo general por área: verbo + habilidad principal + propósito funcional, sin contexto;
+   {h} se reemplaza por las habilidades principales que salieron con dificultad. */
+const GENERAL = {
+  psi:'Fortalecer las habilidades de {h}, favoreciendo una participación funcional durante las actividades terapéuticas y de la vida diaria.',
+  to:'Fortalecer las habilidades de desempeño ocupacional relacionadas con {h}, favoreciendo la independencia en las actividades de la vida diaria.',
+  is:'Fortalecer las habilidades de procesamiento y modulación sensorial relacionadas con {h}, favoreciendo respuestas adaptativas y la participación funcional en las actividades de la vida diaria.',
+  fono:'Fortalecer las habilidades de {h}, favoreciendo una comunicación funcional en los diferentes contextos de interacción.',
+  fisio:'Fortalecer las habilidades motoras relacionadas con {h}, favoreciendo la independencia en el desplazamiento y las actividades funcionales.',
+  taller:'Fortalecer las habilidades de independencia funcional relacionadas con {h}, favoreciendo la autonomía en las actividades de la vida diaria.'
+};
+/* Por componente de la valoración:
+   d = hallazgo de dificultad, f = hallazgo de fortaleza, h = habilidad para el objetivo general,
+   o = objetivo específico (verbo + habilidad específica + contexto + propósito funcional),
+   i = indicador de logro (conducta observable + contexto + criterio, sin porcentajes). */
+const MAPA = {
+  psi:{
+    'Cognitivo':{ d:'Requiere redirección frecuente para mantener la atención en actividades estructuradas.', f:'Mantiene la atención en actividades estructuradas acordes a su edad.', h:'atención sostenida',
+      o:'Fortalecer la atención sostenida durante actividades estructuradas, favoreciendo la permanencia en la tarea.', i:'Mantiene la atención en actividades estructuradas durante 10 minutos con mínimo apoyo verbal.' },
+    'Comportamental':{ d:'Se observan conductas oposicionistas frente al establecimiento de límites.', f:'Acepta normas y límites durante las actividades propuestas.', h:'autorregulación conductual',
+      o:'Promover la aceptación de normas y límites durante las actividades terapéuticas, incrementando las conductas de cooperación.', i:'Responde a las demandas terapéuticas aceptando límites y siguiendo instrucciones con menor frecuencia de conductas oposicionistas.' },
+    'Socioemocional':{ d:'Presenta baja tolerancia a la frustración ante la negación de deseos.', f:'Evidencia recursos de regulación emocional acordes a su edad.', h:'autorregulación emocional',
+      o:'Favorecer la regulación emocional frente a situaciones de espera y frustración, promoviendo respuestas conductuales adaptativas.', i:'Utiliza estrategias de autorregulación para afrontar situaciones de espera y negación de deseos con acompañamiento mínimo del terapeuta.' },
+    'Juego social':{ d:'Presenta dificultad para respetar turnos y reglas durante el juego compartido.', f:'Participa en juegos compartidos con pares y adultos.', h:'interacción social',
+      o:'Desarrollar habilidades de interacción social durante el juego con pares, favoreciendo la participación en actividades compartidas.', i:'Espera su turno durante actividades dirigidas utilizando estrategias de autorregulación y permanece en la actividad hasta finalizarla.' },
+    'Juego individual':{ d:'Presenta un juego poco estructurado, con dificultad para organizar secuencias de juego simbólico.', f:'Desarrolla juego simbólico con secuencias organizadas.', h:'juego funcional y simbólico',
+      o:'Potenciar el juego funcional y simbólico durante actividades de juego dirigido, favoreciendo la organización y la creatividad en el juego.', i:'Desarrolla secuencias de juego simbólico con inicio, desarrollo y cierre durante el juego dirigido con mínimo apoyo del terapeuta.' }
+  },
+  to:{
+    'Procesamiento y percepción':{ d:'Presenta dificultades en la planificación motora y requiere apoyo para la organización secuencial de tareas.', f:'Organiza y ejecuta secuencias de tareas acordes a su edad.', h:'la planificación motora',
+      o:'Favorecer la planificación motora durante actividades funcionales, promoviendo la ejecución organizada de tareas.', i:'Ejecuta secuencias de actividades con apoyo mínimo.' },
+    'Habilidades motoras':{ d:'Presenta dificultades en la coordinación motora fina durante actividades manipulativas.', f:'Evidencia adecuada coordinación motora durante actividades manipulativas.', h:'la coordinación motora fina',
+      o:'Desarrollar habilidades de coordinación motora fina durante actividades manipulativas, favoreciendo la precisión en los movimientos.', i:'Manipula objetos pequeños con mayor precisión durante actividades funcionales.' },
+    'Juego y participación social':{ d:'Presenta dificultad para participar en actividades lúdicas compartidas siguiendo sus normas.', f:'Participa en actividades lúdicas compartidas.', h:'la participación social en el juego',
+      o:'Promover la participación en el juego durante actividades lúdicas compartidas, facilitando la participación ocupacional.', i:'Participa en actividades lúdicas compartidas siguiendo las normas del juego con máximo dos redirecciones.' },
+    'Actividades de la vida diaria':{ d:'Requiere apoyo para la ejecución de actividades de la vida diaria.', f:'Realiza actividades de la vida diaria con independencia acorde a su edad.', h:'la independencia en las actividades de la vida diaria',
+      o:'Favorecer la independencia en las actividades de la vida diaria durante las rutinas de alimentación, vestido e higiene, promoviendo la autonomía personal.', i:'Realiza las rutinas de vestido, alimentación e higiene con apoyo verbal mínimo.' },
+    'Desempeño escolar':{ d:'Evidencia baja tolerancia a actividades de mesa que demandan motricidad fina prolongada.', f:'Permanece en actividades de mesa durante el tiempo previsto.', h:'la organización de actividades funcionales',
+      o:'Favorecer la permanencia en actividades de mesa, facilitando la participación ocupacional.', i:'Permanece en actividades manipulativas durante el tiempo previsto para la tarea.' }
+  },
+  is:{
+    'Observación general':{ d:'Requiere apoyo para mantener la atención y la interacción durante la sesión.', f:'Mantiene la atención y la interacción con el terapeuta durante la sesión.', h:'la atención y la disposición para la interacción',
+      o:'Favorecer la atención y la interacción durante actividades dirigidas, promoviendo la participación en las actividades propuestas.', i:'Mantiene la atención y la interacción con el terapeuta durante actividades dirigidas con mínimo apoyo verbal.' },
+    'Táctil':{ d:'Presenta respuestas de evitación o malestar ante el contacto y algunas texturas.', f:'Tolera el contacto y las diferentes texturas.', h:'la modulación táctil',
+      o:'Favorecer la modulación de la información táctil durante actividades con diferentes texturas, promoviendo respuestas adaptativas ante el contacto.', i:'Tolera el contacto con diferentes texturas durante actividades dirigidas con acompañamiento mínimo del terapeuta.' },
+    'Vestibular':{ d:'Presenta búsqueda o evitación de estímulos de movimiento que interfiere con su participación.', f:'Responde de manera adaptativa a los estímulos de movimiento.', h:'el procesamiento vestibular',
+      o:'Promover el procesamiento vestibular durante actividades de movimiento, favoreciendo respuestas posturales y conductuales adaptativas.', i:'Participa en actividades de movimiento regulando la búsqueda o evitación de estímulos vestibulares, con mínimo apoyo del terapeuta.' },
+    'Propioceptivo':{ d:'Evidencia dificultad para graduar la fuerza y mantener el control postural.', f:'Gradúa la fuerza y mantiene el control postural.', h:'la conciencia corporal',
+      o:'Fortalecer el procesamiento propioceptivo durante actividades motoras dirigidas, favoreciendo la graduación de la fuerza y el control postural.', i:'Gradúa la fuerza y mantiene el control postural durante actividades motoras dirigidas con apoyo mínimo del terapeuta.' },
+    'Praxis e ideación':{ d:'Presenta dificultades en la planificación motora ante actividades novedosas.', f:'Planea y ejecuta secuencias motoras novedosas.', h:'la praxis',
+      o:'Desarrollar la planificación motora durante actividades motoras novedosas, promoviendo la ejecución organizada de secuencias de movimiento.', i:'Planea y ejecuta secuencias motoras novedosas de dos a tres pasos con máximo una demostración del terapeuta.' },
+    'Regulación emocional':{ d:'Presenta baja tolerancia a la frustración y dificultad para adaptarse a cambios de rutina.', f:'Se adapta a los cambios de rutina con recursos de autorregulación.', h:'la autorregulación emocional',
+      o:'Promover la regulación emocional frente a estímulos sensoriales y cambios de rutina, facilitando respuestas conductuales adaptativas.', i:'Utiliza estrategias de autorregulación ante estímulos sensoriales o cambios de rutina con acompañamiento mínimo del terapeuta.' },
+    'Alimentación':{ d:'Presenta selectividad alimentaria y rechazo a determinadas texturas, sabores u olores.', f:'Acepta alimentos de diferentes texturas y sabores.', h:'la aceptación de texturas y sabores',
+      o:'Favorecer la aceptación de nuevas texturas y sabores durante actividades de exploración alimentaria, promoviendo una alimentación más variada.', i:'Explora y acepta nuevas texturas y sabores durante actividades de exploración alimentaria con apoyo mínimo.' },
+    'Conductas':{ d:'Presenta conductas de búsqueda o evitación sensorial que interfieren con la permanencia en la tarea.', f:'Permanece en las actividades estructuradas sin conductas que interfieran.', h:'las respuestas conductuales adaptativas',
+      o:'Favorecer la permanencia en actividades estructuradas, promoviendo respuestas conductuales adaptativas.', i:'Permanece en la actividad estructurada con menor frecuencia de conductas de búsqueda o evitación sensorial y con máximo dos redirecciones.' }
+  },
+  fono:{
+    'edad':{ d:'Presenta dificultades para comprender instrucciones y expresarse de acuerdo con lo esperado para su edad.', f:'Evidencia habilidades comunicativas acordes a lo esperado para su edad.', h:'comprensión y expresión del lenguaje',
+      o:'Favorecer la comprensión de instrucciones durante actividades terapéuticas, promoviendo una respuesta adecuada.', i:'Comprende instrucciones de dos pasos con apoyo mínimo.' },
+    'Fonológico':{ d:'Presenta alteraciones en la producción de algunos sonidos del habla que afectan su inteligibilidad.', f:'Produce los sonidos del habla esperados para su edad.', h:'producción del habla',
+      o:'Favorecer la producción de los sonidos del habla durante actividades de repetición y lenguaje espontáneo, promoviendo la inteligibilidad del habla.', i:'Produce los fonemas trabajados en palabras y frases durante actividades dirigidas con máximo una corrección del terapeuta.' },
+    'Pragmática':{ d:'Presenta dificultades en el uso funcional del lenguaje durante la interacción.', f:'Hace uso funcional del lenguaje en la interacción.', h:'uso funcional del lenguaje',
+      o:'Promover el uso funcional del lenguaje durante situaciones comunicativas estructuradas, favoreciendo la participación en la conversación.', i:'Participa activamente en intercambios comunicativos durante la sesión.' },
+    'Semántico':{ d:'Presenta un vocabulario reducido para su edad y requiere apoyos visuales para favorecer la comprensión.', f:'Evidencia un vocabulario acorde a su edad.', h:'vocabulario comprensivo y expresivo',
+      o:'Fortalecer el vocabulario comprensivo y expresivo durante actividades de denominación y categorización, favoreciendo la expresión de ideas.', i:'Denomina y categoriza objetos y acciones de su entorno durante actividades dirigidas con apoyo visual.' },
+    'Sintaxis':{ d:'Evidencia alteraciones en la estructuración del lenguaje expresivo.', f:'Estructura frases acordes a su edad.', h:'estructuración del lenguaje expresivo',
+      o:'Desarrollar habilidades de lenguaje expresivo durante actividades de descripción y narración, incrementando la organización de frases funcionales.', i:'Utiliza frases funcionales durante actividades dirigidas.' },
+    'Conciencia fonológica':{ d:'Presenta dificultades para identificar y segmentar sílabas y sonidos en las palabras.', f:'Identifica y segmenta sílabas y sonidos en las palabras.', h:'conciencia fonológica',
+      o:'Fortalecer la conciencia fonológica durante actividades de segmentación y rima, favoreciendo las bases para la lectoescritura.', i:'Identifica y segmenta sílabas y sonidos en palabras con máximo una repetición de la instrucción.' },
+    'Escritura':{ d:'Presenta dificultades en la escritura de palabras y frases acordes a su nivel escolar.', f:'Escribe palabras y frases acordes a su nivel escolar.', h:'escritura',
+      o:'Favorecer las habilidades de escritura durante actividades académicas dirigidas, promoviendo la expresión escrita funcional.', i:'Escribe palabras y frases cortas trabajadas en sesión con apoyo visual y mínima corrección del terapeuta.' },
+    'Lectura':{ d:'Presenta dificultades en la lectura y la comprensión de textos acordes a su nivel escolar.', f:'Lee y comprende textos acordes a su nivel escolar.', h:'lectura y comprensión lectora',
+      o:'Fortalecer la lectura y la comprensión lectora durante actividades de lectura dirigida, favoreciendo el desempeño académico.', i:'Lee y comprende textos cortos acordes a su nivel con mínimo apoyo del terapeuta.' }
+  },
+  fisio:{
+    'Tono muscular':{ d:'Presenta alteración del tono muscular que interfiere con el control del movimiento.', f:'Presenta un tono muscular adecuado para el movimiento funcional.', h:'la regulación del tono muscular',
+      o:'Favorecer la regulación del tono muscular durante actividades posturales y de movimiento, promoviendo patrones de movimiento funcionales.', i:'Mantiene posturas y realiza movimientos funcionales con facilitación mínima del terapeuta.' },
+    'Hiperlaxitud':{ d:'Evidencia hiperlaxitud articular que disminuye la estabilidad durante la carga de peso.', f:'Evidencia adecuada estabilidad articular.', h:'la estabilidad articular',
+      o:'Favorecer la estabilidad articular durante actividades de carga y movimiento, promoviendo un desempeño motor seguro.', i:'Mantiene una alineación articular adecuada durante actividades de carga de peso con apoyo mínimo del terapeuta.' },
+    'Reflejos':{ d:'Presenta persistencia o alteración de reflejos que interfiere con el movimiento voluntario.', f:'Presenta respuestas reflejas acordes a su edad.', h:'la maduración neuromotora',
+      o:'Favorecer la integración refleja durante actividades de estimulación motora, promoviendo la adquisición de patrones motores voluntarios.', i:'Realiza movimientos voluntarios controlados durante actividades dirigidas con facilitación mínima del terapeuta.' },
+    'Sistema tegumentario':{ d:'Presenta alteraciones en la piel que requieren vigilancia durante el posicionamiento y la actividad.', f:'Conserva la integridad de la piel.', h:'la integridad de la piel',
+      o:'Preservar la integridad de la piel durante las actividades terapéuticas y de la vida diaria, favoreciendo una participación segura en el movimiento.', i:'Conserva la integridad de la piel durante el posicionamiento y la actividad, según observación clínica.' },
+    'Arcos de movilidad':{ d:'Presenta limitación en los arcos de movilidad articular.', f:'Conserva arcos de movilidad funcionales.', h:'la movilidad articular',
+      o:'Favorecer los arcos de movilidad articular durante actividades funcionales, facilitando la ejecución de movimientos amplios y eficientes.', i:'Realiza los movimientos funcionales trabajados con mayor amplitud y de forma confortable.' },
+    'Reacciones de enderezamiento y protectoras':{ d:'Presenta reacciones de enderezamiento y protección disminuidas ante los desequilibrios.', f:'Activa reacciones de enderezamiento y protección ante los desequilibrios.', h:'las reacciones de enderezamiento y protección',
+      o:'Promover las reacciones de enderezamiento y protección durante cambios de posición y desplazamientos, favoreciendo un desplazamiento seguro.', i:'Activa reacciones de protección ante desequilibrios durante actividades dinámicas con mínima asistencia.' },
+    'Reacciones de equilibrio y balance':{ d:'Presenta disminución del equilibrio dinámico durante la marcha.', f:'Mantiene el equilibrio estático y dinámico.', h:'el equilibrio',
+      o:'Favorecer el equilibrio dinámico durante actividades funcionales, promoviendo un desplazamiento seguro.', i:'Mantiene el equilibrio durante actividades dinámicas con mínima asistencia.' },
+    'Movilidad y transiciones funcionales':{ d:'Requiere apoyo parcial para cambios de posición.', f:'Realiza cambios de posición de forma independiente.', h:'la movilidad funcional',
+      o:'Promover la independencia durante los cambios de posición, favoreciendo el desempeño funcional.', i:'Realiza cambios de posición con menor apoyo físico.' },
+    'Marcha':{ d:'Presenta alteraciones en el patrón de marcha que afectan la seguridad del desplazamiento.', f:'Realiza marcha funcional e independiente.', h:'el patrón de marcha',
+      o:'Favorecer un patrón de marcha estable durante los desplazamientos en diferentes superficies, promoviendo un desplazamiento seguro.', i:'Se desplaza de manera más segura durante las actividades terapéuticas.' },
+    'Habilidades motoras gruesas':{ d:'Presenta dificultades en las habilidades motoras gruesas esperadas para su edad.', f:'Ejecuta las habilidades motoras gruesas esperadas para su edad.', h:'las habilidades motoras gruesas',
+      o:'Desarrollar habilidades motoras gruesas durante actividades de juego y movimiento, favoreciendo la participación en actividades propias de su edad.', i:'Ejecuta los patrones motores gruesos trabajados en sesión con apoyo mínimo del terapeuta.' },
+    'Postura':{ d:'Presenta alteraciones posturales en sedente y bípedo.', f:'Mantiene una postura alineada en sedente y bípedo.', h:'el control postural',
+      o:'Fortalecer el control postural durante actividades en sedente y bípedo, favoreciendo la participación en actividades funcionales.', i:'Mantiene una postura alineada en sedente y bípedo durante las actividades de la sesión con máximo dos correcciones verbales.' },
+    'Columna':{ d:'Presenta alteraciones en la alineación de la columna vertebral.', f:'Presenta adecuada alineación de la columna vertebral.', h:'la alineación del tronco',
+      o:'Favorecer la alineación de la columna vertebral durante actividades posturales, promoviendo un adecuado control postural.', i:'Mantiene la alineación del tronco durante actividades posturales con mínimas correcciones del terapeuta.' },
+    'Fuerza muscular y movilidad articular':{ d:'Evidencia debilidad muscular en miembros inferiores.', f:'Presenta fuerza muscular funcional.', h:'la fuerza muscular',
+      o:'Fortalecer la fuerza muscular de miembros inferiores durante actividades motoras funcionales, facilitando la ejecución de actividades motoras.', i:'Realiza actividades motoras funcionales que demanden fuerza con menor apoyo físico.' },
+    'Sistema musculoesquelético':{ d:'Presenta alteraciones musculoesqueléticas que afectan la alineación y el movimiento.', f:'No se evidencian alteraciones musculoesqueléticas relevantes.', h:'la alineación musculoesquelética',
+      o:'Favorecer la alineación y la función musculoesquelética durante actividades posturales y de movimiento, promoviendo un desempeño motor funcional.', i:'Realiza actividades posturales y de movimiento con adecuada alineación y de forma confortable, según observación clínica.' }
+  },
+  taller:{
+    'Autocuidado':{ d:'Requiere apoyo en las actividades de autocuidado.', f:'Realiza de forma independiente actividades de autocuidado.', h:'el autocuidado',
+      o:'Favorecer la independencia en las actividades de autocuidado durante las rutinas de alimentación, vestido, baño y aseo, promoviendo la autonomía personal.', i:'Realiza las rutinas de autocuidado trabajadas en sesión con apoyo verbal mínimo.' },
+    'Control de esfínteres':{ d:'Presenta control de esfínteres incompleto y requiere apoyo en las rutinas de higiene.', f:'Presenta control de esfínteres.', h:'el control de esfínteres',
+      o:'Promover el control de esfínteres durante las rutinas diarias de higiene, favoreciendo la autonomía personal.', i:'Anticipa y comunica la necesidad de ir al baño durante la jornada con recordatorios mínimos.' },
+    'Movilidad':{ d:'Requiere apoyo para los traslados entre superficies.', f:'Realiza los traslados de forma independiente.', h:'los traslados',
+      o:'Favorecer la independencia en los traslados entre superficies, promoviendo un desplazamiento seguro.', i:'Realiza los traslados trabajados en sesión con supervisión y apoyo físico mínimo.' },
+    'Deambulación':{ d:'Requiere apoyo para desplazarse en el entorno y usar escaleras.', f:'Se desplaza en el entorno de forma independiente.', h:'la deambulación',
+      o:'Promover la deambulación funcional durante los desplazamientos en el entorno y el uso de escaleras, favoreciendo la independencia en el desplazamiento.', i:'Se desplaza en el entorno y sube y baja escaleras de forma segura con supervisión.' },
+    'Comunicación':{ d:'Presenta dificultades para expresar necesidades y seguir instrucciones.', f:'Expresa sus necesidades y sigue instrucciones sencillas.', h:'la comunicación funcional',
+      o:'Favorecer la comunicación funcional durante las rutinas diarias, facilitando la expresión de necesidades y el seguimiento de instrucciones.', i:'Sigue instrucciones de dos pasos con máximo una repetición de la instrucción.' },
+    'Conocimiento':{ d:'Requiere apoyo para la orientación y la resolución de situaciones cotidianas.', f:'Se orienta y resuelve situaciones cotidianas sencillas.', h:'la resolución de problemas cotidianos',
+      o:'Favorecer la resolución de problemas cotidianos durante actividades funcionales de la vida diaria, promoviendo la participación autónoma.', i:'Resuelve situaciones cotidianas sencillas trabajadas en sesión con apoyo verbal mínimo.' }
+  }
+};
+/* Habilidades concretas según el texto de cada ítem no logrado (primera coincidencia):
+   así el objetivo sale de lo que el niño/a aún no logra y no del componente completo. */
+const SUB = {
+  psi:[
+    { re:/instrucci/, h:'seguimiento de instrucciones',
+      o:'Favorecer el seguimiento de instrucciones de varios pasos durante actividades estructuradas, promoviendo la ejecución organizada de la tarea.', i:'Sigue instrucciones de varios pasos durante actividades estructuradas con máximo una repetición de la instrucción.' },
+    { re:/atenci|atiende|concentr|foco|distrae|involucrado|finalizar actividades/, h:'atención sostenida',
+      o:'Fortalecer la atención sostenida y la concentración en su propia tarea durante actividades estructuradas, favoreciendo la permanencia en la tarea.', i:'Mantiene la concentración en su propia tarea durante actividades estructuradas con mínimo apoyo verbal.' },
+    { re:/recuerd|recuper|evoca|retiene|memoria|reproduce|imita acciones observadas/, h:'memoria',
+      o:'Favorecer la memoria y la evocación de información reciente durante actividades de conversación, cuentos y juego dirigido, promoviendo la organización de sus experiencias y el aprendizaje.', i:'Recupera y relata información de experiencias recientes durante actividades dirigidas con mínimo apoyo del terapeuta.' },
+    { re:/clasific|categor|concepto|semejanz|diferenci|razon|causa|rompecabezas|asociaci|relaciona|identifica|resolver|problema|abstract|hip[oó]tesis|anticipa|ordena|agrupa|cantidad|formas|colores|funci[oó]n/, h:'razonamiento',
+      o:'Fortalecer los procesos de razonamiento, clasificación y resolución de problemas durante actividades cognitivas estructuradas, favoreciendo el aprendizaje funcional.', i:'Clasifica, asocia y resuelve problemas sencillos acordes a su edad durante actividades estructuradas con mínimo apoyo del terapeuta.' },
+    { re:/espera|impuls|inhibe/, h:'control de impulsos',
+      o:'Favorecer la tolerancia a la espera y el control de impulsos durante actividades estructuradas y de juego, promoviendo respuestas conductuales adaptativas.', i:'Espera su turno y controla respuestas impulsivas durante actividades estructuradas con máximo dos redirecciones.' },
+    Object.assign({ re:/frustr|regula|cambios|fracaso|consuelo|apoyo del adulto/ }, MAPA.psi['Socioemocional']),
+    { re:/emoci|empat|siente|simpat|satisf/, h:'reconocimiento y expresión emocional',
+      o:'Favorecer el reconocimiento y la expresión de emociones propias y de los demás durante actividades lúdicas y de interacción, promoviendo la comprensión emocional.', i:'Identifica y expresa emociones básicas propias y de otros durante actividades dirigidas con mínimo apoyo del terapeuta.' },
+    Object.assign({ re:/pares|niños|grup|compart|coopera|roles?\b|paralelo|interacci|equipo|compañero|turno/ }, MAPA.psi['Juego social']),
+    Object.assign({ re:/l[ií]mite|norma|regla|"no"|responsabilid|rutina|peligro|supervisi|conducta|comportamiento|independencia|autonom/ }, MAPA.psi['Comportamental']),
+    Object.assign({ re:/juego|simb[oó]lic|historias|construcci|simulaci|escenas|estrategias|planifica|desempeño/ }, MAPA.psi['Juego individual'])
+  ]
+};
+// En Integración Sensorial marcar "Sí" significa que hay un hallazgo (dificultad).
+const INVERTIDO = FORM_ID === 'is';
+const NO_OBJETIVO = /^(Motivo de consulta|Antecedentes)$/;
+// Verbos de la guía: los que se usan y los que se evitan al iniciar un objetivo.
+const VERBOS = ['Fortalecer','Favorecer','Promover','Desarrollar','Potenciar','Optimizar','Facilitar'];
+const VERBOS_OK = VERBOS.concat(['Preservar','Incrementar','Mejorar']);
+const VERBOS_NO = ['Trabajar','Hacer','Realizar','Ejecutar','Ayudar','Mantener','Aplicar','Manejar'];
+const CODIGO = 'R-AMI-055', VIGENTE = '20/08/2021';
+const MIN_OBJETIVOS = 3; // la institución pide mínimo 3 objetivos específicos, cada uno con su indicador
+
+function vacio(){ return { hc:'', periodo:'', area:'', socializacion:'', aprobo:'', hallazgos:'', objGeneral:'', objEspecificos:'', indicadores:'', base:'' }; }
+state.plan = vacio();
+try{ const d = readDraft(); if(d && d.state && d.state.plan && typeof d.state.plan === 'object') Object.assign(state.plan, d.state.plan); }catch(e){}
+
+function h(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function min1(s){ return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+function may1(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function lineas(s){ return String(s||'').split('\n').map(l=>l.trim()).filter(Boolean); }
+function unir(arr){ return arr.length < 2 ? arr.join('') : arr.slice(0,-1).join(', ') + ' y ' + arr[arr.length-1]; }
+function lista(arr, n){ return arr.slice(0,n).map(min1).join('; ') + (arr.length > n ? '; entre otros' : ''); }
+
+/* ---------- Lectura de la valoración ---------- */
+function hojas(){
+  try{
+    if(typeof reportSheet === 'function') return [reportSheet()];
+    if(typeof sheetsForReport === 'function') return sheetsForReport();
+  }catch(e){}
+  return [activeSheet()];
+}
+function textoItem(it){ return String(typeof itemLabel === 'function' ? itemLabel(it) : it.text).trim().replace(/[.;:,\s]+$/,''); }
+function estado(v){
+  if(v === undefined || v === null || v === 'na') return null;
+  if(INVERTIDO) return v === true ? 'dif' : 'ok';
+  return (v === true || v === 10) ? 'ok' : 'dif';
+}
+function analizar(){
+  const out = [];
+  hojas().forEach(sh=>{
+    if(!sh) return;
+    COMPONENTS.forEach(c=>{
+      const ok = [], dif = [];
+      (sh.comp[c] || []).forEach(it=>{ const e = estado(state.answers[it.id]); if(e === 'ok') ok.push(textoItem(it)); else if(e === 'dif') dif.push(textoItem(it)); });
+      if(!ok.length && !dif.length) return;
+      out.push({ c:c, nombre: sh.extra ? c + ' (' + sh.label + ')' : c, ok:ok, dif:dif, logro: ok.length/(ok.length+dif.length),
+        nota: ((state.compNotes || {})[sh.key + '::' + c] || '').trim() });
+    });
+  });
+  return out;
+}
+
+/* ---------- Texto sugerido (secuencia Hallazgo → Objetivo → Indicador) ---------- */
+// Ítems sin repetir el nombre del componente (en Fisioterapia algunos se llaman igual).
+function detalle(x, arr, n){ const v = arr.filter(s=> s.toLowerCase() !== x.c.toLowerCase()); return v.length ? lista(v, n) : ''; }
+function ficha(x){
+  const m = MAPA[FORM_ID] || {};
+  return m[x.c] || (/^\d/.test(x.c) && m.edad) || {
+    d:'Presenta dificultades en ' + min1(x.nombre) + '.', f:'Evidencia un desempeño adecuado en ' + min1(x.nombre) + '.', h:min1(x.nombre),
+    o:'Fortalecer el desempeño en ' + min1(x.nombre) + ' durante actividades terapéuticas estructuradas, favoreciendo la participación funcional.',
+    i: may1(x.dif[0] || x.nombre) + ' durante la sesión terapéutica con apoyo mínimo del terapeuta.' };
+}
+function sugerido(){
+  const comps = analizar();
+  if(!comps.length) return null;
+  // Cada componente va en fortalezas o en dificultades, nunca en ambas, para que los
+  // objetivos (que salen de las dificultades) no contradigan las fortalezas.
+  const fuertes = comps.filter(x=> !x.dif.length && !NO_OBJETIVO.test(x.c));
+  const debiles = comps.filter(x=> x.dif.length && !(INVERTIDO && NO_OBJETIVO.test(x.c)));
+  // Si todos los componentes tienen algo pendiente, las fortalezas son los ítems que sí logra.
+  const parciales = fuertes.length || INVERTIDO ? [] : debiles.filter(x=> x.logro >= 0.5);
+  // Hallazgo clínico: descripción objetiva de fortalezas y dificultades que fundamentan los objetivos,
+  // con lo observado en la valoración entre paréntesis.
+  const L = [], vistosH = {};
+  const una = (txt, ev) => { if(vistosH[txt]) return; vistosH[txt] = 1; L.push('• ' + (ev ? txt.replace(/\.$/,'') + ' (' + ev + ').' : txt)); };
+  if(INVERTIDO){
+    const ref = comps.filter(x=> x.dif.length && NO_OBJETIVO.test(x.c));
+    if(ref.length){ L.push('Motivo de consulta y antecedentes:'); ref.forEach(x=> L.push('• ' + x.nombre + ': ' + lista(x.dif, 4) + '.')); L.push(''); }
+  }
+  if(fuertes.length || parciales.length){
+    L.push('Fortalezas:');
+    fuertes.forEach(x=> una(ficha(x).f, ''));
+    parciales.forEach(x=> L.push('• ' + x.nombre + ': logra ' + lista(x.ok, 3) + '.'));
+  }
+  if(debiles.length){
+    if(L.length) L.push('');
+    L.push('Dificultades:');
+    // Se describe exactamente lo que no logró en la valoración, del componente más bajo al más alto.
+    debiles.slice().sort((a,b)=>a.logro-b.logro).forEach(x=>{
+      const ev = detalle(x, x.dif, 4).replace(/\.\s+(\S)/g, (m, c)=> ', ' + c.toLowerCase());
+      if(INVERTIDO || !ev) una(ficha(x).d, ev ? 'se observa: ' + ev : '');
+      else L.push('• ' + x.nombre + ': ' + (FORM_ID === 'taller' ? 'requiere apoyo en: ' : 'aún no logra: ') + ev + '.');
+    });
+  }
+  const notas = comps.filter(x=>x.nota);
+  if(notas.length){ L.push(''); L.push('Observaciones clínicas:'); notas.forEach(x=> L.push('• ' + x.nombre + ': ' + x.nota.replace(/[.\s]+$/,'') + '.')); }
+
+  // Un objetivo por habilidad (en Fonoaudiología varios rangos de edad comparten la misma).
+  // Los objetivos salen de los ítems no logrados, empezando por el componente más bajo.
+  const vistos = {}, foco = [], subs = SUB[FORM_ID] || [];
+  const agregar = f => { if(!vistos[f.o] && foco.length < 5){ vistos[f.o] = 1; foco.push(f); } };
+  debiles.slice().sort((a,b)=>a.logro-b.logro).forEach(x=>{
+    let alguno = false;
+    x.dif.forEach(t=>{ const s = subs.find(s=> s.re.test(t.toLowerCase())); if(s){ alguno = true; agregar(s); } });
+    if(!alguno) agregar(ficha(x));
+  });
+  const conDificultad = foco.length;
+  const hs = foco.slice(0,3).map(f=>f.h);
+  if(conDificultad){
+    // Mínimo 3 objetivos específicos: se completan con la autonomía y la generalización
+    // de esas mismas habilidades, sin traer áreas que salieron como fortaleza.
+    const hab = unir(hs);
+    [{ o:'Promover la autonomía en las actividades que demandan ' + hab + ', disminuyendo progresivamente los apoyos del terapeuta.',
+       i:'Realiza las actividades que demandan ' + hab + ' con apoyo verbal mínimo del terapeuta.' },
+     { o:'Favorecer la generalización de las habilidades relacionadas con ' + hab + ' trabajadas en sesión al hogar y a otros entornos cotidianos, promoviendo su desempeño funcional.',
+       i:'Aplica en el hogar y en otros entornos cotidianos las habilidades relacionadas con ' + hab + ' trabajadas en sesión, según reporte de la familia.' }
+    ].forEach(f=>{ if(foco.length < MIN_OBJETIVOS) agregar(f); });
+  } else {
+    // Sin dificultades: se consolidan las áreas evaluadas, empezando por las de menor logro.
+    comps.filter(x=>!NO_OBJETIVO.test(x.c)).sort((a,b)=>a.logro-b.logro).concat(Object.keys(MAPA[FORM_ID] || {}).map(c=>({ c:c, nombre:c, dif:[] }))).forEach(x=>{
+      if(foco.length < MIN_OBJETIVOS) agregar(ficha(x));
+    });
+  }
+  let general, esp, ind;
+  if(!conDificultad){
+    general = 'Preservar y potenciar las habilidades evidenciadas en la valoración, favoreciendo una participación funcional en los diferentes contextos de desempeño.';
+    esp = foco.map(f=>f.o);
+    ind = foco.map(f=>f.i);
+  } else {
+    // General: verbo + habilidades principales + propósito funcional (amplio, sin contexto).
+    general = (GENERAL[FORM_ID] || 'Fortalecer las habilidades de {h}, favoreciendo una participación funcional.').replace('{h}', unir(hs));
+    // Específicos: verbo + habilidad específica + contexto + propósito funcional.
+    esp = foco.map(f=>f.o);
+    ind = foco.map(f=>f.i);
+  }
+  return { hallazgos: L.join('\n'), objGeneral: general, objEspecificos: esp.join('\n'), indicadores: ind.join('\n') };
+}
+function firma(s){ return s ? JSON.stringify([s.hallazgos, s.objGeneral, s.objEspecificos, s.indicadores]) : ''; }
+
+/* ---------- Datos del encabezado ---------- */
+function finPeriodo(iso){
+  if(!iso) return '';
+  const [y,m] = iso.split('-').map(Number);
+  return m <= 6 ? y + '-06-30' : y + '-12-31'; // el cierre (junio o diciembre) más cercano
+}
+function datos(){
+  const p = state.plan, ev = state.evaluator || {};
+  const hcAuto = [state.tipoId, state.numeroId].filter(Boolean).join(' ');
+  const perAuto = state.evalDate ? fmtDate(state.evalDate) + ' al ' + fmtDate(finPeriodo(state.evalDate)) : '';
+  return {
+    nombre: state.childName || '',
+    hc: p.hc || hcAuto, hcAuto: hcAuto,
+    edad: state.birthDate ? ageLabel(monthsBetween(state.birthDate, null)) : '',
+    diag: state.cie10Diag || '', cie: state.cie10Code || '',
+    ingreso: state.evalDate ? fmtDate(state.evalDate) : '',
+    periodo: p.periodo || perAuto, perAuto: perAuto,
+    area: p.area || AREAS[FORM_ID] || FORM_TITLE, areaAuto: AREAS[FORM_ID] || FORM_TITLE,
+    profesional: ev.name || '', tarjeta: ev.savedCard || ev.card || '', sello: ev.sealImg || '',
+    socializacion: p.socializacion ? fmtDate(p.socializacion) : '', aprobo: p.aprobo || ''
+  };
+}
+
+/* ---------- Vista en pantalla ---------- */
+const css = document.createElement('style');
+css.textContent = '.plan-doc{background:#fff;color:#1a1a1a;font:12px/1.45 Calibri,Arial,sans-serif;padding:16px;border-radius:10px;overflow-x:auto;border:1px solid var(--border)}'
+  + '.plan-doc table{width:100%;border-collapse:collapse;min-width:680px}.plan-doc td,.plan-doc th{border:1px solid #555;padding:5px 7px;vertical-align:top;text-align:left}'
+  + '.plan-doc th{text-align:center;font-weight:700}.plan-doc .pd-gris{color:#7f7f7f;font-weight:700;text-align:center;vertical-align:middle}'
+  + '.plan-doc .pd-datos td{border:0;padding:2px 6px}.plan-doc .pd-v{color:#1F3864}.plan-doc p{margin:0 0 3px}.plan-doc .pd-ind{padding-left:14px;text-indent:-14px}'
+  + '.plan-doc .pd-centro{text-align:center;vertical-align:middle}.plan-doc .pd-vacio{color:#999;font-style:italic}'
+  + '#planAviso:empty{display:none}'
+  + '.plan-guia{margin-top:12px;font-size:13px;line-height:1.55;color:var(--text)}.plan-guia p{margin:0 0 10px}'
+  + '.plan-verbos{border-collapse:collapse;margin:4px 0 12px}.plan-verbos td,.plan-verbos th{border:1px solid var(--border);padding:4px 14px;text-align:left}'
+  + '.plan-check{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}.plan-check:last-child{border-bottom:0}'
+  + '.plan-check .ico{flex:0 0 auto;width:22px;text-align:center}.plan-check small{display:block;color:var(--text-dim);margin-top:2px}';
+document.head.appendChild(css);
+
+const nav = document.createElement('a');
+nav.className = 'nav-item'; nav.dataset.view = 'plan';
+nav.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4h6v3H9z"/><path d="M8 5H6v16h12V5h-2"/><path d="M9 12l2 2 4-4M9 17h6"/></svg> Plan terapéutico';
+document.querySelector('.nav-item[data-view="informe"]').after(nav);
+views.push('plan');
+titles.plan = ['Plan terapéutico', '· Formato ' + CODIGO + ' para descargar en Word'];
+
+const campo = (id, lbl, extra) => '<label class="field"><span class="lbl">' + lbl + '</span><input class="input" id="' + id + '" autocomplete="off" ' + (extra||'') + '></label>';
+const texto = (id, lbl, alto, ph) => '<label class="field" style="margin-top:12px;"><span class="lbl">' + lbl + '</span><textarea class="input" id="' + id + '" style="min-height:' + alto + 'px;" placeholder="' + ph + '"></textarea></label>';
+// Resumen de la guía institucional (principios, secuencia, fórmulas, verbos e indicadores).
+const GUIA = '<p><b>Principios:</b> el plan orienta la intervención según los hallazgos de la valoración; debe ser individualizado, pertinente, con continuidad y trazable. Un buen plan es <b>objetivo</b> (cualquier profesional lo entiende), <b>observable</b>, <b>medible</b> y <b>clínicamente útil</b>. No necesita porcentajes.</p>'
+  + '<p><b>Secuencia: Hallazgo → Objetivo → Indicador.</b> El hallazgo describe lo que observé; el objetivo, lo que quiero lograr; el indicador, cómo evidenciaré ese logro.</p>'
+  + '<p><b>Hallazgo clínico:</b> descripción objetiva de capacidades, dificultades, necesidades y fortalezas de la valoración (no solo el diagnóstico). Ej.: <i>Presenta baja tolerancia a la frustración ante la negación de deseos.</i></p>'
+  + '<p><b>Objetivo general:</b> verbo + función o habilidad principal + propósito funcional; amplio y sin contexto. Ej.: <i>Fortalecer las habilidades de autorregulación conductual, atención sostenida y adaptación a las demandas del entorno, favoreciendo una participación funcional en los diferentes contextos de desempeño.</i></p>'
+  + '<p><b>Objetivos específicos:</b> verbo + habilidad específica + contexto + propósito funcional. Ej.: <i>Promover la regulación emocional frente a situaciones de espera y frustración, facilitando respuestas conductuales adaptativas.</i></p>'
+  + '<p><b>Nota:</b> los objetivos describen el cambio esperado en el paciente; las técnicas o estrategias (economía de fichas, modelado…) van en el plan de intervención y en las evoluciones, no en el objetivo.</p>'
+  + '<table class="plan-verbos"><tr><th>Utilizar</th><th>Evitar</th></tr>'
+  + ['Fortalecer','Favorecer','Promover','Desarrollar','Facilitar','Preservar','Potenciar','Optimizar'].map((v,i)=>'<tr><td>' + v + '</td><td>' + VERBOS_NO[i] + '</td></tr>').join('') + '</table>'
+  + '<p><b>En CISADDE:</b> mínimo <b>' + MIN_OBJETIVOS + ' objetivos específicos</b>, cada uno con su indicador de logro, y los indicadores se escriben en <b>forma afirmativa y en presente</b> (lo que el paciente logra), como en los criterios de logro del Anexo 1.</p>'
+  + '<p><b>Indicador de logro:</b> desempeño observable que evidencia el avance. Responde: ¿qué conducta? ¿en qué contexto? ¿con qué criterio? ¿cómo sabré que mejoró?</p>'
+  + '<p>❌ <i>Mantendrá la atención durante 10 minutos en el 80 % de las sesiones.</i><br>✔ <i>Mantiene la atención en actividades estructuradas durante 10 minutos con mínimo apoyo verbal.</i></p>'
+  + '<p>❌ <i>Seguirá instrucciones de dos pasos en el 80 % de las oportunidades.</i><br>✔ <i>Sigue instrucciones de dos pasos con máximo una repetición de la instrucción.</i></p>'
+  + '<p>❌ <i>Disminuirá las conductas oposicionistas en un 70 %.</i><br>✔ <i>Responde a las demandas terapéuticas aceptando límites y siguiendo instrucciones con menor frecuencia de conductas oposicionistas.</i></p>'
+  + '<p>Evita indicadores como <i>mejorará, avanzará</i> o <i>estará mejor</i>: no se pueden medir.</p>'
+  + '<p><b>¿Es un buen plan?</b> ¿Los hallazgos describen la valoración y no solo el diagnóstico? ¿El objetivo general responde a las necesidades funcionales? ¿Los específicos desarrollan el general? ¿Los indicadores son observables y verificables? ¿Hay coherencia entre todo?</p>';
+const sec = document.createElement('section');
+sec.className = 'view'; sec.id = 'view-plan'; sec.hidden = true;
+sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Formato ' + CODIGO + '. Se llena con lo registrado en la valoración; revisa, corrige y descárgalo en Word.</p></div>'
+  + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="planRegenBtn">↻ Volver a generar</button><button class="btn primary" type="button" id="planWordBtn">⬇️ Descargar Word</button></div></div>'
+  + '<p class="tag-note" id="planAviso" style="margin-bottom:14px;"></p>'
+  + '<div class="card"><div class="card-head"><h3>Datos del plan</h3><span class="sub">Nombre, edad, diagnóstico y CIE se toman de la Portada</span></div><div class="grid cols-2">'
+  + campo('planHc', 'Historia clínica') + campo('planPeriodo', 'Periodo de ejecución') + campo('planArea', 'Área tratante')
+  + campo('planSocializacion', 'Fecha de socialización con el equipo', 'type="date"') + campo('planAprobo', 'Aprobó (Dirección Científica)')
+  + '</div></div>'
+  + '<div class="card"><div class="card-head"><h3>Hallazgos</h3><span class="sub">¿Qué encontré durante la valoración? Fortalezas y dificultades</span></div>'
+  + texto('planHallazgos', 'Hallazgos (las líneas que empiezan con • salen como viñetas)', 200, 'Fortalezas y dificultades encontradas…') + '</div>'
+  + '<div class="card"><div class="card-head"><h3>Objetivos e indicadores</h3><span class="sub">Verbo + habilidad + contexto + propósito funcional</span></div>'
+  + texto('planObjGeneral', 'Objetivo general: verbo + función o habilidad principal + propósito funcional (amplio, sin contexto)', 80, '¿Qué cambio global esperamos lograr en el paciente durante este periodo terapéutico?')
+  + texto('planObjEspecificos', 'Objetivos específicos (mínimo ' + MIN_OBJETIVOS + ', uno por línea): verbo + habilidad específica + contexto + propósito funcional', 140, '¿Qué logros concretos permitirán alcanzar el objetivo general?')
+  + texto('planIndicadores', 'Indicadores de logro (uno por línea, en el mismo orden de los objetivos, en afirmativo)', 140, 'Ej.: Mantiene la atención en actividades estructuradas con mínimo apoyo verbal.')
+  + '</div>'
+  + '<div class="card"><div class="card-head"><h3>Lista de verificación</h3><span class="sub">Se revisa sola mientras escribes</span></div><div id="planCheck"></div></div>'
+  + '<div class="card"><details><summary style="cursor:pointer;font-weight:800;font-size:14.5px;">📘 Guía rápida para redactar el plan (R-AMI-055)</summary><div class="plan-guia">' + GUIA + '</div></details></div>'
+  + '<div class="card"><div class="card-head"><h3>Vista previa</h3><span class="sub">Así se verá el cuerpo del documento en Word</span></div><div class="plan-doc" id="planPreview"></div></div>';
+document.getElementById('view-informe').after(sec);
+
+const CAMPOS = { planHc:'hc', planPeriodo:'periodo', planArea:'area', planSocializacion:'socializacion', planAprobo:'aprobo',
+  planHallazgos:'hallazgos', planObjGeneral:'objGeneral', planObjEspecificos:'objEspecificos', planIndicadores:'indicadores' };
+
+function avisar(sug){
+  const a = document.getElementById('planAviso');
+  if(!sug) a.textContent = '⚠ Aún no hay respuestas en Evaluación: marca los ítems y los hallazgos y objetivos se sugerirán solos.';
+  else if(state.plan.base && state.plan.base !== firma(sug)) a.textContent = '⚠ La valoración cambió después de generar el plan. Usa "Volver a generar" si quieres actualizar hallazgos, objetivos e indicadores (se reemplaza lo que escribiste en esos cuadros).';
+  else a.textContent = '';
+}
+function render(){
+  const sug = sugerido(), p = state.plan;
+  if(sug && !p.base){ Object.assign(p, sug); p.base = firma(sug); }
+  const d = datos();
+  Object.keys(CAMPOS).forEach(id=>{ const el = document.getElementById(id); if(document.activeElement !== el) el.value = p[CAMPOS[id]] || ''; });
+  document.getElementById('planHc').placeholder = d.hcAuto || 'Número de historia clínica';
+  document.getElementById('planPeriodo').placeholder = d.perAuto || 'Falta la fecha de valoración en la Portada';
+  document.getElementById('planArea').placeholder = d.areaAuto;
+  avisar(sug);
+  preview();
+  verificar();
+}
+/* Lista de verificación de la guía: se calcula con lo escrito en los cuadros. */
+function primerVerbo(s){ return (String(s||'').replace(/^\d+[.)]\s*/,'').trim().split(/[\s,]+/)[0] || '').replace(/^./, c=>c.toUpperCase()); }
+function verificar(){
+  const p = state.plan, esp = lineas(p.objEspecificos), ind = lineas(p.indicadores), out = [];
+  const malVerbo = [p.objGeneral].concat(esp).filter(Boolean).map(primerVerbo).filter(v=> !VERBOS_OK.includes(v));
+  const evitados = malVerbo.filter(v=> VERBOS_NO.includes(v));
+  const noMedibles = ind.filter(l=> /%|por ciento|\bmejorar[áa]\b|\bavanzar[áa]\b|estar[áa] mejor/i.test(l));
+  // Afirmativo: sin negaciones ni verbos en futuro ("No…", "sin…", "Mantendrá…").
+  const noAfirmativos = ind.filter(l=> /^(\d+[.)]\s*)?no\b|\bno (logra|presenta|realiza)\b|\bsin\b|^(\d+[.)]\s*)?(se\s+)?\S+(rá|rán)(\s|$)/i.test(l));
+  const estrategias = [p.objGeneral].concat(esp).filter(l=> /econom[ií]a de fichas|modelado|reforzamiento|refuerzo positivo|t[ée]cnica|mediante el uso|a trav[ée]s de (la|el|los|las) (t[ée]cnica|estrategia|terapia)/i.test(l || ''));
+  out.push([!!lineas(p.hallazgos).length, 'Hallazgos coherentes con la valoración', lineas(p.hallazgos).length ? 'Describen fortalezas y dificultades observadas; revisa que no sea solo el diagnóstico.' : 'Escribe los hallazgos de la valoración.']);
+  out.push([!!p.objGeneral && !malVerbo.length, 'Objetivos inician con un verbo recomendado', !p.objGeneral ? 'Falta el objetivo general.' : malVerbo.length ? 'Revisa: ' + malVerbo.join(', ') + (evitados.length ? ' (verbo a evitar)' : ' (no está en la lista recomendada)') + '.' : 'Fortalecer, Favorecer, Promover, Desarrollar, Facilitar, Preservar, Potenciar u Optimizar.']);
+  out.push([esp.length >= MIN_OBJETIVOS, 'Mínimo ' + MIN_OBJETIVOS + ' objetivos específicos', esp.length >= MIN_OBJETIVOS ? esp.length + ' objetivo(s) específico(s).' : 'Hay ' + esp.length + '; agrega al menos ' + (MIN_OBJETIVOS - esp.length) + ' más (uno por línea).']);
+  out.push([!!esp.length && esp.length === ind.length, 'Objetivos relacionados con los hallazgos, con un indicador por objetivo', esp.length === ind.length ? (esp.length + ' objetivo(s) específico(s) y ' + ind.length + ' indicador(es).') : 'Hay ' + esp.length + ' objetivo(s) específico(s) y ' + ind.length + ' indicador(es): deben coincidir en número y orden.']);
+  out.push([!!ind.length && !noMedibles.length, 'Indicadores medibles y sin porcentajes', noMedibles.length ? 'Corrige: "' + noMedibles[0].slice(0, 90) + '…"' : 'Conducta observable + contexto + criterio (apoyo mínimo, máximo dos redirecciones…).']);
+  out.push([!!ind.length && !noAfirmativos.length, 'Indicadores en forma afirmativa', noAfirmativos.length ? 'Escríbelo en afirmativo y en presente (ej.: "Mantiene la atención…"): "' + noAfirmativos[0].slice(0, 80) + '…"' : 'Describen en presente lo que el paciente logra (Mantiene, Sigue, Participa…).']);
+  out.push([!estrategias.length, 'Objetivos sin técnicas ni estrategias terapéuticas', estrategias.length ? 'Las técnicas van en el plan de intervención y en las evoluciones, no en el objetivo.' : 'Describen el cambio esperado en el paciente.']);
+  out.push([null, 'Sin errores ortográficos', 'Léelo una vez antes de descargarlo.']);
+  document.getElementById('planCheck').innerHTML = out.map(([ok, t, s])=>
+    '<div class="plan-check"><span class="ico">' + (ok === null ? '☐' : ok ? '✅' : '⚠️') + '</span><div><b>' + h(t) + '</b><small>' + h(s) + '</small></div></div>').join('');
+  return out.filter(o=> o[0] === false).length;
+}
+function parrafos(txt){
+  return lineas(txt).map(l=> /^[•\-*]/.test(l) ? '<p class="pd-ind">• ' + h(l.replace(/^[•\-*]\s*/,'')) + '</p>' : /:$/.test(l) ? '<p><b>' + h(l) + '</b></p>' : '<p>' + h(l) + '</p>').join('');
+}
+function numerados(txt){ return lineas(txt).map((l,i)=>'<p class="pd-ind">' + (i+1) + '. ' + h(l.replace(/^\d+[.)]\s*/,'')) + '</p>').join(''); }
+function preview(){
+  const d = datos(), p = state.plan, v = s => s ? '<span class="pd-v">' + h(s) + '</span>' : '<span class="pd-vacio">—</span>';
+  document.getElementById('planPreview').innerHTML =
+    '<table class="pd-datos" style="margin-bottom:12px;"><tr><td><b>Nombre:</b> ' + v(d.nombre) + '</td><td><b>Fecha de Ingreso:</b> ' + v(d.ingreso) + '</td></tr>'
+    + '<tr><td><b>Historia Clínica:</b> ' + v(d.hc) + '</td><td><b>Periodo de Ejecución:</b> ' + v(d.periodo) + '</td></tr>'
+    + '<tr><td><b>Edad:</b> ' + v(d.edad) + '</td><td></td></tr><tr><td><b>Diagnóstico:</b> ' + v(d.diag) + '</td><td><b>CIE:</b> ' + v(d.cie) + '</td></tr></table>'
+    + '<table><tr><td colspan="4"><b>ÁREA: ' + h(d.area) + '</b></td></tr>'
+    + '<tr><th style="width:24%">HALLAZGOS</th><th style="width:32%">OBJETIVOS</th><th style="width:27%">INDICADOR DE LOGRO</th><th style="width:17%">PROFESIONAL</th></tr>'
+    + '<tr><td style="text-align:justify">' + (parrafos(p.hallazgos) || '<span class="pd-vacio">—</span>') + '</td>'
+    + '<td><p><b>Objetivo General:</b></p><p>' + (h(p.objGeneral) || '<span class="pd-vacio">—</span>') + '</p><p>&nbsp;</p><p><b>Objetivos específicos:</b></p>' + numerados(p.objEspecificos) + '</td>'
+    + '<td>' + numerados(p.indicadores) + '</td>'
+    + '<td class="pd-centro">' + (d.sello ? '<img src="' + h(d.sello) + '" style="max-width:110px;max-height:70px;object-fit:contain;display:block;margin:0 auto 4px;">' : '')
+    + '<p><b>' + h(d.profesional || '—') + '</b></p>' + (d.tarjeta ? '<p>T.P. ' + h(d.tarjeta) + '</p>' : '') + '</td></tr>'
+    + '<tr><td colspan="4">Fecha de socialización con Equipo Asistencial interdisciplinario: ' + v(d.socializacion) + '</td></tr>'
+    + '<tr><td colspan="4">Aprobó: ' + (d.aprobo ? v(d.aprobo) : '') + '</td></tr><tr><td colspan="4">Dirección Científica</td></tr></table>';
+}
+let tPrev = null;
+sec.addEventListener('input', e=>{
+  const k = CAMPOS[e.target.id]; if(!k) return;
+  state.plan[k] = e.target.value;
+  clearTimeout(tPrev); tPrev = setTimeout(()=>{ preview(); verificar(); }, 250);
+});
+nav.addEventListener('click', ()=>{ goto('plan'); render(); });
+document.getElementById('planRegenBtn').addEventListener('click', ()=>{
+  const sug = sugerido();
+  if(!sug){ alert('Aún no hay respuestas en Evaluación para generar el plan.'); return; }
+  if(!confirm('¿Volver a generar hallazgos, objetivos e indicadores desde la valoración?\nSe reemplaza lo que escribiste en esos cuadros.')) return;
+  Object.assign(state.plan, sug); state.plan.base = firma(sug);
+  render(); queueSave();
+});
+
+/* ---------- Word (.docx) ---------- */
+const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+const AZUL = '1F3864', GRIS = '7F7F7F';
+function x(s){ return h(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,''); }
+function run(t, o){
+  o = o || {};
+  let pr = (o.b ? '<w:b/><w:bCs/>' : '') + (o.color ? '<w:color w:val="' + o.color + '"/>' : '') + (o.sz ? '<w:sz w:val="' + o.sz + '"/><w:szCs w:val="' + o.sz + '"/>' : '');
+  pr = pr ? '<w:rPr>' + pr + '</w:rPr>' : '';
+  // Un tabulador después de la viñeta o el número alinea el texto con la sangría.
+  return String(t).split('\n').map((s,i)=> (i ? '<w:r>' + pr + '<w:br/></w:r>' : '')
+    + s.split('\t').map((u,j)=> '<w:r>' + pr + (j ? '<w:tab/>' : '') + '<w:t xml:space="preserve">' + x(u) + '</w:t></w:r>').join('')).join('');
+}
+function par(runs, o){
+  o = o || {};
+  let pr = (o.junto ? '<w:keepNext/>' : '') + '<w:spacing w:before="' + (o.before||0) + '" w:after="' + (o.after||0) + '"/>';
+  if(o.ind) pr += '<w:ind w:left="' + o.ind + '" w:hanging="' + o.ind + '"/>';
+  if(o.jc) pr += '<w:jc w:val="' + o.jc + '"/>';
+  return '<w:p><w:pPr>' + pr + '</w:pPr>' + (runs||'') + '</w:p>';
+}
+function celda(w, cont, o){
+  o = o || {};
+  let pr = '<w:tcW w:w="' + w + '" w:type="dxa"/>';
+  if(o.span) pr += '<w:gridSpan w:val="' + o.span + '"/>';
+  if(o.fill) pr += '<w:shd w:val="clear" w:color="auto" w:fill="' + o.fill + '"/>';
+  if(o.v) pr += '<w:vAlign w:val="' + o.v + '"/>';
+  return '<w:tc><w:tcPr>' + pr + '</w:tcPr>' + (cont || par('')) + '</w:tc>';
+}
+function fila(celdas, o){
+  o = o || {};
+  let pr = (o.noCortar ? '<w:cantSplit/>' : '') + (o.alto ? '<w:trHeight w:val="' + o.alto + '"/>' : '') + (o.repetir ? '<w:tblHeader/>' : '');
+  return '<w:tr>' + (pr ? '<w:trPr>' + pr + '</w:trPr>' : '') + celdas.join('') + '</w:tr>';
+}
+function tabla(cols, filas, o){
+  o = o || {};
+  const lados = ['top','left','bottom','right','insideH','insideV'];
+  const bordes = lados.map(s=> o.sinBordes ? '<w:' + s + ' w:val="nil"/>' : '<w:' + s + ' w:val="single" w:sz="4" w:space="0" w:color="' + (o.color || '000000') + '"/>').join('');
+  return '<w:tbl><w:tblPr><w:tblW w:w="' + cols.reduce((a,b)=>a+b,0) + '" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders>' + bordes + '</w:tblBorders><w:tblLayout w:type="fixed"/>'
+    + '<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr>'
+    + '<w:tblGrid>' + cols.map(c=>'<w:gridCol w:w="' + c + '"/>').join('') + '</w:tblGrid>' + filas.join('') + '</w:tbl>';
+}
+function imagen(rid, img, id, nombre){
+  return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + img.cx + '" cy="' + img.cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+    + '<wp:docPr id="' + id + '" name="' + nombre + '"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    + '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + nombre + '.png"/><pic:cNvPicPr/></pic:nvPicPr>'
+    + '<pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + img.cx + '" cy="' + img.cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+}
+// Cualquier imagen (PNG/JPG/SVG en data URL) se pasa a PNG y se ajusta a maxW × maxH (en EMU).
+function aPng(src, maxW, maxH){
+  return new Promise(res=>{
+    if(!src) return res(null);
+    const im = new Image();
+    im.onload = ()=>{
+      try{
+        const nw = im.naturalWidth || 300, nh = im.naturalHeight || 150, k = Math.min(1, 900/Math.max(nw, nh));
+        const cv = document.createElement('canvas'); cv.width = Math.round(nw*k); cv.height = Math.round(nh*k);
+        cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+        const bin = atob(cv.toDataURL('image/png').split(',')[1]), data = new Uint8Array(bin.length);
+        for(let i=0; i<bin.length; i++) data[i] = bin.charCodeAt(i);
+        const r = Math.min(maxW/nw, maxH/nh);
+        res({ data:data, cx:Math.round(nw*r), cy:Math.round(nh*r) });
+      }catch(e){ res(null); }
+    };
+    im.onerror = ()=>res(null);
+    im.src = src;
+  });
+}
+const CRC = (()=>{ const t = new Uint32Array(256); for(let n=0; n<256; n++){ let c = n; for(let k=0; k<8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(d){ let c = 0xFFFFFFFF; for(let i=0; i<d.length; i++) c = CRC[(c ^ d[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+// ZIP sin compresión: es todo lo que necesita un .docx.
+function zip(archivos){
+  const enc = new TextEncoder(), partes = [], central = [];
+  const t = new Date(), hora = (t.getHours()<<11)|(t.getMinutes()<<5)|(t.getSeconds()>>1), dia = ((t.getFullYear()-1980)<<9)|((t.getMonth()+1)<<5)|t.getDate();
+  let off = 0;
+  archivos.forEach(f=>{
+    const nom = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+    const l = new DataView(new ArrayBuffer(30));
+    l.setUint32(0,0x04034b50,true); l.setUint16(4,20,true); l.setUint16(6,0x0800,true); l.setUint16(8,0,true); l.setUint16(10,hora,true); l.setUint16(12,dia,true);
+    l.setUint32(14,crc,true); l.setUint32(18,data.length,true); l.setUint32(22,data.length,true); l.setUint16(26,nom.length,true); l.setUint16(28,0,true);
+    partes.push(new Uint8Array(l.buffer), nom, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint16(10,0,true); c.setUint16(12,hora,true); c.setUint16(14,dia,true);
+    c.setUint32(16,crc,true); c.setUint32(20,data.length,true); c.setUint32(24,data.length,true); c.setUint16(28,nom.length,true); c.setUint32(42,off,true);
+    central.push(new Uint8Array(c.buffer), nom);
+    off += 30 + nom.length + data.length;
+  });
+  const tam = central.reduce((s,a)=>s+a.length,0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true); e.setUint16(8,archivos.length,true); e.setUint16(10,archivos.length,true); e.setUint32(12,tam,true); e.setUint32(16,off,true);
+  return new Blob(partes.concat(central, [new Uint8Array(e.buffer)]), { type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+
+async function descargarWord(){
+  const d = datos(), p = state.plan;
+  const logo = await aPng(typeof LOGO_SRC !== 'undefined' ? LOGO_SRC : '', 1000000, 560000);
+  const sello = await aPng(d.sello, 1150000, 750000);
+  const gris = (t, o) => run(t, Object.assign({ b:1, color:GRIS }, o||{}));
+  const fin = '<w:p><w:pPr><w:spacing w:before="0" w:after="0"/><w:rPr><w:sz w:val="4"/></w:rPr></w:pPr></w:p>';
+
+  const encabezado = tabla([2700, 7340, 4000], [fila([
+    celda(2700, par(logo ? imagen('rIdLogo', logo, 1, 'Logo') : gris('CISADDE'), { jc:'center' }), { v:'center' }),
+    celda(7340, par(gris('PLAN TERAPÉUTICO'), { jc:'center' }), { v:'center' }),
+    celda(4000, par(gris('CÓDIGO:\n' + CODIGO + '\nVigente desde:\n' + VIGENTE), { jc:'center' }), { v:'center' })
+  ], { alto:1150, noCortar:1 })], { color:'A6A6A6' }) + fin;
+  const pie = tabla([4700, 4700], [
+    fila([celda(4700, par(gris('REVISÓ:\nCOORDINADOR TERAPÉUTICO', { sz:18 }), { jc:'center' })), celda(4700, par(gris('APROBÓ:\nDIRECTOR CIENTIFICO', { sz:18 }), { jc:'center' }))]),
+    fila([celda(9400, par(gris('COPIA CONTROLADA', { sz:18 }), { jc:'center' }), { span:2 })])
+  ], { color:'A6A6A6' }) + fin;
+
+  const dato = (lbl, val) => par(run(lbl + ': ', { b:1 }) + run(val || '', { color:AZUL }), { after:20 });
+  const datosT = tabla([7020, 7020], [
+    fila([celda(7020, dato('Nombre', d.nombre)), celda(7020, dato('Fecha de Ingreso', d.ingreso))]),
+    fila([celda(7020, dato('Historia Clínica', d.hc)), celda(7020, dato('Periodo de Ejecución', d.periodo))]),
+    fila([celda(7020, dato('Edad', d.edad)), celda(7020, '')]),
+    fila([celda(7020, dato('Diagnóstico', d.diag)), celda(7020, dato('CIE', d.cie))])
+  ], { sinBordes:1 });
+
+  const hall = lineas(p.hallazgos).map(l=> /^[•\-*]/.test(l)
+    ? par(run('•\t' + l.replace(/^[•\-*]\s*/,'')), { ind:230, jc:'both', after:40 })
+    : /:$/.test(l) ? par(run(l, { b:1 }), { before:60, after:40 }) : par(run(l), { jc:'both', after:40 })).join('');
+  const num = txt => lineas(txt).map((l,i)=> par(run((i+1) + '.\t' + l.replace(/^\d+[.)]\s*/,'')), { ind:300, jc:'both', after:60 })).join('');
+  const objetivos = par(run('Objetivo General:', { b:1 }), { after:40 }) + par(run(p.objGeneral || ''), { jc:'both', after:160 })
+    + par(run('Objetivos específicos:', { b:1 }), { after:40 }) + num(p.objEspecificos);
+  const profesional = (sello ? par(imagen('rIdSello', sello, 2, 'Sello'), { jc:'center', after:60 }) : '')
+    + par(run(d.profesional || '', { b:1 }), { jc:'center' }) + (d.tarjeta ? par(run('T.P. ' + d.tarjeta), { jc:'center' }) : '');
+  const C = [3400, 4500, 3800, 2340], total = 14040;
+  const principal = tabla(C, [
+    fila([celda(total, par(run('ÁREA: ', { b:1 }) + run(d.area, { b:1, color:AZUL })), { span:4 })], { repetir:1 }),
+    fila(['HALLAZGOS','OBJETIVOS','INDICADOR DE LOGRO','PROFESIONAL'].map((t,i)=> celda(C[i], par(run(t, { b:1 }), { jc:'center' }))), { repetir:1 }),
+    fila([celda(C[0], hall), celda(C[1], objetivos), celda(C[2], num(p.indicadores)), celda(C[3], profesional, { v:'center' })]),
+    fila([celda(total, par(run('Fecha de socialización con Equipo Asistencial interdisciplinario: ') + run(d.socializacion, { color:AZUL })), { span:4 })], { noCortar:1 }),
+    fila([celda(total, par(run('Aprobó: ') + run(d.aprobo, { color:AZUL })), { span:4 })], { noCortar:1 }),
+    fila([celda(total, par(run('Dirección Científica')), { span:4 })], { noCortar:1 })
+  ]);
+  const V = [1500, 1500, 2600, 3800];
+  const versiones = tabla(V, [
+    fila([celda(9400, par(run('CONTROL DE VERSIONES DEL DOCUMENTO', { b:1 }), { jc:'center', before:60, after:60, junto:1 }), { span:4 })], { noCortar:1 }),
+    fila(['VERSIÓN','FECHA','RESPONSABLE','MODIFICACIÓN'].map((t,i)=> celda(V[i], par(run(t, { b:1, color:'FFFFFF' }), { jc:'center', junto:1 }), { fill:'002060' })), { noCortar:1 }),
+    fila(['01', VIGENTE, 'Coordinador Terapéutico', 'Primera edición del formato.'].map((t,i)=> celda(V[i], par(run(t), { jc: i < 3 ? 'center' : 'left' }))), { noCortar:1 })
+  ]);
+
+  const cuerpo = datosT + par('', { after:120 }) + principal + par('', { after:360 }) + versiones
+    + '<w:p/><w:sectPr><w:headerReference w:type="default" r:id="rIdEnc"/><w:footerReference w:type="default" r:id="rIdPie"/>'
+    + '<w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/><w:pgMar w:top="2050" w:right="900" w:bottom="1750" w:left="900" w:header="450" w:footer="350" w:gutter="0"/></w:sectPr>';
+  const rel = (id, tipo, destino) => '<Relationship Id="' + id + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/' + tipo + '" Target="' + destino + '"/>';
+  const rels = items => XML + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + items + '</Relationships>';
+  const W = 'application/vnd.openxmlformats-officedocument.wordprocessingml.';
+  const archivos = [
+    { name:'[Content_Types].xml', data: XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'
+      + '<Override PartName="/word/document.xml" ContentType="' + W + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + W + 'styles+xml"/>'
+      + '<Override PartName="/word/header1.xml" ContentType="' + W + 'header+xml"/><Override PartName="/word/footer1.xml" ContentType="' + W + 'footer+xml"/></Types>' },
+    { name:'_rels/.rels', data: rels(rel('rId1', 'officeDocument', 'word/document.xml')) },
+    { name:'word/document.xml', data: XML + '<w:document ' + NS + '><w:body>' + cuerpo + '</w:body></w:document>' },
+    { name:'word/_rels/document.xml.rels', data: rels(rel('rIdEstilos', 'styles', 'styles.xml') + rel('rIdEnc', 'header', 'header1.xml') + rel('rIdPie', 'footer', 'footer1.xml') + (sello ? rel('rIdSello', 'image', 'media/sello.png') : '')) },
+    { name:'word/header1.xml', data: XML + '<w:hdr ' + NS + '>' + encabezado + '</w:hdr>' },
+    { name:'word/_rels/header1.xml.rels', data: rels(logo ? rel('rIdLogo', 'image', 'media/logo.png') : '') },
+    { name:'word/footer1.xml', data: XML + '<w:ftr ' + NS + '>' + pie + '</w:ftr>' },
+    { name:'word/styles.xml', data: XML + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="es-CO"/></w:rPr></w:rPrDefault>'
+      + '<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="252" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+      + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+      + '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>' }
+  ];
+  if(logo) archivos.push({ name:'word/media/logo.png', data:logo.data });
+  if(sello) archivos.push({ name:'word/media/sello.png', data:sello.data });
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(zip(archivos));
+  a.download = ['Plan_Terapeutico', slug(d.area), slug(d.nombre) || 'sin_nombre', state.evalDate || new Date().toISOString().slice(0,10)].join('_') + '.docx';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+document.getElementById('planWordBtn').addEventListener('click', ()=>{
+  render();
+  if(!state.childName && !confirm('Falta el nombre del niño/a en la Portada. ¿Descargar el plan de todas formas?')) return;
+  if(verificar() && !confirm('La lista de verificación tiene puntos por revisar (⚠️). ¿Descargar el plan de todas formas?')) return;
+  descargarWord().catch(err=> alert('No se pudo crear el archivo de Word: ' + err.message));
+});
+})();
+</script>
+<!-- PLAN TERAPEUTICO:FIN -->
 </body>
 </html>
