@@ -2551,8 +2551,19 @@ function sugerido(){
   // objetivos (que salen de las dificultades) no contradigan las fortalezas.
   const fuertes = comps.filter(x=> !x.dif.length && !NO_OBJETIVO.test(x.c));
   const debiles = comps.filter(x=> x.dif.length && !(INVERTIDO && NO_OBJETIVO.test(x.c)));
-  // Si todos los componentes tienen algo pendiente, las fortalezas son los ítems que sí logra.
-  const parciales = fuertes.length || INVERTIDO ? [] : debiles.filter(x=> x.logro >= 0.5);
+  // En los componentes con algo pendiente, las fortalezas son los ítems exactos que sí logra
+  // (no se repiten en dificultades, que listan solo los no logrados).
+  const parciales = INVERTIDO ? [] : debiles.filter(x=> x.ok.length && !NO_OBJETIVO.test(x.c)).sort((a,b)=>b.logro-a.logro);
+  // Una habilidad (p. ej. atención) va en un solo lado: si algún ítem suyo no se logró, solo
+  // sale en dificultades. Se compara por habilidad (SUB) y por palabras clave del componente.
+  const subs0 = SUB[FORM_ID] || [];
+  const habDe = t => { const s = subs0.find(s=> s.re.test(t.toLowerCase())); return s ? s.h : ''; };
+  const raices = t => (t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').match(/[a-zñ]{6,}/g) || [])
+    .filter(w=> !/^(durante|cuando|actividad|siguiendo|propias?|adulto|seguida|acorde|minutos)/.test(w)).map(w=> w.slice(0,6));
+  const habDif = {};
+  debiles.forEach(x=> x.dif.forEach(t=>{ const hb = habDe(t); if(hb) habDif[hb] = 1; }));
+  const choca = (t, x) => { const hb = habDe(t); if(hb) return !!habDif[hb];
+    const r = raices(t), rd = {}; (x ? x.dif : []).forEach(d=> raices(d).forEach(w=> rd[w] = 1)); return r.some(w=> rd[w]); };
   // Hallazgo clínico: descripción objetiva de fortalezas y dificultades que fundamentan los objetivos,
   // con lo observado en la valoración entre paréntesis.
   const L = [], vistosH = {};
@@ -2561,10 +2572,16 @@ function sugerido(){
     const ref = comps.filter(x=> x.dif.length && NO_OBJETIVO.test(x.c));
     if(ref.length){ L.push('Motivo de consulta y antecedentes:'); ref.forEach(x=> L.push('• ' + x.nombre + ': ' + lista(x.dif, 4) + '.')); L.push(''); }
   }
-  if(fuertes.length || parciales.length){
+  const F = [];
+  fuertes.forEach(x=>{
+    // Si la frase general del componente nombra una habilidad con dificultad, se listan sus ítems.
+    if(!choca(ficha(x).f)) return F.push(['', ficha(x).f]);
+    const ev = detalle(x, x.ok.filter(t=> !choca(t)), 4); if(ev) F.push([x.nombre, ev]);
+  });
+  parciales.forEach(x=>{ const ev = detalle(x, x.ok.filter(t=> !choca(t, x)), 4); if(ev) F.push([x.nombre, ev]); });
+  if(F.length){
     L.push('Fortalezas:');
-    fuertes.forEach(x=> una(ficha(x).f, ''));
-    parciales.forEach(x=> L.push('• ' + x.nombre + ': logra ' + lista(x.ok, 3) + '.'));
+    F.forEach(([n, t])=> n ? L.push('• ' + n + ': logra ' + t + '.') : una(t, ''));
   }
   if(debiles.length){
     if(L.length) L.push('');
@@ -2629,7 +2646,7 @@ function finPeriodo(iso){
 }
 function datos(){
   const p = state.plan, ev = state.evaluator || {};
-  const hcAuto = [state.tipoId, state.numeroId].filter(Boolean).join(' ');
+  const hcAuto = String(state.numeroId || '').trim(); // la historia clínica es el número del documento
   const perAuto = state.evalDate ? fmtDate(state.evalDate) + ' al ' + fmtDate(finPeriodo(state.evalDate)) : '';
   return {
     nombre: state.childName || '',
@@ -2949,7 +2966,7 @@ async function descargarWord(){
 
   const a = document.createElement('a');
   a.href = URL.createObjectURL(zip(archivos));
-  a.download = ['Plan_Terapeutico', slug(d.area), slug(d.nombre) || 'sin_nombre', state.evalDate || new Date().toISOString().slice(0,10)].join('_') + '.docx';
+  a.download = [CODIGO, 'Plan_Terapeutico', slug(d.area), slug(d.nombre) || 'sin_nombre', state.evalDate || new Date().toISOString().slice(0,10)].join('_') + '.docx';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
 }
