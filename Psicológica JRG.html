@@ -2681,7 +2681,7 @@ const VERBOS_NO = ['Trabajar','Hacer','Realizar','Ejecutar','Ayudar','Mantener',
 const CODIGO = 'R-AMI-055', VIGENTE = '20/08/2021';
 const MIN_OBJETIVOS = 3; // la institución pide mínimo 3 objetivos específicos, cada uno con su indicador
 
-function vacio(){ return { hc:'', periodo:'', area:'', socializacion:'', aprobo:'', hallazgos:'', objGeneral:'', objEspecificos:'', indicadores:'', base:'' }; }
+function vacio(){ return { hc:'', inicio:'', fin:'', area:'', socializacion:'', aprobo:'', hallazgos:'', objGeneral:'', objEspecificos:'', indicadores:'', base:'' }; }
 state.plan = vacio();
 try{ const d = readDraft(); if(d && d.state && d.state.plan && typeof d.state.plan === 'object') Object.assign(state.plan, d.state.plan); }catch(e){}
 
@@ -2772,7 +2772,7 @@ function sugerido(){
   }
   if(debiles.length){
     if(L.length) L.push('');
-    L.push('Dificultades:');
+    L.push('Debilidades:');
     // Se describe exactamente lo que no logró en la valoración, del componente más bajo al más alto.
     debiles.slice().sort((a,b)=>a.logro-b.logro).forEach(x=>{
       const ev = detalle(x, x.dif, 4).replace(/\.\s+(\S)/g, (m, c)=> ', ' + c.toLowerCase());
@@ -2826,22 +2826,24 @@ function sugerido(){
 function firma(s){ return s ? JSON.stringify([s.hallazgos, s.objGeneral, s.objEspecificos, s.indicadores]) : ''; }
 
 /* ---------- Datos del encabezado ---------- */
-function finPeriodo(iso){
-  if(!iso) return '';
-  const [y,m] = iso.split('-').map(Number);
-  return m <= 6 ? y + '-06-30' : y + '-12-31'; // el cierre (junio o diciembre) más cercano
+// El periodo va desde el día en que se hace el plan (editable) hasta el cierre de junio o
+// diciembre que se elija, del año del inicio o del siguiente.
+function hoyISO(){ const t = new Date(); return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0'); }
+function cierres(iso){
+  const y = Number((iso || hoyISO()).slice(0,4));
+  return [y + '-06-30', y + '-12-31', (y+1) + '-06-30', (y+1) + '-12-31'].filter(c=> c >= (iso || hoyISO()));
 }
+function finPeriodo(p){ const c = cierres(p.inicio); return c.includes(p.fin) ? p.fin : c[0]; } // por defecto, el cierre más cercano
 function datos(){
   const p = state.plan, ev = state.evaluator || {};
   const hcAuto = String(state.numeroId || '').trim(); // la historia clínica es el número del documento
-  const perAuto = state.evalDate ? fmtDate(state.evalDate) + ' al ' + fmtDate(finPeriodo(state.evalDate)) : '';
   return {
     nombre: state.childName || '',
     hc: p.hc || hcAuto, hcAuto: hcAuto,
     edad: state.birthDate ? ageLabel(monthsBetween(state.birthDate, null)) : '',
     diag: state.cie10Diag || '', cie: state.cie10Code || '',
     ingreso: state.evalDate ? fmtDate(state.evalDate) : '',
-    periodo: p.periodo || perAuto, perAuto: perAuto,
+    periodo: fmtDate(p.inicio || hoyISO()) + ' al ' + fmtDate(finPeriodo(p)),
     area: p.area || AREAS[FORM_ID] || FORM_TITLE, areaAuto: AREAS[FORM_ID] || FORM_TITLE,
     profesional: ev.name || '', tarjeta: ev.savedCard || ev.card || '', sello: ev.sealImg || '',
     socializacion: p.socializacion ? fmtDate(p.socializacion) : '', aprobo: p.aprobo || ''
@@ -2893,11 +2895,12 @@ sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Format
   + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="planRegenBtn">↻ Volver a generar</button><button class="btn primary" type="button" id="planWordBtn">⬇️ Descargar Word</button></div></div>'
   + '<p class="tag-note" id="planAviso" style="margin-bottom:14px;"></p>'
   + '<div class="card"><div class="card-head"><h3>Datos del plan</h3><span class="sub">Nombre, edad, diagnóstico y CIE se toman de la Portada</span></div><div class="grid cols-2">'
-  + campo('planHc', 'Historia clínica') + campo('planPeriodo', 'Periodo de ejecución') + campo('planArea', 'Área tratante')
+  + campo('planHc', 'Historia clínica') + campo('planInicio', 'Periodo de ejecución: desde', 'type="date"')
+  + '<label class="field"><span class="lbl">Periodo de ejecución: hasta</span><select class="input" id="planFin"></select></label>' + campo('planArea', 'Área tratante')
   + campo('planSocializacion', 'Fecha de socialización con el equipo', 'type="date"') + campo('planAprobo', 'Aprobó (Dirección Científica)')
   + '</div></div>'
-  + '<div class="card"><div class="card-head"><h3>Hallazgos</h3><span class="sub">¿Qué encontré durante la valoración? Fortalezas y dificultades</span></div>'
-  + texto('planHallazgos', 'Hallazgos (las líneas que empiezan con • salen como viñetas)', 200, 'Fortalezas y dificultades encontradas…') + '</div>'
+  + '<div class="card"><div class="card-head"><h3>Hallazgos</h3><span class="sub">¿Qué encontré durante la valoración? Fortalezas y debilidades</span></div>'
+  + texto('planHallazgos', 'Hallazgos (las líneas que empiezan con • salen como viñetas)', 200, 'Fortalezas y debilidades encontradas…') + '</div>'
   + '<div class="card"><div class="card-head"><h3>Objetivos e indicadores</h3><span class="sub">Verbo + habilidad + contexto + propósito funcional</span></div>'
   + texto('planObjGeneral', 'Objetivo general: verbo + función o habilidad principal + propósito funcional (amplio, sin contexto)', 80, '¿Qué cambio global esperamos lograr en el paciente durante este periodo terapéutico?')
   + texto('planObjEspecificos', 'Objetivos específicos (mínimo ' + MIN_OBJETIVOS + ', uno por línea): verbo + habilidad específica + contexto + propósito funcional', 140, '¿Qué logros concretos permitirán alcanzar el objetivo general?')
@@ -2908,9 +2911,14 @@ sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Format
   + '<div class="card"><div class="card-head"><h3>Vista previa</h3><span class="sub">Así se verá el cuerpo del documento en Word</span></div><div class="plan-doc" id="planPreview"></div></div>';
 document.getElementById('view-informe').after(sec);
 
-const CAMPOS = { planHc:'hc', planPeriodo:'periodo', planArea:'area', planSocializacion:'socializacion', planAprobo:'aprobo',
+const CAMPOS = { planHc:'hc', planInicio:'inicio', planFin:'fin', planArea:'area', planSocializacion:'socializacion', planAprobo:'aprobo',
   planHallazgos:'hallazgos', planObjGeneral:'objGeneral', planObjEspecificos:'objEspecificos', planIndicadores:'indicadores' };
 
+function opcionesFin(){
+  const sel = document.getElementById('planFin'), p = state.plan;
+  sel.innerHTML = cierres(p.inicio).map(c=> '<option value="' + c + '">' + fmtDate(c) + '</option>').join('');
+  sel.value = finPeriodo(p);
+}
 function avisar(sug){
   const a = document.getElementById('planAviso');
   if(!sug) a.textContent = '⚠ Aún no hay respuestas en Evaluación: marca los ítems y los hallazgos y objetivos se sugerirán solos.';
@@ -2920,10 +2928,12 @@ function avisar(sug){
 function render(){
   const sug = sugerido(), p = state.plan;
   if(sug && !p.base){ Object.assign(p, sug); p.base = firma(sug); }
+  if(!p.inicio){ p.inicio = hoyISO(); queueSave(); }
+  opcionesFin();
   const d = datos();
   Object.keys(CAMPOS).forEach(id=>{ const el = document.getElementById(id); if(document.activeElement !== el) el.value = p[CAMPOS[id]] || ''; });
+  document.getElementById('planFin').value = finPeriodo(p);
   document.getElementById('planHc').placeholder = d.hcAuto || 'Número de historia clínica';
-  document.getElementById('planPeriodo').placeholder = d.perAuto || 'Falta la fecha de valoración en la Portada';
   document.getElementById('planArea').placeholder = d.areaAuto;
   avisar(sug);
   preview();
@@ -2939,7 +2949,7 @@ function verificar(){
   // Afirmativo: sin negaciones ni verbos en futuro ("No…", "sin…", "Mantendrá…").
   const noAfirmativos = ind.filter(l=> /^(\d+[.)]\s*)?no\b|\bno (logra|presenta|realiza)\b|\bsin\b|^(\d+[.)]\s*)?(se\s+)?\S+(rá|rán)(\s|$)/i.test(l));
   const estrategias = [p.objGeneral].concat(esp).filter(l=> /econom[ií]a de fichas|modelado|reforzamiento|refuerzo positivo|t[ée]cnica|mediante el uso|a trav[ée]s de (la|el|los|las) (t[ée]cnica|estrategia|terapia)/i.test(l || ''));
-  out.push([!!lineas(p.hallazgos).length, 'Hallazgos coherentes con la valoración', lineas(p.hallazgos).length ? 'Describen fortalezas y dificultades observadas; revisa que no sea solo el diagnóstico.' : 'Escribe los hallazgos de la valoración.']);
+  out.push([!!lineas(p.hallazgos).length, 'Hallazgos coherentes con la valoración', lineas(p.hallazgos).length ? 'Describen fortalezas y debilidades observadas; revisa que no sea solo el diagnóstico.' : 'Escribe los hallazgos de la valoración.']);
   out.push([!!p.objGeneral && !malVerbo.length, 'Objetivos inician con un verbo recomendado', !p.objGeneral ? 'Falta el objetivo general.' : malVerbo.length ? 'Revisa: ' + malVerbo.join(', ') + (evitados.length ? ' (verbo a evitar)' : ' (no está en la lista recomendada)') + '.' : 'Fortalecer, Favorecer, Promover, Desarrollar, Facilitar, Preservar, Potenciar u Optimizar.']);
   out.push([esp.length >= MIN_OBJETIVOS, 'Mínimo ' + MIN_OBJETIVOS + ' objetivos específicos', esp.length >= MIN_OBJETIVOS ? esp.length + ' objetivo(s) específico(s).' : 'Hay ' + esp.length + '; agrega al menos ' + (MIN_OBJETIVOS - esp.length) + ' más (uno por línea).']);
   out.push([!!esp.length && esp.length === ind.length, 'Objetivos relacionados con los hallazgos, con un indicador por objetivo', esp.length === ind.length ? (esp.length + ' objetivo(s) específico(s) y ' + ind.length + ' indicador(es).') : 'Hay ' + esp.length + ' objetivo(s) específico(s) y ' + ind.length + ' indicador(es): deben coincidir en número y orden.']);
@@ -2975,6 +2985,7 @@ let tPrev = null;
 sec.addEventListener('input', e=>{
   const k = CAMPOS[e.target.id]; if(!k) return;
   state.plan[k] = e.target.value;
+  if(k === 'inicio'){ if(!state.plan.inicio) state.plan.inicio = hoyISO(); opcionesFin(); }
   clearTimeout(tPrev); tPrev = setTimeout(()=>{ preview(); verificar(); }, 250);
 });
 nav.addEventListener('click', ()=>{ goto('plan'); render(); });
