@@ -2495,14 +2495,14 @@ function sugerido(){
 function firma(s){ return s ? JSON.stringify([s.hallazgos, s.objGeneral, s.objEspecificos, s.indicadores]) : ''; }
 
 /* ---------- Datos del encabezado ---------- */
-// El periodo va desde el día en que se hace el plan (editable) hasta el cierre de junio o
-// diciembre que se elija, del año del inicio o del siguiente.
+// El periodo va desde el día en que se hace el plan hasta la fecha que se elija; ambas son
+// editables. Si no se elige el final, se usa el cierre de junio o diciembre más cercano.
 function hoyISO(){ const t = new Date(); return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0'); }
 function cierres(iso){
   const y = Number((iso || hoyISO()).slice(0,4));
   return [y + '-06-30', y + '-12-31', (y+1) + '-06-30', (y+1) + '-12-31'].filter(c=> c >= (iso || hoyISO()));
 }
-function finPeriodo(p){ const c = cierres(p.inicio); return c.includes(p.fin) ? p.fin : c[0]; } // por defecto, el cierre más cercano
+function finPeriodo(p){ return p.fin && p.fin >= (p.inicio || hoyISO()) ? p.fin : cierres(p.inicio)[0]; } // por defecto, el cierre más cercano
 function datos(){
   const p = state.plan, ev = state.evaluator || {};
   const hcAuto = String(state.numeroId || '').trim(); // la historia clínica es el número del documento
@@ -2565,7 +2565,7 @@ sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Format
   + '<p class="tag-note" id="planAviso" style="margin-bottom:14px;"></p>'
   + '<div class="card"><div class="card-head"><h3>Datos del plan</h3><span class="sub">Nombre, edad, diagnóstico y CIE se toman de la Portada</span></div><div class="grid cols-2">'
   + campo('planHc', 'Historia clínica') + campo('planInicio', 'Periodo de ejecución: desde', 'type="date"')
-  + '<label class="field"><span class="lbl">Periodo de ejecución: hasta</span><select class="input" id="planFin"></select></label>' + campo('planArea', 'Área tratante')
+  + campo('planFin', 'Periodo de ejecución: hasta', 'type="date"') + campo('planArea', 'Área tratante')
   + campo('planSocializacion', 'Fecha de socialización con el equipo', 'type="date"') + campo('planAprobo', 'Aprobó (Dirección Científica)')
   + '</div></div>'
   + '<div class="card"><div class="card-head"><h3>Hallazgos</h3><span class="sub">¿Qué encontré durante la valoración? Fortalezas y debilidades</span></div>'
@@ -2583,10 +2583,10 @@ document.getElementById('view-informe').after(sec);
 const CAMPOS = { planHc:'hc', planInicio:'inicio', planFin:'fin', planArea:'area', planSocializacion:'socializacion', planAprobo:'aprobo',
   planHallazgos:'hallazgos', planObjGeneral:'objGeneral', planObjEspecificos:'objEspecificos', planIndicadores:'indicadores' };
 
-function opcionesFin(){
-  const sel = document.getElementById('planFin'), p = state.plan;
-  sel.innerHTML = cierres(p.inicio).map(c=> '<option value="' + c + '">' + fmtDate(c) + '</option>').join('');
-  sel.value = finPeriodo(p);
+function ajustarFin(){
+  const el = document.getElementById('planFin'), p = state.plan;
+  el.min = p.inicio || hoyISO();
+  if(document.activeElement !== el) el.value = finPeriodo(p);
 }
 function avisar(sug){
   const a = document.getElementById('planAviso');
@@ -2598,10 +2598,9 @@ function render(){
   const sug = sugerido(), p = state.plan;
   if(sug && !p.base){ Object.assign(p, sug); p.base = firma(sug); }
   if(!p.inicio){ p.inicio = hoyISO(); queueSave(); }
-  opcionesFin();
   const d = datos();
   Object.keys(CAMPOS).forEach(id=>{ const el = document.getElementById(id); if(document.activeElement !== el) el.value = p[CAMPOS[id]] || ''; });
-  document.getElementById('planFin').value = finPeriodo(p);
+  ajustarFin();
   document.getElementById('planHc').placeholder = d.hcAuto || 'Número de historia clínica';
   document.getElementById('planArea').placeholder = d.areaAuto;
   avisar(sug);
@@ -2654,7 +2653,7 @@ let tPrev = null;
 sec.addEventListener('input', e=>{
   const k = CAMPOS[e.target.id]; if(!k) return;
   state.plan[k] = e.target.value;
-  if(k === 'inicio'){ if(!state.plan.inicio) state.plan.inicio = hoyISO(); opcionesFin(); }
+  if(k === 'inicio'){ if(!state.plan.inicio) state.plan.inicio = hoyISO(); ajustarFin(); }
   clearTimeout(tPrev); tPrev = setTimeout(()=>{ preview(); verificar(); }, 250);
 });
 nav.addEventListener('click', ()=>{ goto('plan'); render(); });
