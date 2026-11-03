@@ -441,7 +441,8 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
             <label class="field"><span class="lbl">Número de identificación</span><input class="input" id="numeroId" placeholder="Ej. 1002030405" /></label>
             <label class="field"><span class="lbl">Fecha de nacimiento</span><input class="input" id="birthDate" type="date" /></label>
             <label class="field"><span class="lbl">Fecha de valoración</span><input class="input" id="evalDate" type="date" /></label>
-            <label class="field" style="grid-column:1/-1;"><span class="lbl">Edad (automática)</span><input class="input" id="ageOut" readonly value="—" /></label>
+            <label class="field"><span class="lbl">Fecha de ingreso</span><input class="input" id="fechaIngreso" type="date" /></label>
+            <label class="field"><span class="lbl">Edad (automática)</span><input class="input" id="ageOut" readonly value="—" /></label>
             <label class="field"><span class="lbl">Grado escolar</span><input class="input" id="escolaridad" placeholder="Ej. Preescolar / Grado 1°" /></label>
             <label class="field"><span class="lbl">Colegio / institución educativa</span><input class="input" id="colegio" placeholder="Ej. Colegio San José" /></label>
             <label class="field"><span class="lbl">EPS</span><input class="input" id="eps" placeholder="Ej. Nueva EPS" /></label>
@@ -745,7 +746,7 @@ const CIE10_MAP = {
   'Z00.1':'Control de salud de rutina del niño (sin patología identificada)'
 };
 const state = {
-  childName:'', birthDate:'', evalDate:'',
+  childName:'', birthDate:'', evalDate:'', fechaIngreso:'',
   tipoId:'', numeroId:'',
   escolaridad:'', colegio:'', eps:'',
   evaluator:{ name:'', savedCard:'', signatureImg:null, sealImg:null },
@@ -2511,7 +2512,7 @@ function datos(){
     hc: p.hc || hcAuto, hcAuto: hcAuto,
     edad: state.birthDate ? ageLabel(monthsBetween(state.birthDate, null)) : '',
     diag: state.cie10Diag || '', cie: state.cie10Code || '',
-    ingreso: state.evalDate ? fmtDate(state.evalDate) : '',
+    ingreso: (state.fechaIngreso || state.evalDate) ? fmtDate(state.fechaIngreso || state.evalDate) : '', // fecha de ingreso de la Portada (o la de valoración)
     periodo: fmtDate(p.inicio || hoyISO()) + ' al ' + fmtDate(finPeriodo(p)),
     area: p.area || AREAS[FORM_ID] || FORM_TITLE, areaAuto: AREAS[FORM_ID] || FORM_TITLE,
     profesional: ev.name || '', tarjeta: ev.savedCard || ev.card || '', sello: ev.sealImg || '',
@@ -2845,5 +2846,672 @@ document.getElementById('planWordBtn').addEventListener('click', ()=>{
 })();
 </script>
 <!-- PLAN TERAPEUTICO:FIN -->
+<!-- BASE PACIENTES:INICIO -->
+<script>
+/* =====================================================================
+   BASE DE PACIENTES (Excel)
+   Se carga un .xlsx o .csv con los pacientes de CISADDE. Después, al
+   escribir el nombre o el número de documento en la Portada, se llenan
+   solos: nombres y apellidos, tipo y número de documento, fecha de
+   ingreso, fecha de nacimiento, EPS, código y nombre del diagnóstico.
+   Quien no está en la base se escribe a mano, igual que siempre.
+   La base vive solo en este navegador (IndexedDB), compartida por los
+   6 formatos cuando se abren desde el mismo sitio.
+   Fuente: herramientas/base-pacientes.js → node herramientas/insertar-base.js
+   ===================================================================== */
+(function(){
+const DB_NAME = 'cisadde_base_pacientes', DB_STORE = 'base', DB_KEY = 'actual';
+
+const CAMPOS = [
+  { k:'id',  lbl:'Número de documento (cédula, TI, RC)', obligatorio:true },
+  { k:'tipo', lbl:'Tipo de documento' },
+  { k:'n1',  lbl:'Nombres (o primer nombre, o nombre completo)', obligatorio:true },
+  { k:'n2',  lbl:'Segundo nombre' },
+  { k:'a1',  lbl:'Apellidos (o primer apellido)' },
+  { k:'a2',  lbl:'Segundo apellido' },
+  { k:'ing', lbl:'Fecha de ingreso' },
+  { k:'nac', lbl:'Fecha de nacimiento' },
+  { k:'eps', lbl:'EPS' },
+  { k:'cie', lbl:'Diagnóstico principal (código CIE-10)' },
+  { k:'dx',  lbl:'Nombre del diagnóstico' }
+];
+// Orden en que se prueba cada encabezado: el primero que coincide se queda con la columna.
+const REGLAS = [
+  // \b en "cie" y "entidad": "paciente" contiene "cie" e "identidad" contiene "entidad"
+  ['dx',  /(nombre|descripcion|desc|detalle|texto).*(diag|\bdx|\bcie)|(diag|\bdx).*(nombre|descripcion|desc)/],
+  ['cie', /diag|\bdx\b|\bcie/],
+  ['eps', /\beps\b|\be p s\b|asegurador|eapb|\bentidad\b|administradora|convenio|pagador|empresa|contrato/],
+  ['tipo', /tipo.*(doc|ident|\bid\b)|^tipo$|^td$/],
+  ['nac', /nacimiento|\bnac\b|f ?nac/],
+  ['ing', /ingreso|admision|entrada/],
+  ['id',  /cedula|\bdoc|identi|\bid\b|nuip|^(n|no|nro|num|numero)( de)?$|^(n|no|nro|num|numero) (de )?(doc|id)|^cc$|^ti$|^rc$/],
+  ['n2',  /segundo nombre|^nombre 2$|2 nombre/],
+  ['a2',  /segundo apellido|^apellido 2$|2 apellido/],
+  ['n1',  /nombre|paciente|usuario/],
+  ['a1',  /apellido/]
+];
+
+const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const normId = s => String(s == null ? '' : s).replace(/\.0+$/,'').replace(/[^0-9A-Za-z]/g,'').toUpperCase();
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const limpio = s => String(s == null ? '' : s).replace(/\s+/g,' ').trim();
+
+/* ---------- Guardado en el navegador (IndexedDB) ---------- */
+let base = null; // { archivo, cargado, filas:[{id,tipo,nombre,ing,nac,eps,cie,dx}] }
+function abrirDB(){
+  return new Promise((ok, mal)=>{
+    if(!window.indexedDB) return mal(new Error('sin IndexedDB'));
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = ()=> r.result.createObjectStore(DB_STORE);
+    r.onsuccess = ()=> ok(r.result);
+    r.onerror = ()=> mal(r.error);
+  });
+}
+async function leerBase(){
+  try{
+    const db = await abrirDB();
+    return await new Promise(ok=>{
+      const q = db.transaction(DB_STORE).objectStore(DB_STORE).get(DB_KEY);
+      q.onsuccess = ()=> ok(q.result || null); q.onerror = ()=> ok(null);
+    });
+  }catch(e){ return null; }
+}
+async function escribirBase(valor, clave){
+  const db = await abrirDB();
+  await new Promise((ok, mal)=>{
+    const t = db.transaction(DB_STORE, 'readwrite');
+    if(valor) t.objectStore(DB_STORE).put(valor, clave || DB_KEY); else t.objectStore(DB_STORE).delete(clave || DB_KEY);
+    t.oncomplete = ok; t.onerror = ()=> mal(t.error);
+  });
+}
+async function leerClave(clave){
+  try{
+    const db = await abrirDB();
+    return await new Promise(ok=>{
+      const q = db.transaction(DB_STORE).objectStore(DB_STORE).get(clave);
+      q.onsuccess = ()=> ok(q.result || null); q.onerror = ()=> ok(null);
+    });
+  }catch(e){ return null; }
+}
+
+/* ---------- Carpeta "Exel" del computador (Chrome / Edge) ----------
+   Se elige una vez la carpeta; el navegador guarda el permiso y cada vez
+   que se abre un formato revisa si el Excel de la carpeta cambió. */
+const CARPETA_KEY = 'carpeta';
+const HAY_CARPETAS = typeof window.showDirectoryPicker === 'function';
+const EXT_OK = /\.(xlsx|xlsm|csv)$/i;
+async function archivosDeCarpeta(dir){
+  const lista = [];
+  for await (const h of dir.values()){
+    if(h.kind !== 'file' || !EXT_OK.test(h.name) || /^~\$/.test(h.name)) continue; // ~$ = archivo temporal de Excel abierto
+    try{ const f = await h.getFile(); lista.push(f); }catch(e){}
+  }
+  return lista.sort((a, b) => b.lastModified - a.lastModified);
+}
+async function permiso(dir, pedir){
+  try{
+    if(await dir.queryPermission({ mode:'read' }) === 'granted') return true;
+    return pedir && await dir.requestPermission({ mode:'read' }) === 'granted';
+  }catch(e){ return false; }
+}
+async function leerHojas(f){
+  const buf = await f.arrayBuffer();
+  return /\.csv$/i.test(f.name) ? leerCsv(buf) : await leerXlsx(buf);
+}
+// Usa las columnas que se eligieron la última vez (por el texto del encabezado).
+function columnasGuardadas(hojas, cols, nombreHoja){
+  if(!cols || !Object.keys(cols).length) return null;
+  const orden = hojas.slice().sort((a, b) => (b.nombre === nombreHoja) - (a.nombre === nombreHoja));
+  for(const hoja of orden){
+    for(let r = 0; r < Math.min(hoja.filas.length, 15); r++){
+      const enc = (hoja.filas[r] || []).map(norm), mapa = {};
+      let todas = true;
+      for(const k in cols){ const c = enc.indexOf(cols[k]); if(c < 0){ todas = false; break; } mapa[k] = c; }
+      if(todas) return { hoja, fila: r, mapa };
+    }
+  }
+  return null;
+}
+
+/* ---------- Lectura del .xlsx (zip + XML, sin librerías) ---------- */
+async function unzip(buf){
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--){ if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error('El archivo no es un Excel .xlsx válido.');
+  const total = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const archivos = {};
+  for(let n = 0; n < total; n++){
+    const metodo = dv.getUint16(p + 10, true), comp = dv.getUint32(p + 20, true);
+    const lnom = dv.getUint16(p + 28, true), lext = dv.getUint16(p + 30, true), lcom = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const nombre = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + lnom));
+    archivos[nombre] = { metodo, comp, local };
+    p += 46 + lnom + lext + lcom;
+  }
+  return async function leer(nombre){
+    const a = archivos[nombre]; if(!a) return null;
+    const ini = a.local + 30 + dv.getUint16(a.local + 26, true) + dv.getUint16(a.local + 28, true);
+    const datos = u8.slice(ini, ini + a.comp);
+    if(a.metodo === 0) return new TextDecoder().decode(datos);
+    if(typeof DecompressionStream === 'undefined') throw new Error('Este navegador es muy antiguo para leer Excel. Actualízalo o guarda el archivo como CSV.');
+    const flujo = new Blob([datos]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(flujo).text();
+  };
+}
+const xml = s => new DOMParser().parseFromString(s, 'application/xml');
+const tags = (nodo, t) => Array.from(nodo.getElementsByTagNameNS('*', t));
+function colIndex(ref){ let n = 0; for(const ch of String(ref).replace(/[0-9]/g,'')) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; }
+
+async function leerXlsx(buf){
+  const leer = await unzip(buf);
+  const wb = xml(await leer('xl/workbook.xml') || '');
+  const rels = xml(await leer('xl/_rels/workbook.xml.rels') || '<r/>');
+  const destino = {};
+  tags(rels, 'Relationship').forEach(r=>{ destino[r.getAttribute('Id')] = r.getAttribute('Target'); });
+  const ssTxt = await leer('xl/sharedStrings.xml');
+  const ss = ssTxt ? tags(xml(ssTxt), 'si').map(si => tags(si, 't').filter(t => !t.parentNode || t.parentNode.localName !== 'rPh').map(t => t.textContent).join('')) : [];
+  const hojas = [];
+  for(const h of tags(wb, 'sheet')){
+    const rid = h.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || h.getAttribute('r:id');
+    let ruta = destino[rid] || ''; if(!ruta) continue;
+    ruta = ruta.startsWith('/') ? ruta.slice(1) : 'xl/' + ruta.replace(/^\.\//,'');
+    const txt = await leer(ruta); if(!txt) continue;
+    const filas = [];
+    tags(xml(txt), 'row').forEach(row=>{
+      const fila = [];
+      tags(row, 'c').forEach((c, i)=>{
+        const ref = c.getAttribute('r'), t = c.getAttribute('t');
+        const v = tags(c, 'v')[0];
+        let val = '';
+        if(t === 's') val = v ? (ss[Number(v.textContent)] || '') : '';
+        else if(t === 'inlineStr') val = tags(c, 't').map(x => x.textContent).join('');
+        else if(t === 'b') val = v && v.textContent === '1' ? 'VERDADERO' : 'FALSO';
+        else if(v){ val = v.textContent; if(t !== 'str' && t !== 'e' && val !== '' && !isNaN(val)) val = Number(val); }
+        fila[ref ? colIndex(ref) : i] = val;
+      });
+      filas.push(Array.from(fila, x => x === undefined ? '' : x));
+    });
+    hojas.push({ nombre: h.getAttribute('name') || ('Hoja ' + (hojas.length + 1)), filas });
+  }
+  if(!hojas.length) throw new Error('No encontré hojas con datos en el Excel.');
+  return hojas;
+}
+
+/* ---------- Lectura del .csv ---------- */
+function leerCsv(buf){
+  let txt = new TextDecoder('utf-8').decode(buf);
+  if(txt.includes('�')) txt = new TextDecoder('windows-1252').decode(buf);
+  txt = txt.replace(/^﻿/, '');
+  const primera = txt.split(/\r?\n/)[0] || '';
+  const sep = [';', ',', '\t', '|'].map(s => [s, primera.split(s).length]).sort((a,b) => b[1] - a[1])[0][0];
+  const filas = []; let fila = [], campo = '', comillas = false;
+  for(let i = 0; i < txt.length; i++){
+    const ch = txt[i];
+    if(comillas){
+      if(ch === '"' && txt[i+1] === '"'){ campo += '"'; i++; }
+      else if(ch === '"') comillas = false;
+      else campo += ch;
+    } else if(ch === '"') comillas = true;
+    else if(ch === sep){ fila.push(campo); campo = ''; }
+    else if(ch === '\n' || ch === '\r'){
+      if(ch === '\r' && txt[i+1] === '\n') i++;
+      fila.push(campo); filas.push(fila); fila = []; campo = '';
+    } else campo += ch;
+  }
+  if(campo !== '' || fila.length){ fila.push(campo); filas.push(fila); }
+  return [{ nombre: 'CSV', filas }];
+}
+
+/* ---------- Columnas: detectar encabezados ---------- */
+function detectar(filas){
+  let mejor = { fila: 0, mapa: {}, puntos: -1 };
+  for(let r = 0; r < Math.min(filas.length, 15); r++){
+    const mapa = {}; let puntos = 0;
+    (filas[r] || []).forEach((h, c)=>{
+      const n = norm(h); if(!n || n.length > 60) return;
+      for(const [k, re] of REGLAS){
+        if(!re.test(n)) continue;
+        // el diagnóstico "principal" gana sobre los relacionados
+        if(k === 'cie' && /relacion|secund|\b[2-9]\b/.test(n) && !/principal/.test(n)) break;
+        if(!(k in mapa) || (k === 'cie' && /principal/.test(n))){ if(!(k in mapa)) puntos++; mapa[k] = c; }
+        break;
+      }
+    });
+    if(puntos > mejor.puntos) mejor = { fila: r, mapa, puntos };
+  }
+  porContenido(filas, mejor);
+  return mejor;
+}
+// Si el encabezado no dijo cuál es el documento o la EPS, se buscan por lo que tienen las celdas.
+const EPS_CONOCIDAS = /\beps\b|sanitas|sura|coosalud|salud total|famisanar|compensar|mutual ?ser|cajacopi|asmet|emssanar|capresoca|comfenalco|savia|aliansalud|ecoopsos|dusakawi|pijaos|wayuu|capital salud|comfa|cafesalud|medimas|\bsos\b|magisterio|fomag|sanidad|nueva eps|coomeva|cosmitet|anas|mallamas|salud mia|ferrocarriles/;
+function porContenido(filas, det){
+  const usadas = new Set(Object.values(det.mapa));
+  const datos = filas.slice(det.fila + 1, det.fila + 201).filter(f => f.some(v => v !== ''));
+  if(!datos.length) return;
+  const nCols = Math.max(...datos.map(f => f.length));
+  const mejorCol = prueba => {
+    let col = -1, max = 0.5; // más de la mitad de las filas debe parecerse
+    for(let c = 0; c < nCols; c++){
+      if(usadas.has(c)) continue;
+      const llenas = datos.filter(f => String(f[c] == null ? '' : f[c]).trim() !== '');
+      if(!llenas.length) continue;
+      const parte = llenas.filter(f => prueba(f[c])).length / llenas.length;
+      if(parte > max){ max = parte; col = c; }
+    }
+    return col;
+  };
+  if(!('id' in det.mapa)){
+    const c = mejorCol(v => /^\d{6,12}$/.test(normId(v)));
+    if(c >= 0){ det.mapa.id = c; usadas.add(c); }
+  }
+  if(!('eps' in det.mapa)){
+    const c = mejorCol(v => EPS_CONOCIDAS.test(norm(v)));
+    if(c >= 0){ det.mapa.eps = c; usadas.add(c); }
+  }
+}
+
+/* ---------- Conversión de valores ---------- */
+function aISO(v){
+  if(v === '' || v == null) return '';
+  if(typeof v === 'number' || /^\d{4,5}(\.\d+)?$/.test(String(v).trim())){
+    const n = Number(v); if(n < 1 || n > 80000) return '';
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+  if(m) return m[1] + '-' + m[2].padStart(2,'0') + '-' + m[3].padStart(2,'0');
+  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/);
+  if(m){
+    let d = Number(m[1]), mes = Number(m[2]), y = Number(m[3]);
+    if(mes > 12 && d <= 12){ const t = d; d = mes; mes = t; } // venía mes/día
+    if(y < 100){ const hoy = new Date().getFullYear() % 100; y += y > hoy ? 1900 : 2000; }
+    if(mes < 1 || mes > 12 || d < 1 || d > 31) return '';
+    return y + '-' + String(mes).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+  }
+  const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  m = norm(s).match(/^(\d{1,2}) (?:de )?([a-z]{3})[a-z]* (?:de )?(\d{4})/);
+  if(m && meses.indexOf(m[2]) >= 0) return m[3] + '-' + String(meses.indexOf(m[2]) + 1).padStart(2,'0') + '-' + m[1].padStart(2,'0');
+  return '';
+}
+function tipoDoc(v){
+  const n = norm(v);
+  if(!n) return '';
+  if(/^rc$|registro/.test(n)) return 'RC';
+  if(/^ti$|tarjeta/.test(n)) return 'TI';
+  if(/^cc$|cedula de ciudadania|^cedula$/.test(n)) return 'CC';
+  return 'Otro';
+}
+function separarDx(cie, dx){
+  cie = limpio(cie); dx = limpio(dx);
+  const m = cie.match(/^([A-Za-z]\d{2}(?:\.?[0-9X]{1,2})?)\s*[-–:,]?\s*(.*)$/);
+  if(m){ cie = m[1].toUpperCase(); if(!dx && m[2]) dx = m[2]; }
+  else if(cie && !dx){ dx = cie; cie = ''; }
+  if(/^[A-Z]\d{3}$/.test(cie)) cie = cie.slice(0, 3) + '.' + cie.slice(3); // F840 → F84.0
+  return { cie, dx };
+}
+function aFilas(hoja, encabezado, mapa){
+  const val = (f, k) => k in mapa && mapa[k] !== '' && mapa[k] != null ? f[mapa[k]] : '';
+  const out = [];
+  hoja.filas.slice(encabezado + 1).forEach(f=>{
+    const id = limpio(val(f, 'id')).replace(/\.0+$/, '');
+    const nombre = limpio([val(f,'n1'), val(f,'n2'), val(f,'a1'), val(f,'a2')].join(' '));
+    if(!id && !nombre) return;
+    const d = separarDx(val(f, 'cie'), val(f, 'dx'));
+    out.push({ id, tipo: tipoDoc(val(f, 'tipo')), nombre, ing: aISO(val(f, 'ing')), nac: aISO(val(f, 'nac')), eps: limpio(val(f, 'eps')), cie: d.cie, dx: d.dx });
+  });
+  return out;
+}
+
+/* ---------- Estilos ---------- */
+const css = document.createElement('style');
+css.textContent = ''
+  + '.bp-modal{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(10,25,40,.55)}'
+  + '.bp-modal[hidden]{display:none}'
+  + '.bp-box{width:100%;max-width:620px;max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);color:var(--text);border-radius:18px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.35)}'
+  + '.bp-box h3{font-family:var(--font-display);font-size:18px;font-weight:800;margin:0 0 8px}'
+  + '.bp-box p{font-size:13.5px;line-height:1.55;color:var(--text-dim);margin:0 0 10px}'
+  + '.bp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:10px 0}'
+  + '.bp-map label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600;color:var(--text-dim)}'
+  + '.bp-map select{width:100%}'
+  + '.bp-prev{font-size:12px;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface-alt);margin:8px 0;line-height:1.55;overflow-wrap:anywhere}'
+  + '.bp-acc{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:14px}'
+  + '.bp-estado{font-size:12px;color:var(--text-faint);margin-top:6px;line-height:1.45}'
+  + '.bp-estado.ok{color:var(--green)}'
+  + '.bp-sug{position:absolute;left:0;right:0;top:100%;z-index:60;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.18);overflow:hidden;max-height:300px;overflow-y:auto}'
+  + '.bp-sug[hidden]{display:none}'
+  + '.bp-sug button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);font:13px var(--font-body);cursor:pointer}'
+  + '.bp-sug button:last-child{border-bottom:0}'
+  + '.bp-sug button.on,.bp-sug button:hover{background:var(--blue-bg)}'
+  + '.bp-sug small{display:block;color:var(--text-faint);font-size:11.5px;margin-top:2px}'
+  + '@media (max-width:560px){.bp-map{grid-template-columns:1fr}}';
+document.head.appendChild(css);
+
+/* ---------- Interfaz: botón y estado en la tarjeta "Datos del niño" ---------- */
+const campoNombre = document.getElementById('childName'), campoId = document.getElementById('numeroId');
+if(!campoNombre || !campoId) return;
+const tarjeta = campoNombre.closest('.card');
+const cabeza = tarjeta && tarjeta.querySelector('.card-head');
+const btnBase = document.createElement('button');
+btnBase.type = 'button'; btnBase.className = 'btn ghost'; btnBase.id = 'basePacientesBtn';
+btnBase.style.cssText = 'margin-left:auto;padding:6px 12px;font-size:12.5px;';
+btnBase.textContent = '📊 Base de pacientes (Excel)';
+if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(btnBase); }
+const estado = document.createElement('div');
+estado.className = 'bp-estado';
+if(tarjeta) tarjeta.appendChild(estado);
+
+const inputArchivo = document.createElement('input');
+inputArchivo.type = 'file'; inputArchivo.accept = '.xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv'; inputArchivo.hidden = true;
+document.body.appendChild(inputArchivo);
+
+const modal = document.createElement('div');
+modal.className = 'bp-modal'; modal.hidden = true;
+modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+modal.innerHTML = '<div class="bp-box"></div>';
+document.body.appendChild(modal);
+const caja = modal.firstChild;
+modal.addEventListener('click', e=>{ if(e.target === modal) modal.hidden = true; });
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && !modal.hidden) modal.hidden = true; });
+
+function fmt(iso){ if(!iso) return ''; const [y,m,d] = iso.split('-'); return d + '/' + m + '/' + y; }
+function pintarEstado(msg){
+  if(msg){ estado.textContent = msg; estado.classList.add('ok'); return; }
+  estado.classList.remove('ok');
+  estado.textContent = base && base.filas.length
+    ? '📊 Base cargada: ' + base.filas.length.toLocaleString('es-CO') + ' pacientes. Escribe el nombre o el número de documento y elige al paciente para llenar los datos.'
+      + (faltan().length ? ' ⚠ La base no trae ' + faltan().join(' ni ') + ': pulsa "Base de pacientes", vuelve a cargar el Excel y elige esa columna.' : '')
+    : '';
+}
+function faltan(){
+  if(!base) return [];
+  const f = [];
+  if(!base.filas.some(p => p.id)) f.push('número de documento');
+  if(!base.filas.some(p => p.eps)) f.push('EPS');
+  return f;
+}
+
+const fechaHora = t => new Date(t).toLocaleString('es-CO', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'});
+async function abrirPanel(){
+  const hay = base && base.filas.length;
+  const carpeta = HAY_CARPETAS ? await leerClave(CARPETA_KEY) : null;
+  caja.innerHTML = '<h3>📊 Base de pacientes</h3>'
+    + (hay
+      ? '<p>Base cargada: <b>' + esc(base.archivo) + '</b> · <b>' + base.filas.length.toLocaleString('es-CO') + '</b> pacientes · ' + fechaHora(base.cargado) + '.</p>'
+        + '<p>Escribe el nombre o el número de documento en la Portada y elige al paciente: se llenan nombres y apellidos, documento, fecha de ingreso, fecha de nacimiento, EPS y diagnóstico.</p>'
+      : '<p>Elige de dónde sale la lista de pacientes. Debe tener una fila de encabezados, por ejemplo: <i>Documento, Nombres, Apellidos, Fecha de ingreso, Fecha de nacimiento, EPS, Diagnóstico principal, Nombre del diagnóstico</i>.</p>')
+    + '<div class="bp-prev" style="line-height:1.7;">'
+    + (HAY_CARPETAS
+      ? '<b>📁 Carpeta del computador</b> (por ejemplo la carpeta <i>Exel</i>): ' + (carpeta
+          ? 'conectada a <b>' + esc(carpeta.dir.name) + '</b>' + (carpeta.archivo ? ' → ' + esc(carpeta.archivo) : '') + '. Cada vez que abras un formato se revisa si el Excel cambió y se actualiza solo.'
+          : 'eliges la carpeta una vez y, cuando guardes cambios en ese Excel, los formatos se actualizan solos.')
+        + '<br>'
+      : '<b>📁 Carpeta del computador:</b> este navegador no lo permite; usa Chrome o Edge en el computador, o sube el archivo.<br>')
+    + '<b>📂 Subir un archivo:</b> eliges un Excel o CSV nuevo. Queda guardado tal cual; si luego cambia, hay que volver a subirlo.<br>'
+    + '<b>✍️ A mano:</b> si el paciente no está en la base, escribe sus datos en la Portada como siempre.</div>'
+    + '<p style="font-size:12px;">🔒 La base se guarda solo en este navegador y en este equipo; no se sube a internet. Sirve para los 6 formatos.</p>'
+    + '<div class="bp-acc">'
+    + (hay ? '<button class="btn ghost" type="button" data-a="quitar">🗑️ Quitar base</button>' : '')
+    + '<button class="btn ghost" type="button" data-a="cerrar">Cerrar</button>'
+    + '<button class="btn ' + (HAY_CARPETAS ? 'ghost' : 'primary') + '" type="button" data-a="cargar">📂 Subir otro Excel</button>'
+    + (carpeta ? '<button class="btn ghost" type="button" data-a="otraCarpeta">📁 Cambiar carpeta</button>'
+        + '<button class="btn primary" type="button" data-a="actualizar">🔄 Actualizar desde la carpeta</button>'
+      : HAY_CARPETAS ? '<button class="btn primary" type="button" data-a="carpeta">📁 Elegir de la carpeta</button>' : '')
+    + '</div>';
+  caja.querySelector('[data-a="cerrar"]').onclick = ()=>{ modal.hidden = true; };
+  caja.querySelector('[data-a="cargar"]').onclick = ()=>{ inputArchivo.value = ''; inputArchivo.click(); };
+  const bc = caja.querySelector('[data-a="carpeta"]') || caja.querySelector('[data-a="otraCarpeta"]');
+  if(bc) bc.onclick = elegirCarpeta;
+  const ba = caja.querySelector('[data-a="actualizar"]');
+  if(ba) ba.onclick = ()=> desdeCarpeta(carpeta, { pedir:true, forzar:true });
+  const q = caja.querySelector('[data-a="quitar"]');
+  if(q) q.onclick = async ()=>{
+    if(!confirm('¿Quitar la base de pacientes de este navegador?\nLas valoraciones no se borran; solo deja de autocompletar.')) return;
+    try{ await escribirBase(null); await escribirBase(null, CARPETA_KEY); }catch(e){}
+    base = null; pintarEstado(); modal.hidden = true;
+  };
+  modal.hidden = false;
+}
+btnBase.addEventListener('click', abrirPanel);
+
+inputArchivo.addEventListener('change', async ()=>{
+  const f = inputArchivo.files && inputArchivo.files[0]; if(!f) return;
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+  if(ext === 'xls'){ alert('Este es un Excel antiguo (.xls).\nÁbrelo en Excel y usa "Guardar como" → "Libro de Excel (.xlsx)", y vuelve a cargarlo.'); return; }
+  try{
+    const hojas = ext === 'csv' || ext === 'txt' ? leerCsv(await f.arrayBuffer()) : await leerXlsx(await f.arrayBuffer());
+    // un archivo subido deja de seguir la carpeta
+    try{ await escribirBase(null, CARPETA_KEY); }catch(e){}
+    mostrarMapeo(f.name, hojas, { modificado: f.lastModified });
+  }catch(err){ alert('No pude leer el archivo: ' + (err && err.message || err)); }
+});
+
+async function elegirCarpeta(){
+  let dir;
+  try{ dir = await window.showDirectoryPicker({ id:'cisadde-exel', mode:'read' }); }
+  catch(e){ return; } // canceló
+  let lista;
+  try{ lista = await archivosDeCarpeta(dir); }
+  catch(e){ return alert('No pude leer la carpeta: ' + (e && e.message || e)); }
+  if(!lista.length) return alert('En la carpeta "' + dir.name + '" no hay archivos Excel (.xlsx) ni CSV.\nSi el Excel es .xls antiguo, ábrelo y guárdalo como .xlsx.');
+  const usar = async f => {
+    const carpeta = { dir, archivo: f.name };
+    try{ await escribirBase(carpeta, CARPETA_KEY); }catch(e){}
+    desdeCarpeta(carpeta, { forzar:true, preguntar:true });
+  };
+  if(lista.length === 1) return usar(lista[0]);
+  caja.innerHTML = '<h3>¿Cuál archivo de la carpeta ' + esc(dir.name) + '?</h3>'
+    + '<p>El más reciente está de primero.</p>'
+    + '<div class="bp-sug" style="position:static;max-height:320px;">' + lista.map((f, i) => '<button type="button" data-i="' + i + '">' + esc(f.name)
+      + '<small>Modificado ' + fechaHora(f.lastModified) + ' · ' + Math.max(1, Math.round(f.size / 1024)).toLocaleString('es-CO') + ' KB</small></button>').join('') + '</div>'
+    + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button></div>';
+  caja.querySelector('[data-a="cancelar"]').onclick = ()=>{ modal.hidden = true; };
+  caja.querySelectorAll('button[data-i]').forEach(b => b.onclick = ()=> usar(lista[Number(b.dataset.i)]));
+  modal.hidden = false;
+}
+
+// Lee el Excel de la carpeta conectada. Si es el mismo que ya está guardado, no hace nada
+// (salvo forzar). Si las columnas siguen iguales lo guarda sin preguntar.
+let revisando = false;
+async function desdeCarpeta(carpeta, op){
+  op = op || {};
+  if(!carpeta || !carpeta.dir || revisando) return;
+  revisando = true;
+  try{
+    if(!await permiso(carpeta.dir, op.pedir || op.preguntar)){
+      if(op.pedir) alert('El navegador no dio permiso para leer la carpeta.');
+      else pedirPermisoEnEstado(carpeta);
+      return;
+    }
+    const lista = await archivosDeCarpeta(carpeta.dir);
+    const f = lista.find(x => x.name === carpeta.archivo) || lista[0];
+    if(!f){ pintarEstado(); if(op.pedir) alert('Ya no hay ningún Excel en la carpeta "' + carpeta.dir.name + '".'); return; }
+    if(!op.forzar && base && base.archivo === f.name && base.modificado === f.lastModified) return; // sin cambios
+    if(f.name !== carpeta.archivo){ carpeta.archivo = f.name; try{ await escribirBase(carpeta, CARPETA_KEY); }catch(e){} }
+    const hojas = await leerHojas(f);
+    const g = op.preguntar ? null : columnasGuardadas(hojas, base && base.cols, base && base.hoja);
+    if(!g){ mostrarMapeo(f.name, hojas, { modificado: f.lastModified, carpeta:true }); return; }
+    const filas = aFilas(g.hoja, g.fila, g.mapa);
+    if(!filas.length){ mostrarMapeo(f.name, hojas, { modificado: f.lastModified, carpeta:true }); return; }
+    const antes = base ? base.filas.length : 0;
+    await guardarNueva({ archivo: f.name, cargado: Date.now(), modificado: f.lastModified, carpeta: true, cols: base.cols, hoja: g.hoja.nombre, filas });
+    modal.hidden = true;
+    const dif = filas.length - antes;
+    pintarEstado('✓ Base actualizada desde la carpeta: ' + filas.length.toLocaleString('es-CO') + ' pacientes'
+      + (dif > 0 ? ' (' + dif + ' nuevos)' : '') + '.');
+    setTimeout(()=> pintarEstado(), 6000);
+  }catch(err){
+    if(op.pedir || op.forzar) alert('No pude leer el Excel de la carpeta: ' + (err && err.message || err)
+      + '\nSi el archivo está abierto en Excel, ciérralo o guárdalo e inténtalo de nuevo.');
+  }finally{ revisando = false; }
+}
+// Sin permiso todavía (el navegador lo pide con un clic): se ofrece en la tarjeta.
+function pedirPermisoEnEstado(carpeta){
+  pintarEstado();
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn ghost';
+  b.style.cssText = 'margin-left:6px;padding:3px 10px;font-size:12px;';
+  b.textContent = '🔄 Revisar la carpeta ' + carpeta.dir.name;
+  b.onclick = ()=> desdeCarpeta(carpeta, { pedir:true });
+  estado.appendChild(document.createTextNode(base ? ' ' : '📊 '));
+  estado.appendChild(b);
+}
+async function guardarNueva(nueva){
+  try{ await escribirBase(nueva); }
+  catch(e){ alert('No se pudo guardar en este navegador; la base funcionará solo mientras no cierres esta página.'); }
+  base = nueva; prepararIndice();
+}
+
+function mostrarMapeo(archivo, hojas, origen){
+  origen = origen || {};
+  // la hoja con más columnas reconocidas es la inicial
+  let iHoja = 0, mejor = -1;
+  hojas.forEach((h, i)=>{ const d = detectar(h.filas); if(d.puntos > mejor){ mejor = d.puntos; iHoja = i; } });
+  let det = detectar(hojas[iHoja].filas), mapa = Object.assign({}, det.mapa);
+
+  function pintar(){
+    const hoja = hojas[iHoja], enc = hoja.filas[det.fila] || [];
+    const nCols = Math.max(enc.length, ...hoja.filas.slice(det.fila, det.fila + 20).map(f => f.length));
+    const opciones = sel => '<option value="">— No está en el Excel —</option>'
+      + Array.from({length: nCols}, (_, c) => '<option value="' + c + '"' + (String(sel) === String(c) ? ' selected' : '') + '>' + esc(limpio(enc[c]) || ('Columna ' + (c + 1))) + '</option>').join('');
+    const filas = aFilas(hoja, det.fila, mapa);
+    const ej = filas[0];
+    caja.innerHTML = '<h3>Revisa las columnas</h3>'
+      + '<p>Archivo <b>' + esc(archivo) + '</b>. Ya marqué lo que reconocí; corrige lo que haga falta.</p>'
+      + (hojas.length > 1 ? '<label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);">Hoja<select class="input" data-hoja style="margin-top:4px;">' + hojas.map((h, i) => '<option value="' + i + '"' + (i === iHoja ? ' selected' : '') + '>' + esc(h.nombre) + '</option>').join('') + '</select></label>' : '')
+      + '<div class="bp-map">' + CAMPOS.map(c => '<label>' + esc(c.lbl) + (c.obligatorio ? ' *' : '')
+        + ((c.k === 'id' || c.k === 'eps') && !(c.k in mapa) ? ' <span style="color:var(--red);">⚠ no la encontré, elígela</span>' : '') + '<select class="input" data-k="' + c.k + '">' + opciones(mapa[c.k]) + '</select></label>').join('') + '</div>'
+      + '<div class="bp-prev">' + (ej
+        ? '<b>Así queda el primer paciente:</b><br>' + esc(ej.nombre || '—') + ' · ' + esc(ej.tipo || '') + ' ' + esc(ej.id || '—')
+          + '<br>Ingreso: ' + esc(fmt(ej.ing) || '—') + ' · Nacimiento: ' + esc(fmt(ej.nac) || '—') + ' · EPS: ' + esc(ej.eps || '—')
+          + '<br>Diagnóstico: ' + esc(ej.cie || '—') + ' ' + esc(ej.dx || '')
+          + '<br><b>' + filas.length.toLocaleString('es-CO') + '</b> pacientes en total.'
+        : 'No encontré pacientes con estas columnas.') + '</div>'
+      + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button><button class="btn primary" type="button" data-a="guardar">✓ Guardar base</button></div>';
+    const sh = caja.querySelector('[data-hoja]');
+    if(sh) sh.onchange = ()=>{ iHoja = Number(sh.value); det = detectar(hojas[iHoja].filas); mapa = Object.assign({}, det.mapa); pintar(); };
+    caja.querySelectorAll('[data-k]').forEach(s => s.onchange = ()=>{ if(s.value === '') delete mapa[s.dataset.k]; else mapa[s.dataset.k] = Number(s.value); pintar(); });
+    caja.querySelector('[data-a="cancelar"]').onclick = ()=>{ modal.hidden = true; };
+    caja.querySelector('[data-a="guardar"]').onclick = async ()=>{
+      if(!('id' in mapa) && !('n1' in mapa)) return alert('Elige al menos la columna del número de documento o la del nombre.');
+      if(!filas.length) return alert('No hay pacientes para guardar con estas columnas.');
+      const enc = hojas[iHoja].filas[det.fila] || [], cols = {};
+      Object.keys(mapa).forEach(k => { const n = norm(enc[mapa[k]]); if(n) cols[k] = n; });
+      await guardarNueva({ archivo, cargado: Date.now(), modificado: origen.modificado || 0, carpeta: !!origen.carpeta, cols, hoja: hojas[iHoja].nombre, filas });
+      modal.hidden = true;
+      pintarEstado('✓ Base guardada: ' + filas.length.toLocaleString('es-CO') + ' pacientes.'
+        + (origen.carpeta ? ' Se actualizará sola cuando cambie el Excel de la carpeta.' : '') + ' Ya puedes escribir el nombre o el documento.');
+      setTimeout(()=> pintarEstado(), 6000);
+    };
+  }
+  pintar();
+  modal.hidden = false;
+}
+
+/* ---------- Búsqueda y autocompletado ---------- */
+let indice = [];
+function prepararIndice(){ indice = base ? base.filas.map(p => ({ p, id: normId(p.id), n: norm(p.nombre) })) : []; }
+function buscar(texto, porId){
+  if(!indice.length) return [];
+  if(porId){
+    const q = normId(texto); if(q.length < 3) return [];
+    const exactos = indice.filter(x => x.id === q), otros = indice.filter(x => x.id !== q && x.id.startsWith(q));
+    return exactos.concat(otros).slice(0, 8).map(x => x.p);
+  }
+  const palabras = norm(texto).split(' ').filter(Boolean);
+  if(!palabras.length || norm(texto).length < 3) return [];
+  return indice.filter(x => palabras.every(w => x.n.includes(w)))
+    .sort((a, b) => (b.n.startsWith(palabras[0]) - a.n.startsWith(palabras[0])) || a.n.localeCompare(b.n))
+    .slice(0, 8).map(x => x.p);
+}
+
+let anterior = {}; // lo que puso el último paciente elegido, para no dejar datos suyos en el siguiente
+function poner(idCampo, valor){
+  const el = document.getElementById(idCampo);
+  if(!el || valor == null) return;
+  if(valor === ''){ if(!anterior[idCampo] || el.value !== anterior[idCampo]) return; } // vacío: solo borra lo del paciente anterior
+  else if(el.tagName === 'SELECT' && !Array.from(el.options).some(o => o.value === valor)) return;
+  el.value = valor;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function llenar(p){
+  const campos = { childName: p.nombre, tipoId: p.tipo, numeroId: p.id, birthDate: p.nac, fechaIngreso: p.ing, eps: p.eps, cie10Code: p.cie, cie10Diag: p.dx };
+  // el código va antes que el nombre: si el código está en la lista del formato, sugiere el diagnóstico
+  Object.keys(campos).forEach(k => poner(k, campos[k]));
+  anterior = {};
+  Object.keys(campos).forEach(k => { const el = document.getElementById(k); if(el) anterior[k] = el.value; });
+  ocultar();
+  pintarEstado('✓ Datos de ' + (p.nombre || p.id) + ' traídos de la base de pacientes.');
+  setTimeout(()=> pintarEstado(), 5000);
+}
+
+function crearLista(input){
+  const cont = input.closest('.field') || input.parentNode;
+  if(getComputedStyle(cont).position === 'static') cont.style.position = 'relative';
+  const caja = document.createElement('div');
+  caja.className = 'bp-sug'; caja.hidden = true;
+  cont.appendChild(caja);
+  return caja;
+}
+const listas = [];
+function ocultar(){ listas.forEach(l => { l.caja.hidden = true; l.items = []; l.sel = -1; }); }
+
+function conectar(input, porId){
+  const l = { caja: crearLista(input), items: [], sel: -1 };
+  listas.push(l);
+  function mostrar(){
+    l.items = buscar(input.value, porId); l.sel = -1;
+    if(!l.items.length){ l.caja.hidden = true; return; }
+    l.caja.innerHTML = l.items.map((p, i) => '<button type="button" data-i="' + i + '">' + esc(p.nombre || '—')
+      + '<small>' + esc([(p.tipo ? p.tipo + ' ' : '') + (p.id || ''), p.eps, p.cie].filter(Boolean).join(' · ')) + '</small></button>').join('');
+    l.caja.hidden = false;
+  }
+  input.addEventListener('input', e=>{
+    if(!e.isTrusted) return; // ignora lo que llena el propio autocompletado
+    if(!indice.length) return;
+    mostrar();
+    // número de documento exacto y único: se llena sin tener que elegir
+    if(porId && l.items.length === 1 && normId(l.items[0].id) === normId(input.value)) llenar(l.items[0]);
+  });
+  input.addEventListener('keydown', e=>{
+    if(l.caja.hidden || !l.items.length) return;
+    if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault();
+      l.sel = (l.sel + (e.key === 'ArrowDown' ? 1 : -1) + l.items.length) % l.items.length;
+      l.caja.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === l.sel));
+    } else if(e.key === 'Enter'){
+      e.preventDefault(); llenar(l.items[l.sel >= 0 ? l.sel : 0]);
+    } else if(e.key === 'Escape') ocultar();
+  });
+  l.caja.addEventListener('mousedown', e=>{
+    const b = e.target.closest('button[data-i]'); if(!b) return;
+    e.preventDefault(); llenar(l.items[Number(b.dataset.i)]);
+  });
+  input.addEventListener('blur', ()=> setTimeout(()=>{ l.caja.hidden = true; }, 150));
+}
+conectar(campoNombre, false);
+conectar(campoId, true);
+
+/* ---------- Fecha de ingreso (campo de la Portada) ---------- */
+const campoIngreso = document.getElementById('fechaIngreso');
+if(campoIngreso && typeof state !== 'undefined'){
+  if(!campoIngreso.value && state.fechaIngreso) campoIngreso.value = state.fechaIngreso;
+  campoIngreso.addEventListener('change', e=>{ state.fechaIngreso = e.target.value; });
+}
+
+leerBase().then(async b=>{
+  if(b && Array.isArray(b.filas)){ base = b; prepararIndice(); pintarEstado(); }
+  // carpeta conectada: revisar si el Excel cambió (también al volver a esta pestaña)
+  if(!HAY_CARPETAS) return;
+  const revisar = async ()=>{ const c = await leerClave(CARPETA_KEY); if(c) desdeCarpeta(c); };
+  revisar();
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') revisar(); });
+});
+})();
+</script>
+<!-- BASE PACIENTES:FIN -->
 </body>
 </html>
