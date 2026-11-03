@@ -2330,6 +2330,8 @@ const VERBOS_OK = VERBOS.concat(['Preservar','Incrementar','Mejorar']);
 const VERBOS_NO = ['Trabajar','Hacer','Realizar','Ejecutar','Ayudar','Mantener','Aplicar','Manejar'];
 const CODIGO = 'R-AMI-055', VIGENTE = '20/08/2021';
 const MIN_OBJETIVOS = 3; // la institución pide mínimo 3 objetivos específicos, cada uno con su indicador
+// Máximo de objetivos que salen de las debilidades: todos quedan nombrados en el objetivo general.
+const MAX_OBJETIVOS = 4;
 
 function vacio(){ return { hc:'', inicio:'', fin:'', area:'', socializacion:'', aprobo:'', hallazgos:'', objGeneral:'', objEspecificos:'', indicadores:'', base:'' }; }
 state.plan = vacio();
@@ -2436,14 +2438,15 @@ function sugerido(){
   // Un objetivo por habilidad (en Fonoaudiología varios rangos de edad comparten la misma).
   // Los objetivos salen de los ítems no logrados, empezando por el componente más bajo.
   const vistos = {}, foco = [], subs = SUB[FORM_ID] || [];
-  const agregar = f => { if(!vistos[f.o] && foco.length < 5){ vistos[f.o] = 1; foco.push(f); } };
+  const agregar = f => { if(!vistos[f.o] && foco.length < MAX_OBJETIVOS){ vistos[f.o] = 1; foco.push(f); } };
   debiles.slice().sort((a,b)=>a.logro-b.logro).forEach(x=>{
     let alguno = false;
     x.dif.forEach(t=>{ const s = subs.find(s=> s.re.test(t.toLowerCase())); if(s){ alguno = true; agregar(s); } });
     if(!alguno) agregar(ficha(x));
   });
   const conDificultad = foco.length;
-  const hs = foco.slice(0,3).map(f=>f.h);
+  // El general nombra TODAS las habilidades de los específicos, para que cada específico lo desarrolle.
+  const hs = foco.map(f=>f.h).filter((v,i,a)=> v && a.indexOf(v) === i);
   if(conDificultad){
     // Mínimo 3 objetivos específicos: se completan con la autonomía y la generalización
     // de esas mismas habilidades, sin traer áreas que salieron como fortaleza.
