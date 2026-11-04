@@ -3202,8 +3202,14 @@ const CAMPOS = [
   { k:'nac', lbl:'Fecha de nacimiento' },
   { k:'eps', lbl:'EPS' },
   { k:'cie', lbl:'Diagnóstico principal (código CIE-10)' },
-  { k:'dx',  lbl:'Nombre del diagnóstico' }
+  { k:'dx',  lbl:'Nombre del diagnóstico' },
+  { k:'est', lbl:'Estado (activo / inactivo)' }
 ];
+const VERSION = 2; // sube cuando cambia cómo se leen las columnas: obliga a releer la base vieja
+// "N°", "No", "Nro" solos suelen ser el consecutivo de la fila, no el documento.
+const ID_DEBIL = /^(n|no|nro|num|numero)( de)?$/;
+// Encabezados que dicen "documento" pero no son el del niño.
+const NO_ES_ID = /madre|padre|acudiente|autoriz|responsable|cuidador|fecha|lugar|expedic|inscrip|consecutivo|item/;
 // Orden en que se prueba cada encabezado: el primero que coincide se queda con la columna.
 const REGLAS = [
   // \b en "cie" y "entidad": "paciente" contiene "cie" e "identidad" contiene "entidad"
@@ -3211,9 +3217,11 @@ const REGLAS = [
   ['cie', /diag|\bdx\b|\bcie/],
   ['eps', /\beps\b|\be p s\b|asegurador|eapb|\bentidad\b|administradora|convenio|pagador|empresa|contrato/],
   ['tipo', /tipo.*(doc|ident|\bid\b)|^tipo$|^td$/],
+  ['est', /^estado( del| de la| de)?( paciente| usuario| nino| a)*$/],
   ['nac', /nacimiento|\bnac\b|f ?nac/],
   ['ing', /ingreso|admision|entrada/],
-  ['id',  /cedula|\bdoc|identi|\bid\b|nuip|^(n|no|nro|num|numero)( de)?$|^(n|no|nro|num|numero) (de )?(doc|id)|^cc$|^ti$|^rc$/],
+  ['id',  /cedula|\bdoc|identi|\bid\b|nuip|^(n|no|nro|num|numero) (de )?(doc|id)|^cc$|^ti$|^rc$/],
+  ['idDebil', ID_DEBIL],
   ['n2',  /segundo nombre|^nombre 2$|2 nombre/],
   ['a2',  /segundo apellido|^apellido 2$|2 apellido/],
   ['n1',  /nombre|paciente|usuario/],
@@ -3296,7 +3304,17 @@ function columnasGuardadas(hojas, cols, nombreHoja){
       const enc = (hoja.filas[r] || []).map(norm), mapa = {};
       let todas = true;
       for(const k in cols){ const c = enc.indexOf(cols[k]); if(c < 0){ todas = false; break; } mapa[k] = c; }
-      if(todas) return { hoja, fila: r, mapa };
+      if(!todas) continue;
+      // columnas guardadas con la versión anterior: "N°" quedó como documento
+      if('id' in mapa && (ID_DEBIL.test(cols.id) || esConsecutivo(hoja.filas, r, mapa.id))){
+        const d = detectar(hoja.filas);
+        if(d.fila !== r || !('id' in d.mapa)) return null; // que la persona elija de nuevo
+        mapa.id = d.mapa.id;
+        if('est' in d.mapa && !('est' in mapa)) mapa.est = d.mapa.est;
+      }
+      const nuevas = {};
+      Object.keys(mapa).forEach(k => { const n = norm(enc[mapa[k]]); if(n) nuevas[k] = n; });
+      return { hoja, fila: r, mapa, cols: nuevas };
     }
   }
   return null;
@@ -3402,20 +3420,30 @@ function detectar(filas){
       const n = norm(h); if(!n || n.length > 60) return;
       for(const [k, re] of REGLAS){
         if(!re.test(n)) continue;
+        if(k === 'id' && NO_ES_ID.test(n)) continue;
         // el diagnóstico "principal" gana sobre los relacionados
         if(k === 'cie' && /relacion|secund|\b[2-9]\b/.test(n) && !/principal/.test(n)) break;
         if(!(k in mapa) || (k === 'cie' && /principal/.test(n))){ if(!(k in mapa)) puntos++; mapa[k] = c; }
         break;
       }
     });
+    if('idDebil' in mapa){ if(!('id' in mapa)) mapa.id = mapa.idDebil; else puntos--; delete mapa.idDebil; }
     if(puntos > mejor.puntos) mejor = { fila: r, mapa, puntos };
   }
   porContenido(filas, mejor);
   return mejor;
 }
+// ¿La columna es un consecutivo (1, 2, 3...) y no un documento?
+function esConsecutivo(filas, desde, c){
+  const v = filas.slice(desde + 1, desde + 201).map(f => normId(f[c])).filter(Boolean);
+  if(v.length < 5) return false;
+  const cortos = v.filter(x => /^\d{1,5}$/.test(x)).length;
+  return cortos / v.length > 0.8;
+}
 // Si el encabezado no dijo cuál es el documento o la EPS, se buscan por lo que tienen las celdas.
 const EPS_CONOCIDAS = /\beps\b|sanitas|sura|coosalud|salud total|famisanar|compensar|mutual ?ser|cajacopi|asmet|emssanar|capresoca|comfenalco|savia|aliansalud|ecoopsos|dusakawi|pijaos|wayuu|capital salud|comfa|cafesalud|medimas|\bsos\b|magisterio|fomag|sanidad|nueva eps|coomeva|cosmitet|anas|mallamas|salud mia|ferrocarriles/;
 function porContenido(filas, det){
+  if('id' in det.mapa && esConsecutivo(filas, det.fila, det.mapa.id)) delete det.mapa.id;
   const usadas = new Set(Object.values(det.mapa));
   const datos = filas.slice(det.fila + 1, det.fila + 201).filter(f => f.some(v => v !== ''));
   if(!datos.length) return;
@@ -3483,13 +3511,27 @@ function separarDx(cie, dx){
 }
 function aFilas(hoja, encabezado, mapa){
   const val = (f, k) => k in mapa && mapa[k] !== '' && mapa[k] != null ? f[mapa[k]] : '';
-  const out = [];
+  const out = [], porId = {};
   hoja.filas.slice(encabezado + 1).forEach(f=>{
     const id = limpio(val(f, 'id')).replace(/\.0+$/, '');
     const nombre = limpio([val(f,'n1'), val(f,'n2'), val(f,'a1'), val(f,'a2')].join(' '));
     if(!id && !nombre) return;
     const d = separarDx(val(f, 'cie'), val(f, 'dx'));
-    out.push({ id, tipo: tipoDoc(val(f, 'tipo')), nombre, ing: aISO(val(f, 'ing')), nac: aISO(val(f, 'nac')), eps: limpio(val(f, 'eps')), cie: d.cie, dx: d.dx });
+    const p = { id, tipo: tipoDoc(val(f, 'tipo')), nombre, ing: aISO(val(f, 'ing')), nac: aISO(val(f, 'nac')), eps: limpio(val(f, 'eps')), cie: d.cie, dx: d.dx, est: limpio(val(f, 'est')).toUpperCase() };
+    const k = normId(id);
+    if(!k){ out.push(p); return; }
+    // El mismo niño sale varias veces (ingresos y reingresos): queda una sola ficha,
+    // la ACTIVA o, si no, la de ingreso más reciente; los otros nombres sirven para buscarlo.
+    const ya = porId[k];
+    if(!ya){ porId[k] = p; out.push(p); return; }
+    const alias = new Set([ya.nombre].concat(ya.alias || [], [p.nombre]));
+    const gana = (p.est === 'ACTIVO') - (ya.est === 'ACTIVO') || (p.ing > ya.ing) - (p.ing < ya.ing) || 1;
+    const queda = gana > 0 ? p : ya;
+    alias.delete(queda.nombre); alias.delete('');
+    if(queda !== ya){ out[out.indexOf(ya)] = queda; porId[k] = queda; }
+    // lo que le falte a la ficha elegida se completa con la otra
+    ['tipo', 'nac', 'eps', 'cie', 'dx', 'ing'].forEach(c => { if(!queda[c]) queda[c] = (queda === p ? ya : p)[c]; });
+    if(alias.size) queda.alias = Array.from(alias); else delete queda.alias;
   });
   return out;
 }
@@ -3549,11 +3591,15 @@ function fmt(iso){ if(!iso) return ''; const [y,m,d] = iso.split('-'); return d 
 function pintarEstado(msg){
   if(msg){ estado.textContent = msg; estado.classList.add('ok'); return; }
   estado.classList.remove('ok');
-  estado.textContent = base && base.filas.length
+  estado.textContent = vieja()
+    ? '⚠ La base de pacientes se cargó con una versión anterior que podía confundir el número de documento. Pulsa "Base de pacientes" y vuelve a cargar el Excel (o "Actualizar desde la carpeta").'
+    : base && base.filas.length
     ? '📊 Base cargada: ' + base.filas.length.toLocaleString('es-CO') + ' pacientes. Escribe el nombre o el número de documento y elige al paciente para llenar los datos.'
       + (faltan().length ? ' ⚠ La base no trae ' + faltan().join(' ni ') + ': pulsa "Base de pacientes", vuelve a cargar el Excel y elige esa columna.' : '')
     : '';
 }
+// Base guardada antes de esta corrección (podía tener el consecutivo "N°" como documento).
+function vieja(){ return !!(base && base.filas && base.filas.length && (base.ver || 1) < VERSION); }
 function faltan(){
   if(!base) return [];
   const f = [];
@@ -3657,7 +3703,7 @@ async function desdeCarpeta(carpeta, op){
     const lista = await archivosDeCarpeta(carpeta.dir);
     const f = lista.find(x => x.name === carpeta.archivo) || lista[0];
     if(!f){ pintarEstado(); if(op.pedir) alert('Ya no hay ningún Excel en la carpeta "' + carpeta.dir.name + '".'); return; }
-    if(!op.forzar && base && base.archivo === f.name && base.modificado === f.lastModified) return; // sin cambios
+    if(!op.forzar && !vieja() && base && base.archivo === f.name && base.modificado === f.lastModified) return; // sin cambios
     if(f.name !== carpeta.archivo){ carpeta.archivo = f.name; try{ await escribirBase(carpeta, CARPETA_KEY); }catch(e){} }
     const hojas = await leerHojas(f);
     const g = op.preguntar ? null : columnasGuardadas(hojas, base && base.cols, base && base.hoja);
@@ -3665,7 +3711,7 @@ async function desdeCarpeta(carpeta, op){
     const filas = aFilas(g.hoja, g.fila, g.mapa);
     if(!filas.length){ mostrarMapeo(f.name, hojas, { modificado: f.lastModified, carpeta:true }); return; }
     const antes = base ? base.filas.length : 0;
-    await guardarNueva({ archivo: f.name, cargado: Date.now(), modificado: f.lastModified, carpeta: true, cols: base.cols, hoja: g.hoja.nombre, filas });
+    await guardarNueva({ ver: VERSION, archivo: f.name, cargado: Date.now(), modificado: f.lastModified, carpeta: true, cols: g.cols, hoja: g.hoja.nombre, filas });
     modal.hidden = true;
     const dif = filas.length - antes;
     pintarEstado('✓ Base actualizada desde la carpeta: ' + filas.length.toLocaleString('es-CO') + ' pacientes'
@@ -3716,7 +3762,7 @@ function mostrarMapeo(archivo, hojas, origen){
         ? '<b>Así queda el primer paciente:</b><br>' + esc(ej.nombre || '—') + ' · ' + esc(ej.tipo || '') + ' ' + esc(ej.id || '—')
           + '<br>Ingreso: ' + esc(fmt(ej.ing) || '—') + ' · Nacimiento: ' + esc(fmt(ej.nac) || '—') + ' · EPS: ' + esc(ej.eps || '—')
           + '<br>Diagnóstico: ' + esc(ej.cie || '—') + ' ' + esc(ej.dx || '')
-          + '<br><b>' + filas.length.toLocaleString('es-CO') + '</b> pacientes en total.'
+          + '<br><b>' + filas.length.toLocaleString('es-CO') + '</b> pacientes distintos (si un niño sale varias veces en el Excel, queda una sola vez: la fila ACTIVA o la de ingreso más reciente).'
         : 'No encontré pacientes con estas columnas.') + '</div>'
       + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button><button class="btn primary" type="button" data-a="guardar">✓ Guardar base</button></div>';
     const sh = caja.querySelector('[data-hoja]');
@@ -3728,7 +3774,7 @@ function mostrarMapeo(archivo, hojas, origen){
       if(!filas.length) return alert('No hay pacientes para guardar con estas columnas.');
       const enc = hojas[iHoja].filas[det.fila] || [], cols = {};
       Object.keys(mapa).forEach(k => { const n = norm(enc[mapa[k]]); if(n) cols[k] = n; });
-      await guardarNueva({ archivo, cargado: Date.now(), modificado: origen.modificado || 0, carpeta: !!origen.carpeta, cols, hoja: hojas[iHoja].nombre, filas });
+      await guardarNueva({ ver: VERSION, archivo, cargado: Date.now(), modificado: origen.modificado || 0, carpeta: !!origen.carpeta, cols, hoja: hojas[iHoja].nombre, filas });
       modal.hidden = true;
       pintarEstado('✓ Base guardada: ' + filas.length.toLocaleString('es-CO') + ' pacientes.'
         + (origen.carpeta ? ' Se actualizará sola cuando cambie el Excel de la carpeta.' : '') + ' Ya puedes escribir el nombre o el documento.');
@@ -3741,7 +3787,10 @@ function mostrarMapeo(archivo, hojas, origen){
 
 /* ---------- Búsqueda y autocompletado ---------- */
 let indice = [];
-function prepararIndice(){ indice = base ? base.filas.map(p => ({ p, id: normId(p.id), n: norm(p.nombre) })) : []; }
+function prepararIndice(){
+  // una base vieja podía tener el consecutivo como documento: no se usa hasta releerla
+  indice = base && !vieja() ? base.filas.map(p => ({ p, id: normId(p.id), n: norm([p.nombre].concat(p.alias || []).join(' | ')) })) : [];
+}
 function buscar(texto, porId){
   if(!indice.length) return [];
   if(porId){
@@ -3751,7 +3800,7 @@ function buscar(texto, porId){
   }
   const palabras = norm(texto).split(' ').filter(Boolean);
   if(!palabras.length || norm(texto).length < 3) return [];
-  return indice.filter(x => palabras.every(w => x.n.includes(w)))
+  return indice.filter(x => palabras.every(w => x.n.includes(w)) || (x.id && x.id === normId(texto)))
     .sort((a, b) => (b.n.startsWith(palabras[0]) - a.n.startsWith(palabras[0])) || a.n.localeCompare(b.n))
     .slice(0, 8).map(x => x.p);
 }
@@ -3795,7 +3844,8 @@ function conectar(input, porId){
     l.items = buscar(input.value, porId); l.sel = -1;
     if(!l.items.length){ l.caja.hidden = true; return; }
     l.caja.innerHTML = l.items.map((p, i) => '<button type="button" data-i="' + i + '">' + esc(p.nombre || '—')
-      + '<small>' + esc([(p.tipo ? p.tipo + ' ' : '') + (p.id || ''), p.eps, p.cie].filter(Boolean).join(' · ')) + '</small></button>').join('');
+      + '<small>' + esc([(p.tipo ? p.tipo + ' ' : '') + (p.id || 'sin documento'), p.eps, p.cie, p.est].filter(Boolean).join(' · '))
+      + (p.alias && p.alias.length ? '<br>También escrito: ' + esc(p.alias.join(' / ')) : '') + '</small></button>').join('');
     l.caja.hidden = false;
   }
   input.addEventListener('input', e=>{
