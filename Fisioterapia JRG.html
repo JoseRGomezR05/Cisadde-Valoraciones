@@ -3483,7 +3483,11 @@ function buscar(texto, porId){
   }
   const palabras = norm(texto).split(' ').filter(Boolean);
   if(!palabras.length || norm(texto).length < 3) return [];
-  return indice.filter(x => palabras.every(w => x.n.includes(w)) || (x.id && x.id === normId(texto)))
+  const hallados = indice.filter(x => palabras.every(w => x.n.includes(w)) || (x.id && x.id === normId(texto)));
+  // Por nombre salen solo los pacientes ACTIVOS; los inactivos aparecen únicamente si
+  // no hay ningún activo con ese nombre (para no perder a quien vuelve a ingresar).
+  const activos = hallados.filter(x => x.p.est === 'ACTIVO');
+  return (activos.length ? activos : hallados)
     .sort((a, b) => (b.n.startsWith(palabras[0]) - a.n.startsWith(palabras[0])) || a.n.localeCompare(b.n))
     .slice(0, 8).map(x => x.p);
 }
