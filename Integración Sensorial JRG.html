@@ -2517,8 +2517,13 @@ function hojas(){
   return [activeSheet()];
 }
 function textoItem(it){ return String(typeof itemLabel === 'function' ? itemLabel(it) : it.text).trim().replace(/[.;:,\s]+$/,''); }
-function estado(v){
-  if(v === undefined || v === null || v === 'na') return null;
+// En Psicológica, Terapia Ocupacional y Fonoaudiología el terapeuta marca lo que el niño logra:
+// lo que queda sin marcar es "no logra", igual que en el porcentaje de la Evaluación.
+// (En Fisioterapia marcar es "hay hallazgo", en IS es "Sí" y en Taller hay puntaje: no aplica.)
+const CHULOS = FORM_ID === 'psi' || FORM_ID === 'to' || FORM_ID === 'fono';
+function estado(v, tocada){
+  if(v === 'na') return null;
+  if(v === undefined || v === null) return CHULOS && tocada ? 'dif' : null;
   if(INVERTIDO) return v === true ? 'dif' : 'ok';
   return (v === true || v === 10) ? 'ok' : 'dif';
 }
@@ -2526,9 +2531,11 @@ function analizar(){
   const out = [];
   hojas().forEach(sh=>{
     if(!sh) return;
+    // La hoja cuenta como evaluada si tiene al menos un ítem marcado o desmarcado.
+    const tocada = COMPONENTS.some(c=> (sh.comp[c] || []).some(it=> state.answers[it.id] === true || state.answers[it.id] === false));
     COMPONENTS.forEach(c=>{
       const ok = [], dif = [];
-      (sh.comp[c] || []).forEach(it=>{ const e = estado(state.answers[it.id]); if(e === 'ok') ok.push(textoItem(it)); else if(e === 'dif') dif.push(textoItem(it)); });
+      (sh.comp[c] || []).forEach(it=>{ const e = estado(state.answers[it.id], tocada); if(e === 'ok') ok.push(textoItem(it)); else if(e === 'dif') dif.push(textoItem(it)); });
       if(!ok.length && !dif.length) return;
       out.push({ c:c, nombre: sh.extra ? c + ' (' + sh.label + ')' : c, ok:ok, dif:dif, logro: ok.length/(ok.length+dif.length),
         nota: ((state.compNotes || {})[sh.key + '::' + c] || '').trim() });
@@ -2744,7 +2751,9 @@ function avisar(sug){
 }
 function render(){
   const sug = sugerido(), p = state.plan;
-  if(sug && !p.base){ Object.assign(p, sug); p.base = firma(sug); }
+  // Se genera la primera vez y, si la valoración cambia, se actualiza solo mientras no se
+  // haya escrito a mano en los cuadros (si se escribió, sale el aviso de "Volver a generar").
+  if(sug && (!p.base || (p.base !== firma(sug) && firma(p) === p.base))){ Object.assign(p, sug); p.base = firma(sug); queueSave(); }
   if(!p.inicio){ p.inicio = hoyISO(); queueSave(); }
   const d = datos();
   Object.keys(CAMPOS).forEach(id=>{ const el = document.getElementById(id); if(document.activeElement !== el) el.value = p[CAMPOS[id]] || ''; });
