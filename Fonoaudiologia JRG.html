@@ -3571,13 +3571,33 @@ function poner(idCampo, valor){
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }
+// Revisa que las fechas del Excel tengan sentido (errores de digitación como 2029 en vez de 2019).
+function fechasDudosas(p){
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const iso = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+  const fmt = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
+  const malas = [];
+  if(p.nac && p.nac > iso) malas.push(['nac', 'La fecha de nacimiento del Excel (' + fmt(p.nac) + ') es una fecha en el futuro.']);
+  else if(p.nac && p.ing && p.nac > p.ing) malas.push(['nac', 'La fecha de nacimiento del Excel (' + fmt(p.nac) + ') es posterior a la fecha de ingreso (' + fmt(p.ing) + ').']);
+  else if(p.nac && Number(p.nac.slice(0, 4)) < hoy.getFullYear() - 30) malas.push(['nac', 'La fecha de nacimiento del Excel (' + fmt(p.nac) + ') daría más de 30 años de edad.']);
+  if(p.ing && p.ing > iso) malas.push(['ing', 'La fecha de ingreso del Excel (' + fmt(p.ing) + ') es una fecha en el futuro.']);
+  return malas;
+}
 function llenar(p){
+  const malas = fechasDudosas(p);
   const campos = { childName: p.nombre, tipoId: p.tipo, numeroId: p.id, birthDate: p.nac, fechaIngreso: p.ing, eps: p.eps, cie10Code: p.cie, cie10Diag: p.dx };
+  // Una fecha imposible no se llena: se deja vacía para escribirla a mano
+  malas.forEach(([k]) => { campos[k === 'nac' ? 'birthDate' : 'fechaIngreso'] = ''; });
   // el código va antes que el nombre: si el código está en la lista del formato, sugiere el diagnóstico
   Object.keys(campos).forEach(k => poner(k, campos[k]));
   anterior = {};
   Object.keys(campos).forEach(k => { const el = document.getElementById(k); if(el) anterior[k] = el.value; });
   ocultar();
+  if(malas.length){
+    pintarEstado('⚠ Datos de ' + (p.nombre || p.id) + ' traídos de la base, pero revisa la fecha: ' + malas.map(m => m[1]).join(' ') + ' Parece un error del Excel; escríbela a mano y corrígela en el Excel.');
+    alert('Revisa el Excel de ' + (p.nombre || p.id) + ':\n\n' + malas.map(m => '• ' + m[1]).join('\n') + '\n\nParece un error de digitación en el Excel. Ese campo quedó vacío para que lo escribas a mano.');
+    return;
+  }
   pintarEstado('✓ Datos de ' + (p.nombre || p.id) + ' traídos de la base de pacientes.');
   setTimeout(()=> pintarEstado(), 5000);
 }
