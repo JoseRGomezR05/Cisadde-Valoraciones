@@ -3580,5 +3580,151 @@ leerBase().then(async b=>{
 })();
 </script>
 <!-- BASE PACIENTES:FIN -->
+<!-- DICTADO:INICIO -->
+<script>
+/* =====================================================================
+   DICTADO POR VOZ
+   Pone un botón "🎤 Dictar" en los cuadros de texto largos (antecedentes
+   prenatales/perinatales/posnatales y, en Psicología, historia familiar).
+   Al pulsarlo se escucha el micrófono y se va escribiendo lo que se dice
+   donde está el cursor. Se vuelve a pulsar ("⏹ Detener") para terminar.
+   Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari);
+   necesita internet y que la página se abra por https (GitHub Pages).
+   Comandos dichos en voz alta: "coma", "punto", "punto y seguido",
+   "punto y aparte" / "nuevo párrafo", "dos puntos", "punto y coma",
+   "abrir paréntesis", "cerrar paréntesis".
+   Fuente: herramientas/dictado.js — se inserta con
+   node herramientas/insertar-dictado.js
+   ===================================================================== */
+(function(){
+const CAMPOS = ['antecedentesTxt', 'historiaFamiliarTxt'];
+const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+const css = document.createElement('style');
+css.textContent = ''
+  + '.dic-btn{margin-left:auto;padding:6px 12px;font-size:12.5px}'
+  + '.dic-btn.on{background:#e5484d;border-color:#e5484d;color:#fff;animation:dicPulso 1.4s infinite}'
+  + '@keyframes dicPulso{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,.45)}50%{box-shadow:0 0 0 6px rgba(229,72,77,0)}}'
+  + '.dic-vivo{margin-top:6px;font-size:12.5px;color:var(--text-faint);font-style:italic;min-height:0}'
+  + '.dic-vivo:empty{display:none}'
+  + '@media print{.dic-btn,.dic-vivo{display:none!important}}';
+document.head.appendChild(css);
+
+/* Comandos de puntuación (se aplican sobre el texto reconocido) */
+const COMANDOS = [
+  [/\s*\b(punto y aparte|nuevo p[aá]rrafo|nueva l[ií]nea)\b\s*/gi, '.\n'],
+  [/\s*\bpunto y coma\b\s*/gi, '; '],
+  [/\s*\bpunto y seguido\b\s*/gi, '. '],
+  [/\s*\bdos puntos\b\s*/gi, ': '],
+  [/\s*\babrir par[eé]ntesis\b\s*/gi, ' ('],
+  [/\s*\bcerrar par[eé]ntesis\b\s*/gi, ') '],
+  [/\s*\bcoma\b\s*/gi, ', '],
+  [/\s*\bpunto\s*$/gi, '. '],
+  [/\s*\bpunto\b(?!\s+de\b)\s*/gi, '. ']
+];
+function puntuar(t){
+  COMANDOS.forEach(([re, r]) => { t = t.replace(re, r); });
+  return t.replace(/\.\s*\.\n/g, '.\n').replace(/[ \t]+/g, ' ').replace(/ ([,.;:)])/g, '$1');
+}
+function mayuscula(texto, antes){
+  const previo = antes.replace(/\s+$/, '');
+  const inicio = !previo || /[.!?:\n]$/.test(antes.replace(/[ \t]+$/, '')) || /[.!?]$/.test(previo);
+  let t = inicio ? texto.replace(/^\s*([a-záéíóúñü])/i, (m, c) => m.replace(c, c.toUpperCase())) : texto;
+  return t.replace(/([.!?]\s+|\n)([a-záéíóúñü])/g, (m, p, c) => p + c.toUpperCase());
+}
+
+let activo = null; // { campo, btn, vivo, rec, parar }
+
+function insertar(campo, texto){
+  if(!texto) return;
+  const ini = campo.selectionStart ?? campo.value.length, fin = campo.selectionEnd ?? ini;
+  const antes = campo.value.slice(0, ini), despues = campo.value.slice(fin);
+  let t = mayuscula(puntuar(texto.trim()), antes);
+  if(antes && !/[\s(]$/.test(antes) && !/^[,.;:)]/.test(t)) t = ' ' + t;
+  if(despues && !/^\s/.test(despues) && !/\s$/.test(t)) t = t + ' ';
+  campo.value = antes + t + despues;
+  const pos = (antes + t).length;
+  campo.setSelectionRange(pos, pos);
+  campo.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function detener(){
+  if(!activo) return;
+  const a = activo; activo = null;
+  a.parar = true;
+  try{ a.rec.stop(); }catch(e){}
+  a.btn.classList.remove('on');
+  a.btn.textContent = '🎤 Dictar';
+  a.vivo.textContent = '';
+}
+
+function empezar(campo, btn, vivo){
+  if(!Reconocedor){
+    alert('Este navegador no permite el dictado por voz.\nÁbralo en Google Chrome o Microsoft Edge.\n\nEn Windows también puede dictar en cualquier cuadro con la tecla Windows + H.');
+    return;
+  }
+  if(location.protocol === 'file:'){
+    if(!confirm('El dictado funciona mejor abriendo el formato desde el enlace de GitHub Pages (https).\nDesde el archivo del computador el navegador puede bloquear el micrófono.\n\n¿Intentar de todos modos?')) return;
+  }
+  detener();
+  const rec = new Reconocedor();
+  rec.lang = 'es-CO'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  const a = { campo, btn, vivo, rec, parar: false };
+  activo = a;
+  btn.classList.add('on'); btn.textContent = '⏹ Detener';
+  vivo.textContent = 'Escuchando… hable con normalidad.';
+  campo.focus();
+  if(campo.selectionStart == null || document.activeElement !== campo){ const n = campo.value.length; campo.setSelectionRange(n, n); }
+
+  rec.onresult = ev => {
+    let provisional = '';
+    for(let i = ev.resultIndex; i < ev.results.length; i++){
+      const r = ev.results[i];
+      if(r.isFinal) insertar(campo, r[0].transcript);
+      else provisional += r[0].transcript;
+    }
+    vivo.textContent = provisional ? '… ' + provisional : 'Escuchando…';
+  };
+  rec.onerror = ev => {
+    if(ev.error === 'no-speech' || ev.error === 'aborted') return;
+    const msg = {
+      'not-allowed': 'El navegador no dio permiso para usar el micrófono. Permítalo en el candado de la barra de direcciones.',
+      'service-not-allowed': 'El navegador no permite el dictado en esta página. Ábrala desde el enlace de GitHub Pages en Chrome o Edge.',
+      'audio-capture': 'No se encontró un micrófono conectado.',
+      'network': 'El dictado necesita conexión a internet.'
+    }[ev.error] || ('Error del dictado: ' + ev.error);
+    a.parar = true;
+    detener();
+    alert(msg);
+  };
+  // Chrome corta solo tras un silencio: se reanuda mientras el botón siga activo
+  rec.onend = () => {
+    if(activo === a && !a.parar){ try{ rec.start(); }catch(e){ detener(); } }
+  };
+  try{ rec.start(); }catch(e){ detener(); alert('No se pudo iniciar el dictado: ' + e.message); }
+}
+
+CAMPOS.forEach(id => {
+  const campo = document.getElementById(id);
+  if(!campo || campo.dataset.dictado) return;
+  campo.dataset.dictado = '1';
+  const tarjeta = campo.closest('.card');
+  const cabeza = tarjeta && tarjeta.querySelector('.card-head');
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'btn ghost dic-btn';
+  btn.textContent = '🎤 Dictar';
+  btn.title = 'Dictar con el micrófono: lo que diga se va escribiendo en el cuadro';
+  const vivo = document.createElement('div');
+  vivo.className = 'dic-vivo';
+  if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(btn); }
+  else campo.parentNode.insertBefore(btn, campo);
+  campo.insertAdjacentElement('afterend', vivo);
+  btn.addEventListener('mousedown', e => e.preventDefault()); // no quitar el cursor del cuadro
+  btn.addEventListener('click', () => { if(activo && activo.campo === campo) detener(); else empezar(campo, btn, vivo); });
+});
+document.addEventListener('visibilitychange', () => { if(document.hidden) detener(); });
+})();
+</script>
+<!-- DICTADO:FIN -->
 </body>
 </html>
