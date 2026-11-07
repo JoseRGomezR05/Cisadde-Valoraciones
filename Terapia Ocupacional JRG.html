@@ -3912,8 +3912,9 @@ leerBase().then(async b=>{
    DICTADO POR VOZ
    Pone un botón "🎤 Dictar" en los cuadros de texto largos: motivo de
    consulta, antecedentes prenatales/perinatales/posnatales, historia
-   familiar (Psicología), examen miofuncional (Fonoaudiología) y los
-   cuadros del Plan terapéutico (hallazgos, objetivos e indicadores).
+   familiar (Psicología), examen miofuncional (Fonoaudiología), las
+   Observaciones de cada componente y los cuadros del Plan terapéutico
+   (hallazgos, objetivos e indicadores).
    Al pulsarlo se escucha el micrófono y se va escribiendo lo que se dice
    donde está el cursor. Se vuelve a pulsar ("⏹ Detener") para terminar.
    Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari);
@@ -4035,10 +4036,11 @@ function empezar(campo, btn, vivo){
   try{ rec.start(); }catch(e){ detener(); alert('No se pudo iniciar el dictado: ' + e.message); }
 }
 
-CAMPOS.forEach(id => {
-  const campo = document.getElementById(id);
+let consecutivo = 0;
+function preparar(campo){
   if(!campo || campo.dataset.dictado) return;
   campo.dataset.dictado = '1';
+  if(!campo.id) campo.id = 'dicCampo' + (++consecutivo);
   const tarjeta = campo.closest('.card');
   const cabeza = tarjeta && tarjeta.querySelector('.card-head');
   const btn = document.createElement('button');
@@ -4063,7 +4065,17 @@ CAMPOS.forEach(id => {
   campo.insertAdjacentElement('afterend', vivo);
   btn.addEventListener('mousedown', e => e.preventDefault()); // no quitar el cursor del cuadro
   btn.addEventListener('click', () => { if(activo && activo.campo === campo) detener(); else empezar(campo, btn, vivo); });
-});
+}
+CAMPOS.forEach(id => preparar(document.getElementById(id)));
+
+// Observaciones de cada componente: se crean y se vuelven a crear al cambiar
+// de hoja o rango de edad, así que se vigila la página para ponerles el botón.
+const OBSERVACIONES = '.comp-notes textarea';
+document.querySelectorAll(OBSERVACIONES).forEach(preparar);
+new MutationObserver(() => {
+  document.querySelectorAll(OBSERVACIONES + ':not([data-dictado])').forEach(preparar);
+  if(activo && !activo.campo.isConnected) detener(); // el cuadro se redibujó
+}).observe(document.body, { childList:true, subtree:true });
 document.addEventListener('visibilitychange', () => { if(document.hidden) detener(); });
 })();
 </script>
