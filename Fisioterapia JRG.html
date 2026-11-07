@@ -2578,7 +2578,7 @@ sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Format
   + '<div class="card"><div class="card-head"><h3>Datos del plan</h3><span class="sub">Nombre, edad, diagnóstico y CIE se toman de la Portada</span></div><div class="grid cols-2">'
   + campo('planHc', 'Historia clínica') + campo('planInicio', 'Periodo de ejecución: desde', 'type="date"')
   + campo('planFin', 'Periodo de ejecución: hasta', 'type="date"') + campo('planArea', 'Área tratante')
-  + campo('planSocializacion', 'Fecha de socialización con el equipo', 'type="date"') + campo('planAprobo', 'Aprobó (Dirección Científica)')
+  + campo('planSocializacion', 'Fecha de socialización con el equipo', 'type="date"') + campo('planAprobo', 'Aprobó', 'list="planAproboLista" placeholder="Escribe o elige el nombre…"') + '<datalist id="planAproboLista"></datalist>'
   + '</div></div>'
   + '<div class="card"><div class="card-head"><h3>Hallazgos</h3><span class="sub">¿Qué encontré durante la valoración? Fortalezas y debilidades</span></div>'
   + texto('planHallazgos', 'Hallazgos (las líneas que empiezan con • salen como viñetas)', 200, 'Fortalezas y debilidades encontradas…') + '</div>'
@@ -2592,6 +2592,15 @@ sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Format
   + '<div class="card"><div class="card-head"><h3>Vista previa</h3><span class="sub">Así se verá el cuerpo del documento en Word</span></div><div class="plan-doc" id="planPreview"></div></div>';
 document.getElementById('view-informe').after(sec);
 
+// "Aprobó": por defecto Iviana Torres; se puede escribir otro o elegirlo de la lista de profesionales.
+const APROBO_DEFECTO = 'Iviana Torres';
+(function(){
+  const lista = document.getElementById('planAproboLista'), vistos = new Set();
+  [[APROBO_DEFECTO]].concat(['CISADDE_PSICOLOGOS','CISADDE_TO','CISADDE_FONO','CISADDE_FISIO'].map(k=> window[k] || [])).forEach(arr=> arr.forEach(n=>{
+    n = String(n || '').trim(); if(!n || vistos.has(n.toLowerCase())) return; vistos.add(n.toLowerCase());
+    const o = document.createElement('option'); o.value = n; lista.appendChild(o);
+  }));
+})();
 const CAMPOS = { planHc:'hc', planInicio:'inicio', planFin:'fin', planArea:'area', planSocializacion:'socializacion', planAprobo:'aprobo',
   planHallazgos:'hallazgos', planObjGeneral:'objGeneral', planObjEspecificos:'objEspecificos', planIndicadores:'indicadores' };
 
@@ -2612,6 +2621,7 @@ function render(){
   // haya escrito a mano en los cuadros (si se escribió, sale el aviso de "Volver a generar").
   if(sug && (!p.base || (p.base !== firma(sug) && firma(p) === p.base))){ Object.assign(p, sug); p.base = firma(sug); queueSave(); }
   if(!p.inicio){ p.inicio = hoyISO(); queueSave(); }
+  if(!p.aprobo && !p.aproboManual){ p.aprobo = APROBO_DEFECTO; queueSave(); }
   const d = datos();
   Object.keys(CAMPOS).forEach(id=>{ const el = document.getElementById(id); if(document.activeElement !== el) el.value = p[CAMPOS[id]] || ''; });
   ajustarFin();
@@ -2667,6 +2677,7 @@ let tPrev = null;
 sec.addEventListener('input', e=>{
   const k = CAMPOS[e.target.id]; if(!k) return;
   state.plan[k] = e.target.value;
+  if(k === 'aprobo') state.plan.aproboManual = true; // si lo borra a propósito, no se vuelve a llenar
   if(k === 'inicio'){ if(!state.plan.inicio) state.plan.inicio = hoyISO(); ajustarFin(); }
   clearTimeout(tPrev); tPrev = setTimeout(()=>{ preview(); verificar(); }, 250);
 });
