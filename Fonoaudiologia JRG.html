@@ -1182,28 +1182,84 @@ function compAggForSheet(sheet, c){
 /* ======================================================================
    CHARTS (inline SVG, no external chart lib)
    ====================================================================== */
+function escGraf(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]); }
 function barChart(svgEl, labels, values, color, vw, vh){
-  const W=vw||420, H=vh||220, padL=34, padB=46, padT=14, padR=10;
+  // Si no caben las barras verticales (muchos componentes o pantalla angosta), barras horizontales
+  // con el nombre completo de cada componente en su renglón.
+  const real = Math.round(svgEl.getBoundingClientRect().width);
+  if(real && real/labels.length < 100) return hBarChart(svgEl, labels, values, color, real);
+  const W=real||vw||420, H=vh||220, padL=34, padB=52, padT=16, padR=10;
   const innerW = W-padL-padR, innerH = H-padT-padB;
-  const n = labels.length, gap=14;
-  const barW = (innerW - gap*(n-1)) / n;
+  const n = labels.length, gap = Math.min(24, Math.max(10, innerW/n*0.25));
+  const barW = Math.min(90, (innerW - gap*(n-1)) / n);
+  const offset = (innerW - (barW*n + gap*(n-1))) / 2;
   let s = '';
   for(let g=0; g<=4; g++){
     const y = padT + innerH - (g/4)*innerH;
     s += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
-    s += `<text x="${padL-6}" y="${y+3}" font-size="9" text-anchor="end" fill="var(--text-faint)">${g*25}%</text>`;
+    s += `<text x="${padL-6}" y="${y+4}" font-size="11" text-anchor="end" fill="var(--text-faint)">${g*25}%</text>`;
   }
   values.forEach((v,i)=>{
-    const x = padL + i*(barW+gap);
+    const x = padL + offset + i*(barW+gap);
     const h = (v/100)*innerH;
     const y = padT+innerH-h;
     s += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="5" fill="${color}"/>`;
-    s += `<text x="${x+barW/2}" y="${y-6}" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--text)">${v}%</text>`;
-    s += `<text x="${x+barW/2}" y="${H-padB+16}" font-size="9.5" text-anchor="middle" fill="var(--text-dim)">${labels[i]}</text>`;
+    s += `<text x="${x+barW/2}" y="${y-6}" font-size="12" font-weight="700" text-anchor="middle" fill="var(--text)">${v}%</text>`;
+    const lab = n > 2 && String(labels[i]).length > 16 && typeof chartLabel === 'function' ? chartLabel(labels[i]) : String(labels[i]);
+    const words = lab.split(' ');
+    const l1 = words.length>1 ? words[0] : lab, l2 = words.length>1 ? words.slice(1).join(' ') : '';
+    s += `<text x="${x+barW/2}" y="${H-padB+17}" font-size="11" text-anchor="middle" fill="var(--text-dim)">${escGraf(l1)}</text>`;
+    if(l2) s += `<text x="${x+barW/2}" y="${H-padB+31}" font-size="11" text-anchor="middle" fill="var(--text-dim)">${escGraf(l2)}</text>`;
   });
   svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svgEl.innerHTML = s;
 }
+function hBarChart(svgEl, labels, values, color, W){
+  const labelW = Math.min(200, Math.round(W*0.5)), padR = 44, padT = 4;
+  const barMax = Math.max(20, W - labelW - padR);
+  const maxCar = Math.max(8, Math.floor((labelW - 10) / 6.2)), maxCar2 = Math.max(8, Math.floor((labelW - 10) / 5.4));
+  // Nombres largos en dos renglones, cortando por la palabra que deja los renglones más parejos
+  const partir = t => {
+    t = String(t); if(t.length <= maxCar) return [t];
+    const p = t.split(' '); let mejor = null;
+    for(let k = 1; k < p.length; k++){
+      const a = p.slice(0, k).join(' '), b = p.slice(k).join(' '), m = Math.max(a.length, b.length);
+      if(!mejor || m < mejor.m) mejor = { a, b, m };
+    }
+    if(!mejor) return [t.slice(0, maxCar - 1) + '…'];
+    const corta = s => s.length > maxCar2 ? s.slice(0, maxCar2 - 1) + '…' : s;
+    return [corta(mejor.a), corta(mejor.b)];
+  };
+  const filas = labels.map(partir), alto = filas.map(f => f.length > 1 ? 36 : 28);
+  const H = padT*2 + alto.reduce((s, h) => s + h, 0);
+  const track = svgEl.closest('.informe-sheet') ? '#EEF1F3' : 'var(--gray-bg)';
+  let s = '', y = padT;
+  labels.forEach((lab,i)=>{
+    const rowH = alto[i], w = Math.max(0, (values[i]/100)*barMax), mid = y + rowH/2;
+    const lineas = filas[i];
+    lineas.forEach((t, j)=>{
+      const ty = lineas.length > 1 ? mid - 2 + j*12 : mid + 4;
+      s += `<text x="${labelW-8}" y="${ty}" font-size="${lineas.length > 1 ? 10.5 : 12}" text-anchor="end" fill="var(--text-dim)">${escGraf(t)}</text>`;
+    });
+    s += `<rect x="${labelW}" y="${mid-7}" width="${barMax}" height="14" rx="5" fill="${track}"/>`;
+    s += `<rect x="${labelW}" y="${mid-7}" width="${w}" height="14" rx="5" fill="${color}"/>`;
+    s += `<text x="${labelW+w+6}" y="${mid+4}" font-size="12" font-weight="700" fill="var(--text)">${values[i]}%</text>`;
+    y += rowH;
+  });
+  svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgEl.innerHTML = s;
+}
+/* Al girar el celular o cambiar el tamaño de la ventana, se vuelven a dibujar. */
+let lastW = window.innerWidth, resizeTimer = null;
+window.addEventListener('resize', ()=>{
+  if(window.innerWidth === lastW) return; // en celular, la barra del navegador cambia solo el alto
+  lastW = window.innerWidth;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(()=>{
+    if(!document.getElementById('view-resumen').hidden) renderResumen();
+    if(!document.getElementById('view-informe').hidden) renderInforme();
+  }, 200);
+});
 function pieChart(svgEl, done, pending){
   const total = done+pending || 1;
   const cx=110, cy=110, r=90;
@@ -1299,7 +1355,7 @@ function renderResumen(){
   const ageVals = AGE_SHEETS.map(s=>sheetAgg(s).pct);
   barChart(document.getElementById('chartAge'), ageLabels, ageVals, 'var(--cyan-500)', 900, 220);
   const compVals = COMPONENTS.map(c=>componentAgg(c).pct);
-  barChart(document.getElementById('chartComp'), COMPONENTS.map(c=>c.split(' ')[0]), compVals, 'var(--navy-700)', 420, 220);
+  barChart(document.getElementById('chartComp'), COMPONENTS, compVals, 'var(--navy-700)', 420, 220);
   let total=0, done=0;
   AGE_SHEETS.forEach(s=>{ const r=sheetAgg(s); total+=r.total; done+=r.done; });
   pieChart(document.getElementById('chartPie'), done, total-done);
@@ -1433,7 +1489,7 @@ function renderInforme(){
   const ageVals = AGE_SHEETS.map(s=>sheetAgg(s).pct);
   barChart(document.getElementById('il-chartAge'), ageLabels, ageVals, 'var(--cyan-500)', 420, 220);
   const compVals = COMPONENTS.map(c=>componentAgg(c).pct);
-  barChart(document.getElementById('il-chartComp'), COMPONENTS.map(c=>c.split(' ')[0]), compVals, 'var(--navy-700)', 420, 220);
+  barChart(document.getElementById('il-chartComp'), COMPONENTS, compVals, 'var(--navy-700)', 420, 220);
 
   renderRecs();
 
