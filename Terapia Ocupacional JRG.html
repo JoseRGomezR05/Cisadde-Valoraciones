@@ -3909,8 +3909,10 @@ leerBase().then(async b=>{
 <script>
 /* =====================================================================
    DICTADO POR VOZ
-   Pone un botón "🎤 Dictar" en los cuadros de texto largos (antecedentes
-   prenatales/perinatales/posnatales y, en Psicología, historia familiar).
+   Pone un botón "🎤 Dictar" en los cuadros de texto largos: motivo de
+   consulta, antecedentes prenatales/perinatales/posnatales, historia
+   familiar (Psicología), examen miofuncional (Fonoaudiología) y los
+   cuadros del Plan terapéutico (hallazgos, objetivos e indicadores).
    Al pulsarlo se escucha el micrófono y se va escribiendo lo que se dice
    donde está el cursor. Se vuelve a pulsar ("⏹ Detener") para terminar.
    Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari);
@@ -3922,12 +3924,15 @@ leerBase().then(async b=>{
    node herramientas/insertar-dictado.js
    ===================================================================== */
 (function(){
-const CAMPOS = ['antecedentesTxt', 'historiaFamiliarTxt'];
+const CAMPOS = ['motivoTxt', 'antecedentesTxt', 'historiaFamiliarTxt', 'miofuncionalTxt',
+  'planHallazgos', 'planObjGeneral', 'planObjEspecificos', 'planIndicadores'];
 const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 const css = document.createElement('style');
 css.textContent = ''
   + '.dic-btn{margin-left:auto;padding:6px 12px;font-size:12.5px}'
+  + '.dic-fila{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}'
+  + '.dic-fila .dic-btn{padding:4px 10px;font-size:12px;flex:none}'
   + '.dic-btn.on{background:#e5484d;border-color:#e5484d;color:#fff;animation:dicPulso 1.4s infinite}'
   + '@keyframes dicPulso{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,.45)}50%{box-shadow:0 0 0 6px rgba(229,72,77,0)}}'
   + '.dic-vivo{margin-top:6px;font-size:12.5px;color:var(--text-faint);font-style:italic;min-height:0}'
@@ -4041,7 +4046,18 @@ CAMPOS.forEach(id => {
   btn.title = 'Dictar con el micrófono: lo que diga se va escribiendo en el cuadro';
   const vivo = document.createElement('div');
   vivo.className = 'dic-vivo';
-  if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(btn); }
+  // Cuadro con su propio título (span.lbl): el botón va al lado del título.
+  // Si no, va en la cabecera de la tarjeta.
+  const etiqueta = campo.closest('label');
+  const titulo = etiqueta && etiqueta.querySelector(':scope > .lbl');
+  if(titulo){
+    etiqueta.htmlFor = campo.id; // así el clic en el título no activa el botón
+    const fila = document.createElement('div');
+    fila.className = 'dic-fila';
+    titulo.parentNode.insertBefore(fila, titulo);
+    fila.appendChild(titulo); fila.appendChild(btn);
+  }
+  else if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(btn); }
   else campo.parentNode.insertBefore(btn, campo);
   campo.insertAdjacentElement('afterend', vivo);
   btn.addEventListener('mousedown', e => e.preventDefault()); // no quitar el cursor del cuadro
