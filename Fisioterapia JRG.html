@@ -3789,6 +3789,10 @@ const PAGINA_W = 11906, PAGINA_H = 16838, MARGEN = 1134;      // A4, márgenes d
 const ANCHO = PAGINA_W - 2*MARGEN;                            // ancho útil en twips
 const EMU_TWIP = 635;                                         // 1 twip = 635 EMU
 const MEDIOS = ['IMG', 'SVG', 'CANVAS'];
+// Código institucional del informe (encabezado y pie). Vacío = el encabezado sale
+// solo con logo y título. Si CISADDE asigna un código, escribirlo aquí.
+const CODIGO_INFORME = '', VERSION_INFORME = '', VIGENTE_INFORME = '';
+let saltar = new Set();
 const EMOJI = /(\p{Extended_Pictographic}[️‍\p{Extended_Pictographic}]*)/u;
 
 function x(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,''); }
@@ -3939,7 +3943,7 @@ async function medio(el, maxTw){
 /* ---------- recorrido de la hoja ---------- */
 async function bloques(el, maxTw){
   maxTw = maxTw || ANCHO;
-  if(el.nodeType !== 1 || oculto(el)) return '';
+  if(el.nodeType !== 1 || oculto(el) || saltar.has(el)) return '';
   const tag = el.tagName.toUpperCase();
   if(esMedio(el)){
     const img = await medio(el, maxTw);
@@ -3998,8 +4002,8 @@ async function bloques(el, maxTw){
   soltar();
   return out;
 }
-function tablaXml(cols, filas, sinBordes){
-  const bordes = ['top','left','bottom','right','insideH','insideV'].map(l => sinBordes ? '<w:' + l + ' w:val="nil"/>' : '<w:' + l + ' w:val="single" w:sz="4" w:space="0" w:color="BFCAD3"/>').join('');
+function tablaXml(cols, filas, sinBordes, color){
+  const bordes = ['top','left','bottom','right','insideH','insideV'].map(l => sinBordes ? '<w:' + l + ' w:val="nil"/>' : '<w:' + l + ' w:val="single" w:sz="4" w:space="0" w:color="' + (color || 'BFCAD3') + '"/>').join('');
   return '<w:tbl><w:tblPr><w:tblW w:w="' + cols.reduce((a, b) => a + b, 0) + '" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders>' + bordes + '</w:tblBorders><w:tblLayout w:type="fixed"/>'
     + '<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr>'
     + '<w:tblGrid>' + cols.map(c => '<w:gridCol w:w="' + c + '"/>').join('') + '</w:tblGrid>' + filas + '</w:tbl><w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>';
@@ -4052,18 +4056,48 @@ async function crearDocx(){
   const r = hoja.getBoundingClientRect(), s = est(hoja);
   const util = r.width - (parseFloat(s.paddingLeft) || 0) - (parseFloat(s.paddingRight) || 0);
   escala = util > 0 ? Math.min(1, ANCHO / (util * 15)) : 1;
+
+  // Encabezado institucional en todas las páginas: logo | título del informe | código.
+  // El logo, el título y el subtítulo de la hoja pasan al encabezado (no se repiten en el cuerpo).
+  saltar = new Set();
+  const logoEl = hoja.querySelector('img[data-logo]'), h2 = hoja.querySelector('h2'), sub = hoja.querySelector('.informe-sub');
+  [logoEl && logoEl.parentElement !== hoja ? logoEl.parentElement : logoEl, h2, sub].forEach(e => e && saltar.add(e));
+  const n0 = medios.length;
+  const logoRun = logoEl ? await medio(logoEl, 1300) : '';
+  const relsEnc = medios.slice(n0);
+  const gris = (t, o) => run(Object.assign({ t, b:1, color:'7F7F7F', px:12 }, o || {}));
+  const centro = (runs) => '<w:p><w:pPr><w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr>' + runs + '</w:p>';
+  const cel = (w, cont) => '<w:tc><w:tcPr><w:tcW w:w="' + w + '" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>' + cont + '</w:tc>';
+  const titulo = centro(gris(((h2 && h2.textContent) || 'Informe de valoración').trim().toUpperCase(), { color:'154D77', px:14 }))
+    + (sub && sub.textContent.trim() ? centro(gris(sub.textContent.trim(), { b:0, px:11 })) : '');
+  const conCodigo = !!CODIGO_INFORME;
+  const cols = conCodigo ? [1700, 5438, 2500] : [1700, 7938];
+  const celdas = [cel(cols[0], centro(logoRun || gris('CISADDE'))), cel(cols[1], titulo)];
+  if(conCodigo) celdas.push(cel(cols[2], centro(gris('CÓDIGO:\n' + CODIGO_INFORME + (VERSION_INFORME ? '\nVersión: ' + VERSION_INFORME : '') + (VIGENTE_INFORME ? '\nVigente desde:\n' + VIGENTE_INFORME : ''), { px:11 }))));
+  const encabezado = tablaXml(cols, '<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="1000"/></w:trPr>' + celdas.join('') + '</w:tr>', false, 'A6A6A6');
+  const campoW = c => '<w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:instrText xml:space="preserve"> ' + c + ' </w:instrText></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:t>1</w:t></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>';
+  const txtPie = t => '<w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + x(t) + '</w:t></w:r>';
+  const pie = '<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="BFBFBF"/></w:pBdr><w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr>'
+    + txtPie('CISADDE · Centro de Desarrollo Infantil' + (conCodigo ? ' · ' + CODIGO_INFORME : '') + ' · Página ') + campoW('PAGE') + txtPie(' de ') + campoW('NUMPAGES') + '</w:p>';
+
   const cuerpo = await bloques(hoja);
   const doc = XML + '<w:document ' + NS + '><w:body>' + cuerpo
-    + '<w:sectPr><w:pgSz w:w="' + PAGINA_W + '" w:h="' + PAGINA_H + '"/><w:pgMar w:top="' + MARGEN + '" w:right="' + MARGEN + '" w:bottom="' + MARGEN + '" w:left="' + MARGEN + '" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>';
+    + '<w:sectPr><w:headerReference w:type="default" r:id="rIdEnc"/><w:footerReference w:type="default" r:id="rIdPie"/>'
+    + '<w:pgSz w:w="' + PAGINA_W + '" w:h="' + PAGINA_H + '"/><w:pgMar w:top="2100" w:right="' + MARGEN + '" w:bottom="1300" w:left="' + MARGEN + '" w:header="450" w:footer="450" w:gutter="0"/></w:sectPr></w:body></w:document>';
   const rel = (id, tipo, destino) => '<Relationship Id="' + id + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/' + tipo + '" Target="' + destino + '"/>';
   const rels = items => XML + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + items + '</Relationships>';
   const W = 'application/vnd.openxmlformats-officedocument.wordprocessingml.';
   const archivos = [
     { name:'[Content_Types].xml', data: XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'
-      + '<Override PartName="/word/document.xml" ContentType="' + W + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + W + 'styles+xml"/></Types>' },
+      + '<Override PartName="/word/document.xml" ContentType="' + W + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + W + 'styles+xml"/>'
+      + '<Override PartName="/word/header1.xml" ContentType="' + W + 'header+xml"/><Override PartName="/word/footer1.xml" ContentType="' + W + 'footer+xml"/></Types>' },
     { name:'_rels/.rels', data: rels(rel('rId1', 'officeDocument', 'word/document.xml')) },
     { name:'word/document.xml', data: doc },
-    { name:'word/_rels/document.xml.rels', data: rels(rel('rIdEstilos', 'styles', 'styles.xml') + medios.map(m => rel(m.rid, 'image', 'media/' + m.name)).join('')) },
+    { name:'word/_rels/document.xml.rels', data: rels(rel('rIdEstilos', 'styles', 'styles.xml') + rel('rIdEnc', 'header', 'header1.xml') + rel('rIdPie', 'footer', 'footer1.xml')
+      + medios.filter(m => !relsEnc.includes(m)).map(m => rel(m.rid, 'image', 'media/' + m.name)).join('')) },
+    { name:'word/header1.xml', data: XML + '<w:hdr ' + NS + '>' + encabezado + '</w:hdr>' },
+    { name:'word/_rels/header1.xml.rels', data: rels(relsEnc.map(m => rel(m.rid, 'image', 'media/' + m.name)).join('')) },
+    { name:'word/footer1.xml', data: XML + '<w:ftr ' + NS + '>' + pie + '</w:ftr>' },
     { name:'word/styles.xml', data: XML + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="es-CO"/></w:rPr></w:rPrDefault>'
       + '<w:pPrDefault><w:pPr><w:spacing w:after="60" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
       + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
