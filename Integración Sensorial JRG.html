@@ -530,6 +530,11 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
       </div>
 
       <div class="card">
+        <div class="card-head"><h3>Historia escolar</h3><span class="sub">Colegio, grado, desempeño, adaptación…</span></div>
+        <label class="field"><textarea class="input" id="historiaEscolarTxt" style="min-height:110px;" placeholder="Escribe aquí la historia escolar relevante (institución, grado, desempeño académico, adaptación, relación con pares y docentes, apoyos recibidos)…"></textarea></label>
+      </div>
+
+      <div class="card">
         <div class="card-head"><h3>Diagnóstico (CIE-10)</h3><span class="sub">Escribe el código y se sugiere el diagnóstico</span></div>
         <div class="grid cols-2">
           <label class="field"><span class="lbl">Código CIE-10</span><input class="input" id="cie10Code" placeholder="Ej. F84.0" autocomplete="off" /></label>
@@ -656,6 +661,10 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
           <h4>ANTECEDENTES PRENATALES, PERINATALES Y POSNATALES</h4>
           <p style="font-size:13px; line-height:1.6; white-space:pre-wrap;" id="il-antecedentes">—</p>
         </div>
+        <div class="informe-sect" id="il-escolarWrap" style="display:none;">
+          <h4>HISTORIA ESCOLAR</h4>
+          <p style="font-size:13px; line-height:1.6; white-space:pre-wrap;" id="il-escolar">—</p>
+        </div>
 
         <div class="informe-sect" id="il-cieWrap" style="display:none;">
           <h4>DIAGNÓSTICO</h4>
@@ -767,7 +776,7 @@ const state = {
   evaluator:{ name:'', savedCard:'', signatureImg:null, sealImg:null },
   reasons: REASONS.map(()=>false),
   motivoTxt:'',
-  antecedentesTxt:'',
+  antecedentesTxt:'', historiaEscolarTxt:'',
   cie10Code:'', cie10Diag:'',
   familiares: FAMILY_ROLES.reduce((acc,r)=>{ acc[r.key] = {enabled:false, nombre:'', cedula:'', signatureImg:null}; return acc; }, {}),
   activeSheetKey:'general',
@@ -878,6 +887,7 @@ document.getElementById('eps').addEventListener('input', e=>{ state.eps = e.targ
 document.getElementById('tipoId').addEventListener('change', e=>{ state.tipoId = e.target.value; });
 document.getElementById('numeroId').addEventListener('input', e=>{ state.numeroId = e.target.value; });
 document.getElementById('antecedentesTxt').addEventListener('input', e=>{ state.antecedentesTxt = e.target.value; });
+document.getElementById('historiaEscolarTxt').addEventListener('input', e=>{ state.historiaEscolarTxt = e.target.value; });
 document.getElementById('cie10Code').addEventListener('input', e=>{
   const code = e.target.value.toUpperCase().trim();
   state.cie10Code = e.target.value;
@@ -1514,6 +1524,10 @@ function renderInforme(){
   const anteWrap = document.getElementById('il-antecedentesWrap');
   if((state.antecedentesTxt||'').trim()){ anteWrap.style.display = ''; document.getElementById('il-antecedentes').textContent = state.antecedentesTxt; }
   else { anteWrap.style.display = 'none'; }
+
+  const escWrap = document.getElementById('il-escolarWrap');
+  if((state.historiaEscolarTxt||'').trim()){ escWrap.style.display = ''; document.getElementById('il-escolar').textContent = state.historiaEscolarTxt; }
+  else { escWrap.style.display = 'none'; }
 
   const cieWrap = document.getElementById('il-cieWrap');
   if((state.cie10Code||'').trim() || (state.cie10Diag||'').trim()){
@@ -3761,7 +3775,7 @@ leerBase().then(async b=>{
    DICTADO POR VOZ
    Pone un botón "🎤 Dictar" en los cuadros de texto largos: motivo de
    consulta, antecedentes prenatales/perinatales/posnatales, historia
-   familiar (Psicología), examen miofuncional (Fonoaudiología), las
+   familiar (Psicología), historia escolar, examen miofuncional (Fonoaudiología), las
    Observaciones de cada componente y los cuadros del Plan terapéutico
    (hallazgos, objetivos e indicadores).
    Al pulsarlo se escucha el micrófono y se va escribiendo lo que se dice
@@ -3775,7 +3789,7 @@ leerBase().then(async b=>{
    node herramientas/insertar-dictado.js
    ===================================================================== */
 (function(){
-const CAMPOS = ['motivoTxt', 'antecedentesTxt', 'historiaFamiliarTxt', 'miofuncionalTxt',
+const CAMPOS = ['motivoTxt', 'antecedentesTxt', 'historiaFamiliarTxt', 'historiaEscolarTxt', 'miofuncionalTxt',
   'planHallazgos', 'planObjGeneral', 'planObjEspecificos', 'planIndicadores'];
 const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
