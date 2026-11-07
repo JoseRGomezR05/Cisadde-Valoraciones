@@ -667,6 +667,7 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
         <div class="btn-row no-print">
           <button class="btn ghost" id="printBtn">🖨️ Imprimir</button>
           <button class="btn primary" id="pdfBtn">⬇️ Guardar como PDF</button>
+          <button class="btn dark" id="wordBtn" type="button">📄 Descargar Word</button>
         </div>
       </div>
 
@@ -2342,7 +2343,7 @@ renderChecklist();
        {txt:'Borrar datos de este equipo', fn:borrar},
        {txt:'Más tarde'}]);
   }
-  ['pdfBtn','printBtn'].forEach(id=>{
+  ['pdfBtn','printBtn','wordBtn'].forEach(id=>{
     const b = document.getElementById(id);
     if(b) b.addEventListener('click', ()=> setTimeout(recordar, id === 'pdfBtn' ? 2500 : 800));
   });
@@ -2418,7 +2419,7 @@ renderChecklist();
     var d = { tipo:'uso', formato: formato, area: AREAS[FORM_ID] || formato, terapeuta: nombreEvaluador(), valoracion: FORM_ID + '-' + state.usoId, fecha: new Date().toISOString() };
     enviar(d).catch(function(){ var r = cola(); r.push(d); guardar(KEY_COLA, JSON.stringify(r.slice(-200))); });
   }
-  ['pdfBtn', 'printBtn'].forEach(function(id){ var b = document.getElementById(id); if(b) b.addEventListener('click', contar); });
+  ['pdfBtn', 'printBtn', 'wordBtn'].forEach(function(id){ var b = document.getElementById(id); if(b) b.addEventListener('click', contar); });
 
   /* ---------- Reportar un problema ---------- */
   var css = document.createElement('style');
@@ -4072,5 +4073,336 @@ document.addEventListener('visibilitychange', () => { if(document.hidden) detene
 })();
 </script>
 <!-- DICTADO:FIN -->
+<!-- INFORME WORD:INICIO -->
+<script>
+/* =====================================================================
+   INFORME EN WORD
+   Botón "📄 Descargar Word" (id="wordBtn", al lado de "Guardar como PDF"
+   en la vista Informe). Convierte la hoja del informe (#informeSheet) tal
+   como se ve en pantalla en un .docx real y editable: títulos, datos,
+   textos, gráficas (como imagen), logo, sello y firmas.
+   Lo que está oculto o marcado como no-print no sale, igual que en el PDF.
+   Sin librerías: el .docx se arma a mano (zip sin compresión).
+   Fuente: herramientas/informe-word.js — se inserta con
+   node herramientas/insertar-informe-word.js
+   ===================================================================== */
+(function(){
+const btn = document.getElementById('wordBtn');
+const hoja = document.getElementById('informeSheet');
+if(!btn || !hoja) return;
+
+const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+const PAGINA_W = 11906, PAGINA_H = 16838, MARGEN = 1134;      // A4, márgenes de 2 cm (twips)
+const ANCHO = PAGINA_W - 2*MARGEN;                            // ancho útil en twips
+const EMU_TWIP = 635;                                         // 1 twip = 635 EMU
+const MEDIOS = ['IMG', 'SVG', 'CANVAS'];
+const EMOJI = /(\p{Extended_Pictographic}[️‍\p{Extended_Pictographic}]*)/u;
+
+function x(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,''); }
+function hex(c){
+  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/.exec(c || '');
+  if(!m || (m[4] !== undefined && +m[4] === 0)) return null;
+  return [m[1], m[2], m[3]].map(n => (+n).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+const est = el => getComputedStyle(el);
+function oculto(el){
+  if(el.nodeType !== 1) return false;
+  if(el.classList.contains('no-print') || el.classList.contains('tag-note')) return true;
+  const s = est(el);
+  return s.display === 'none' || s.visibility === 'hidden';
+}
+function esMedio(el){ return el.nodeType === 1 && MEDIOS.includes(el.tagName.toUpperCase()); }
+function esEnLinea(n){
+  if(n.nodeType === 3) return true;
+  if(n.nodeType !== 1 || esMedio(n)) return false;
+  if(n.tagName === 'BR') return true;
+  if(/^H[1-6]$/.test(n.tagName)) return false;
+  const d = est(n).display;
+  return d.startsWith('inline') || d === 'contents';
+}
+function hijosVisibles(el){ return Array.from(el.childNodes).filter(n => n.nodeType === 3 ? n.nodeValue.trim() : (n.nodeType === 1 && !oculto(n))); }
+
+/* ---------- texto: runs con negrita, cursiva, color y tamaño de la pantalla ---------- */
+function runsDe(nodos){
+  const partes = [];
+  const recorrer = n => {
+    if(n.nodeType === 3){
+      const p = n.parentElement, s = est(p);
+      const pre = /pre/.test(s.whiteSpace);
+      let t = pre ? n.nodeValue : n.nodeValue.replace(/\s+/g, ' ');
+      if(!t) return;
+      partes.push({ t, b: (parseInt(s.fontWeight, 10) || 400) >= 600, i: s.fontStyle === 'italic', color: hex(s.color), px: parseFloat(s.fontSize) || 13 });
+      return;
+    }
+    if(n.nodeType !== 1 || oculto(n)) return;
+    if(n.tagName === 'BR'){ partes.push({ t:'\n' }); return; }
+    if(/^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName)){
+      const v = n.tagName === 'SELECT' ? (n.options[n.selectedIndex] || {}).text || '' : n.value;
+      if(v) partes.push({ t:v, px: parseFloat(est(n).fontSize) || 13 });
+      return;
+    }
+    n.childNodes.forEach(recorrer);
+  };
+  nodos.forEach(recorrer);
+  // quitar espacios sobrantes al inicio y al final del párrafo
+  while(partes.length && !partes[0].t.replace(/^[ \t]+/, '')){ partes.shift(); }
+  if(partes.length) partes[0].t = partes[0].t.replace(/^[ \t]+/, '');
+  while(partes.length && !partes[partes.length-1].t.replace(/[ \t]+$/, '')){ partes.pop(); }
+  if(partes.length) partes[partes.length-1].t = partes[partes.length-1].t.replace(/[ \t]+$/, '');
+  return partes;
+}
+function run(p){
+  let pr = (p.b ? '<w:b/><w:bCs/>' : '') + (p.i ? '<w:i/><w:iCs/>' : '')
+    + (p.color && p.color !== '000000' ? '<w:color w:val="' + p.color + '"/>' : '');
+  if(p.px){ const sz = Math.max(14, Math.round(p.px * 1.5 * 1.1)); pr += '<w:sz w:val="' + sz + '"/><w:szCs w:val="' + sz + '"/>'; }
+  pr = pr ? '<w:rPr>' + pr + '</w:rPr>' : '';
+  // Los emojis (🔴🟡🟢…) van con la fuente de emojis para que Word los muestre
+  const fe = '<w:rFonts w:ascii="Segoe UI Emoji" w:hAnsi="Segoe UI Emoji" w:cs="Segoe UI Emoji"/>';
+  const emo = pr ? pr.replace('<w:rPr>', '<w:rPr>' + fe) : '<w:rPr>' + fe + '</w:rPr>';
+  const trozo = s => s.split(EMOJI).map((u, j) => u ? '<w:r>' + (j % 2 ? emo : pr) + '<w:t xml:space="preserve">' + x(u) + '</w:t></w:r>' : '').join('');
+  return p.t.split('\n').map((s, i) => (i ? '<w:r>' + pr + '<w:br/></w:r>' : '') + trozo(s)).join('');
+}
+function alineacion(el){
+  const s = est(el), ta = s.textAlign;
+  if(ta === 'center') return 'center';
+  if(ta === 'right' || ta === 'end') return 'right';
+  if(ta === 'justify') return 'both';
+  if(/flex/.test(s.display) && s.justifyContent === 'center') return 'center';
+  return null;
+}
+function propsParrafo(el, o){
+  o = o || {};
+  const s = est(el);
+  const tw = v => Math.min(480, Math.max(0, Math.round((parseFloat(v) || 0) * 15)));
+  let pr = (o.junto || /^H[1-6]$/.test(el.tagName) ? '<w:keepNext/>' : '');
+  let antes = o.antes !== undefined ? o.antes : tw(s.marginTop) + tw(s.paddingTop);
+  if(/^H[3-6]$/.test(el.tagName)) antes = Math.max(antes, 240);
+  const despues = o.despues !== undefined ? o.despues : Math.max(60, tw(s.marginBottom) + tw(s.paddingBottom));
+  pr += '<w:spacing w:before="' + antes + '" w:after="' + despues + '"/>';
+  const jc = o.jc || alineacion(el);
+  if(jc) pr += '<w:jc w:val="' + jc + '"/>';
+  return '<w:pPr>' + pr + '</w:pPr>';
+}
+
+/* ---------- imágenes: img, canvas y gráficas SVG pasan a PNG ---------- */
+let medios = [], escala = 1;
+function aPngDesde(src, w, h){
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      try{
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(w)); cv.height = Math.max(1, Math.round(h));
+        const g = cv.getContext('2d'); g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, cv.width, cv.height);
+        g.drawImage(im, 0, 0, cv.width, cv.height);
+        res(cv.toDataURL('image/png'));
+      }catch(e){ res(null); }
+    };
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+}
+const PROPS_SVG = ['fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','opacity','font-size','font-family','font-weight','text-anchor','dominant-baseline'];
+function svgAUrl(svg, w, h){
+  const copia = svg.cloneNode(true);
+  const orig = [svg].concat(Array.from(svg.querySelectorAll('*'))), dest = [copia].concat(Array.from(copia.querySelectorAll('*')));
+  orig.forEach((el, i) => {
+    const s = est(el), d = dest[i];
+    PROPS_SVG.forEach(p => { const v = s.getPropertyValue(p); if(v) d.setAttribute(p, v); });
+    d.removeAttribute('class'); d.removeAttribute('style');
+    if(s.display === 'none') d.setAttribute('display', 'none');
+  });
+  copia.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  copia.setAttribute('width', w); copia.setAttribute('height', h);
+  if(!copia.getAttribute('viewBox')) copia.setAttribute('viewBox', '0 0 ' + (svg.getBoundingClientRect().width || w) + ' ' + (svg.getBoundingClientRect().height || h));
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(copia));
+}
+async function medio(el, maxTw){
+  const r = el.getBoundingClientRect();
+  let w = r.width, h = r.height;
+  if(!(w > 0 && h > 0)) return null;
+  const k = 3; // resolución
+  let url = null;
+  const tag = el.tagName.toUpperCase();
+  if(tag === 'IMG'){ if(!el.complete || !el.naturalWidth) return null; url = await aPngDesde(el.src, w*k, h*k); }
+  else if(tag === 'CANVAS'){ try{ url = el.toDataURL('image/png'); }catch(e){ url = null; } }
+  else url = await aPngDesde(svgAUrl(el, w*k, h*k), w*k, h*k);
+  if(!url) return null;
+  let twW = w * 15 * escala, twH = h * 15 * escala;
+  const lim = maxTw || ANCHO;
+  if(twW > lim){ twH *= lim / twW; twW = lim; }
+  const bin = atob(url.split(',')[1]), data = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+  const n = medios.length + 1;
+  medios.push({ rid:'rIdImg' + n, name:'imagen' + n + '.png', data });
+  const cx = Math.round(twW * EMU_TWIP), cy = Math.round(twH * EMU_TWIP);
+  return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+    + '<wp:docPr id="' + n + '" name="Imagen ' + n + '"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    + '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="' + n + '" name="imagen' + n + '.png"/><pic:cNvPicPr/></pic:nvPicPr>'
+    + '<pic:blipFill><a:blip r:embed="rIdImg' + n + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+}
+
+/* ---------- recorrido de la hoja ---------- */
+async function bloques(el, maxTw){
+  maxTw = maxTw || ANCHO;
+  if(el.nodeType !== 1 || oculto(el)) return '';
+  const tag = el.tagName.toUpperCase();
+  if(esMedio(el)){
+    const img = await medio(el, maxTw);
+    return img ? '<w:p>' + propsParrafo(el.parentElement, { jc: alineacion(el.parentElement) || 'center', sinBorde:1, antes:60, despues:60 }) + img + '</w:p>' : '';
+  }
+  if(tag === 'TABLE') return await tablaHtml(el, maxTw);
+  const hijos = hijosVisibles(el);
+  const elementos = hijos.filter(n => n.nodeType === 1);
+  // Varias imágenes juntas (gráficas): un solo párrafo, una al lado de la otra
+  if(elementos.length > 1 && elementos.every(esMedio) && hijos.length === elementos.length){
+    const ancho = Math.floor(maxTw / elementos.length) - 120;
+    let runs = '';
+    for(const m of elementos){ const im = await medio(m, ancho); if(im) runs += (runs ? '<w:r><w:t xml:space="preserve">  </w:t></w:r>' : '') + im; }
+    return runs ? '<w:p>' + propsParrafo(el, { jc:'center', sinBorde:1, junto:0 }) + runs + '</w:p>' : '';
+  }
+  // Fila flexible con varios bloques (firmas de los familiares): tabla sin bordes
+  const s = est(el);
+  if(/flex/.test(s.display) && !/column/.test(s.flexDirection) && elementos.length > 1 && hijos.every(n => n.nodeType === 1 && !esEnLinea(n))){
+    const porFila = Math.min(3, elementos.length), w = Math.floor(maxTw / porFila);
+    let filas = '';
+    for(let i = 0; i < elementos.length; i += porFila){
+      let celdas = '';
+      for(let j = 0; j < porFila; j++){
+        const hijo = elementos[i + j];
+        const cont = hijo ? await bloques(hijo, w - 200) : '';
+        celdas += '<w:tc><w:tcPr><w:tcW w:w="' + w + '" w:type="dxa"/><w:vAlign w:val="bottom"/></w:tcPr>' + (cont || '<w:p/>') + '</w:tc>';
+      }
+      filas += '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + celdas + '</w:tr>';
+    }
+    return tablaXml(Array(porFila).fill(w), filas, true);
+  }
+  // Bloque solo con texto: un párrafo
+  if(hijos.every(esEnLinea)){
+    const partes = runsDe(hijos);
+    if(!partes.some(p => p.t.trim())){
+      // Línea de firma: div vacío con borde superior
+      const bt = parseFloat(s.borderTopWidth) || 0;
+      if(bt > 0 && s.borderTopStyle !== 'none'){
+        const largo = Math.max(10, Math.round(el.getBoundingClientRect().width / 7));
+        return '<w:p>' + propsParrafo(el.parentElement, { jc:'center', sinBorde:1, antes: Math.min(480, Math.round((parseFloat(s.marginTop) || 0) * 10)), despues:40 }) + '<w:r><w:t>' + '_'.repeat(largo) + '</w:t></w:r></w:p>';
+      }
+      return '';
+    }
+    return '<w:p>' + propsParrafo(el) + partes.map(run).join('') + '</w:p>';
+  }
+  // Mezcla: los trozos de texto seguidos forman párrafos, los bloques se recorren
+  let out = '', grupo = [];
+  const soltar = () => {
+    const partes = runsDe(grupo); grupo = [];
+    if(partes.some(p => p.t.trim())) out += '<w:p>' + propsParrafo(el, { sinBorde:1, antes:0 }) + partes.map(run).join('') + '</w:p>';
+  };
+  for(const n of hijos){
+    if(esEnLinea(n)) grupo.push(n);
+    else { soltar(); out += await bloques(n, maxTw); }
+  }
+  soltar();
+  return out;
+}
+function tablaXml(cols, filas, sinBordes){
+  const bordes = ['top','left','bottom','right','insideH','insideV'].map(l => sinBordes ? '<w:' + l + ' w:val="nil"/>' : '<w:' + l + ' w:val="single" w:sz="4" w:space="0" w:color="BFCAD3"/>').join('');
+  return '<w:tbl><w:tblPr><w:tblW w:w="' + cols.reduce((a, b) => a + b, 0) + '" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders>' + bordes + '</w:tblBorders><w:tblLayout w:type="fixed"/>'
+    + '<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr>'
+    + '<w:tblGrid>' + cols.map(c => '<w:gridCol w:w="' + c + '"/>').join('') + '</w:tblGrid>' + filas + '</w:tbl><w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>';
+}
+async function tablaHtml(t, maxTw){
+  const trs = Array.from(t.rows).filter(r => !oculto(r));
+  const n = Math.max(1, ...trs.map(r => Array.from(r.cells).reduce((a, c) => a + (c.colSpan || 1), 0)));
+  const w = Math.floor(maxTw / n);
+  let filas = '';
+  for(const tr of trs){
+    let celdas = '';
+    for(const c of Array.from(tr.cells)){
+      const span = c.colSpan || 1, fondo = hex(est(c).backgroundColor);
+      const cont = await bloques(c, w * span - 180);
+      celdas += '<w:tc><w:tcPr><w:tcW w:w="' + (w * span) + '" w:type="dxa"/>' + (span > 1 ? '<w:gridSpan w:val="' + span + '"/>' : '')
+        + (fondo && fondo !== 'FFFFFF' ? '<w:shd w:val="clear" w:color="auto" w:fill="' + fondo + '"/>' : '') + '</w:tcPr>' + (cont || '<w:p/>') + '</w:tc>';
+    }
+    filas += '<w:tr><w:trPr><w:cantSplit/>' + (tr.parentElement.tagName === 'THEAD' ? '<w:tblHeader/>' : '') + '</w:trPr>' + celdas + '</w:tr>';
+  }
+  return tablaXml(Array(n).fill(w), filas, false);
+}
+
+/* ---------- zip sin compresión ---------- */
+const CRC = (() => { const t = new Uint32Array(256); for(let n = 0; n < 256; n++){ let c = n; for(let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(d){ let c = 0xFFFFFFFF; for(let i = 0; i < d.length; i++) c = CRC[(c ^ d[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zip(archivos){
+  const enc = new TextEncoder(), partes = [], central = [];
+  const t = new Date(), hora = (t.getHours()<<11)|(t.getMinutes()<<5)|(t.getSeconds()>>1), dia = ((t.getFullYear()-1980)<<9)|((t.getMonth()+1)<<5)|t.getDate();
+  let off = 0;
+  archivos.forEach(f => {
+    const nom = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+    const l = new DataView(new ArrayBuffer(30));
+    l.setUint32(0,0x04034b50,true); l.setUint16(4,20,true); l.setUint16(6,0x0800,true); l.setUint16(8,0,true); l.setUint16(10,hora,true); l.setUint16(12,dia,true);
+    l.setUint32(14,crc,true); l.setUint32(18,data.length,true); l.setUint32(22,data.length,true); l.setUint16(26,nom.length,true); l.setUint16(28,0,true);
+    partes.push(new Uint8Array(l.buffer), nom, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint16(10,0,true); c.setUint16(12,hora,true); c.setUint16(14,dia,true);
+    c.setUint32(16,crc,true); c.setUint32(20,data.length,true); c.setUint32(24,data.length,true); c.setUint16(28,nom.length,true); c.setUint32(42,off,true);
+    central.push(new Uint8Array(c.buffer), nom);
+    off += 30 + nom.length + data.length;
+  });
+  const tam = central.reduce((s, a) => s + a.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true); e.setUint16(8,archivos.length,true); e.setUint16(10,archivos.length,true); e.setUint32(12,tam,true); e.setUint32(16,off,true);
+  return new Blob(partes.concat(central, [new Uint8Array(e.buffer)]), { type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+function slug(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60); }
+
+async function crearDocx(){
+  medios = [];
+  const r = hoja.getBoundingClientRect(), s = est(hoja);
+  const util = r.width - (parseFloat(s.paddingLeft) || 0) - (parseFloat(s.paddingRight) || 0);
+  escala = util > 0 ? Math.min(1, ANCHO / (util * 15)) : 1;
+  const cuerpo = await bloques(hoja);
+  const doc = XML + '<w:document ' + NS + '><w:body>' + cuerpo
+    + '<w:sectPr><w:pgSz w:w="' + PAGINA_W + '" w:h="' + PAGINA_H + '"/><w:pgMar w:top="' + MARGEN + '" w:right="' + MARGEN + '" w:bottom="' + MARGEN + '" w:left="' + MARGEN + '" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>';
+  const rel = (id, tipo, destino) => '<Relationship Id="' + id + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/' + tipo + '" Target="' + destino + '"/>';
+  const rels = items => XML + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + items + '</Relationships>';
+  const W = 'application/vnd.openxmlformats-officedocument.wordprocessingml.';
+  const archivos = [
+    { name:'[Content_Types].xml', data: XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'
+      + '<Override PartName="/word/document.xml" ContentType="' + W + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + W + 'styles+xml"/></Types>' },
+    { name:'_rels/.rels', data: rels(rel('rId1', 'officeDocument', 'word/document.xml')) },
+    { name:'word/document.xml', data: doc },
+    { name:'word/_rels/document.xml.rels', data: rels(rel('rIdEstilos', 'styles', 'styles.xml') + medios.map(m => rel(m.rid, 'image', 'media/' + m.name)).join('')) },
+    { name:'word/styles.xml', data: XML + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="es-CO"/></w:rPr></w:rPrDefault>'
+      + '<w:pPrDefault><w:pPr><w:spacing w:after="60" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+      + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+      + '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>' }
+  ].concat(medios.map(m => ({ name:'word/media/' + m.name, data:m.data })));
+  return zip(archivos);
+}
+
+btn.addEventListener('click', async () => {
+  if(typeof revisarAntesDeImprimir === 'function' && !revisarAntesDeImprimir()) return;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Generando Word…';
+  try{
+    const blob = await crearDocx();
+    const titulo = (hoja.querySelector('h2') || {}).textContent || 'Informe';
+    const nombre = (typeof state !== 'undefined' && state.childName) || '';
+    const fecha = (typeof state !== 'undefined' && state.evalDate) || new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = [slug(titulo), slug(nombre) || 'sin_nombre', fecha].join('_') + '.docx';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  }catch(err){
+    alert('No se pudo crear el archivo de Word: ' + (err && err.message || err));
+  }finally{
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+window.CISADDE_INFORME_DOCX = crearDocx; // para pruebas
+})();
+</script>
+<!-- INFORME WORD:FIN -->
 </body>
 </html>
