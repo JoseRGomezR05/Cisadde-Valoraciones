@@ -1343,14 +1343,25 @@ function etiquetaRango(q, sheet){
 }
 function reportSheet(){
   const chosen = state.reportSheetKey && AGE_SHEETS.find(s=>s.key===state.reportSheetKey);
-  return chosen || autoSheet();
+  if(chosen) return chosen;
+  // Si la hoja de su edad no tiene nada marcado pero se evaluó otro rango
+  // (p. ej. niño/a de 9 años evaluado con el de 5), el resumen usa ese rango.
+  const auto = autoSheet();
+  const marcados = sh => COMPONENTS.reduce((n,c)=>n+sh.comp[c].filter(it=>state.answers[it.id]!==undefined).length, 0);
+  if(auto && marcados(auto)===0){
+    let mejor = null, max = 0;
+    AGE_SHEETS.forEach(sh=>{ const n = marcados(sh); if(n>max){ max=n; mejor=sh; } });
+    if(mejor) return mejor;
+  }
+  return auto;
 }
 function renderReportSheetSel(){
   ['reportSheetSelPort','reportSheetSel','reportSheetSelInf'].forEach(id=>{
     const sel = document.getElementById(id);
     if(!sel) return;
     const auto = autoSheet();
-    sel.innerHTML = '<option value="">Según su edad cronológica (' + auto.label + ')</option>' +
+    const usado = state.reportSheetKey ? auto : reportSheet();
+    sel.innerHTML = '<option value="">' + (usado.key===auto.key ? 'Según su edad cronológica (' + auto.label + ')' : 'Rango evaluado: ' + usado.label + ' (su edad cronológica es ' + auto.label + ')') + '</option>' +
       AGE_SHEETS.map(s=>'<option value="' + s.key + '">' + s.label + '</option>').join('');
     sel.value = state.reportSheetKey || '';
   });

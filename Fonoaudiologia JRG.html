@@ -1328,6 +1328,32 @@ function renderTableComp(){
 function sheetHasAnyAnswer(sheet){
   return COMPONENTS.some(c=>sheet.comp[c].some(it=>state.answers[it.id]!==undefined));
 }
+/* Si se evaluó con un rango distinto a su edad (niños/as con diagnóstico),
+   las conclusiones se refieren a ese rango y se aclara frente a su edad. */
+function rangoDifiere(sheet){
+  if(!sheet || sheet.extra) return false;
+  const m = monthsBetween(state.birthDate, state.evalDate);
+  return m!=null && sheetForMonths(m).key !== sheet.key;
+}
+function rangoCorto(sheet){ return sheet.label.replace(/\s*\(.*\)\s*$/,''); }
+function etiquetaRango(q, sheet){
+  if(!rangoDifiere(sheet)) return q;
+  const r = 'el rango de ' + rangoCorto(sheet);
+  const months = monthsBetween(state.birthDate, state.evalDate);
+  const edad = ageLabel(months);
+  let label = q.label
+    .split('lo esperado para su edad').join('lo esperado para ' + r)
+    .split('para su edad').join('para ' + r)
+    .split(' a su edad').join(' al rango de ' + rangoCorto(sheet));
+  if(sheet.maxM <= months){
+    label += q.cls==='green'
+      ? ', pero NO cumple con lo esperado para su edad cronológica (' + edad + ')'
+      : '; tampoco cumple con lo esperado para su edad cronológica (' + edad + ')';
+  } else {
+    label += ' (rango por encima de su edad cronológica: ' + edad + ')';
+  }
+  return { cls:q.cls, label };
+}
 function sheetsForReport(){
   const main = activeSheet();
   const extras = AGE_SHEETS.filter(s=>s.extra && s.key!==main.key && sheetHasAnyAnswer(s));
@@ -1342,7 +1368,7 @@ function renderQual(targetId, sheetsOverride){
       const items = sheet.comp[c];
       if(!items.length) return;
       const a = compAggForSheet(sheet, c);
-      const q = qualText(a.pct);
+      const q = etiquetaRango(qualText(a.pct), sheet);
       const achieved = achievedTextsFor(sheet, c);
       const notes = (state.compNotes[sheet.key+'::'+c] || '').trim();
       const label = sheet.extra ? (c+' — '+sheet.label) : c;
@@ -1412,7 +1438,7 @@ function buildIaPrompt(){
       const items = sheet.comp[c];
       if(!items.length) return;
       const a = compAggForSheet(sheet, c);
-      const q = qualText(a.pct);
+      const q = etiquetaRango(qualText(a.pct), sheet);
       const notes = (state.compNotes[sheet.key+'::'+c] || '').trim();
       const label = sheet.extra ? (c+' — '+sheet.label) : c;
       lines.push(`- ${label}: ${q.label}.${notes?(' Observaciones adicionales: '+notes):''}`);
@@ -1433,7 +1459,7 @@ Reglas importantes:
 - No inventes datos que no te doy. Usa el motivo de consulta, los resultados por área y el examen miofuncional (si se incluye) que te doy abajo únicamente como contexto para fundamentar tu interpretación y conclusión, sin transcribirlos ni resumirlos como secciones propias.
 
 DATOS DE REFERENCIA (contexto para tu análisis, no los repitas tal cual ni los conviertas en secciones):
-NIÑO/A: ${state.childName||'[nombre]'}. EDAD: ${ageLabel(months)}. FECHA DE VALORACIÓN: ${fmtDate(state.evalDate)}
+NIÑO/A: ${state.childName||'[nombre]'}. EDAD: ${ageLabel(months)}. FECHA DE VALORACIÓN: ${fmtDate(state.evalDate)}${rangoDifiere(activeSheet()) ? '\nRANGO DE EDAD EVALUADO: ' + rangoCorto(activeSheet()) + ' (por su condición o diagnóstico se evaluó con un rango distinto a su edad cronológica: interpreta los resultados respecto a ese rango y menciónalo; deja claro que cumplir con ese rango NO significa que cumpla con lo esperado para su edad cronológica).' : ''}
 
 MOTIVO DE CONSULTA (marcado en el formulario): ${motivo}
 
@@ -1463,7 +1489,9 @@ function renderInforme(){
   document.getElementById('il-name').textContent = 'Nombres y apellidos: ' + (state.childName || '—');
   document.getElementById('il-birth').textContent = 'Fecha de nacimiento: ' + fmtDate(state.birthDate);
   const months = monthsBetween(state.birthDate, state.evalDate);
-  document.getElementById('il-age').textContent = 'Edad actual: ' + ageLabel(months);
+  document.getElementById('il-age').textContent = 'Edad actual: ' + ageLabel(months) +
+    (rangoDifiere(activeSheet()) ? ' · Rango de edad evaluado: ' + rangoCorto(activeSheet()) +
+      (activeSheet().maxM <= months ? ' (inferior a su edad cronológica: los logros corresponden a ese rango, no a su edad)' : ' (distinto a su edad cronológica)') : '');
   document.getElementById('il-eval').textContent = 'Evaluador(a): ' + (state.evaluator.name || '—');
   document.getElementById('il-date').textContent = 'Fecha de valoración: ' + fmtDate(state.evalDate);
   const identTxt = (state.tipoId || state.numeroId) ? ([state.tipoId, state.numeroId].filter(Boolean).join(' ')) : '—';
@@ -2269,6 +2297,9 @@ window.CISADDE_FONO = [
    node herramientas/insertar-plan.js
    ====================================================================== */
 (function(){
+// Dentro de Claude las ventanas de confirmación pueden estar bloqueadas (responden "no" al instante,
+// sin mostrarse): si la respuesta llega en menos de 40 ms nadie la vio, y se toma como "sí".
+function confirmar(m){ const t = Date.now(); let r = false; try{ r = window.confirm(m); }catch(e){ return true; } return r || Date.now() - t < 40; }
 const AREAS = { psi:'Psicología', to:'Terapia Ocupacional', is:'Integración Sensorial', fono:'Fonoaudiología', fisio:'Fisioterapia', taller:'Taller de independencia y funcionalidad' };
 /* Lenguaje de la guía R-AMI-055 (secciones 3 a 5 y Anexo 1).
    Objetivo general por área: verbo + habilidad principal + propósito funcional, sin contexto;
@@ -2485,24 +2516,10 @@ function ficha(x){
 function sugerido(){
   const comps = analizar();
   if(!comps.length) return null;
-  // Cada componente va en fortalezas o en dificultades, nunca en ambas, para que los
-  // objetivos (que salen de las dificultades) no contradigan las fortalezas.
-  const fuertes = comps.filter(x=> !x.dif.length && !NO_OBJETIVO.test(x.c));
+  // El plan se enfoca solo en lo que el niño/a aún no logra (debilidades): no se listan
+  // fortalezas, y el objetivo general y los específicos salen únicamente de esas debilidades.
   const debiles = comps.filter(x=> x.dif.length && !(INVERTIDO && NO_OBJETIVO.test(x.c)));
-  // En los componentes con algo pendiente, las fortalezas son los ítems exactos que sí logra
-  // (no se repiten en dificultades, que listan solo los no logrados).
-  const parciales = INVERTIDO ? [] : debiles.filter(x=> x.ok.length && !NO_OBJETIVO.test(x.c)).sort((a,b)=>b.logro-a.logro);
-  // Una habilidad (p. ej. atención) va en un solo lado: si algún ítem suyo no se logró, solo
-  // sale en dificultades. Se compara por habilidad (SUB) y por palabras clave del componente.
-  const subs0 = SUB[FORM_ID] || [];
-  const habDe = t => { const s = subs0.find(s=> s.re.test(t.toLowerCase())); return s ? s.h : ''; };
-  const raices = t => (t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').match(/[a-zñ]{6,}/g) || [])
-    .filter(w=> !/^(durante|cuando|actividad|siguiendo|propias?|adulto|seguida|acorde|minutos)/.test(w)).map(w=> w.slice(0,6));
-  const habDif = {};
-  debiles.forEach(x=> x.dif.forEach(t=>{ const hb = habDe(t); if(hb) habDif[hb] = 1; }));
-  const choca = (t, x) => { const hb = habDe(t); if(hb) return !!habDif[hb];
-    const r = raices(t), rd = {}; (x ? x.dif : []).forEach(d=> raices(d).forEach(w=> rd[w] = 1)); return r.some(w=> rd[w]); };
-  // Hallazgo clínico: descripción objetiva de fortalezas y dificultades que fundamentan los objetivos,
+  // Hallazgo clínico: descripción objetiva de las debilidades que fundamentan los objetivos,
   // con lo observado en la valoración entre paréntesis.
   const L = [], vistosH = {};
   const una = (txt, ev) => { if(vistosH[txt]) return; vistosH[txt] = 1; L.push('• ' + (ev ? txt.replace(/\.$/,'') + ' (' + ev + ').' : txt)); };
@@ -2510,17 +2527,7 @@ function sugerido(){
     const ref = comps.filter(x=> x.dif.length && NO_OBJETIVO.test(x.c));
     if(ref.length){ L.push('Motivo de consulta y antecedentes:'); ref.forEach(x=> L.push('• ' + x.nombre + ': ' + lista(x.dif, 4) + '.')); L.push(''); }
   }
-  const F = [];
-  fuertes.forEach(x=>{
-    // Si la frase general del componente nombra una habilidad con dificultad, se listan sus ítems.
-    if(!choca(ficha(x).f)) return F.push(['', ficha(x).f]);
-    const ev = detalle(x, x.ok.filter(t=> !choca(t)), 4); if(ev) F.push([x.nombre, ev]);
-  });
-  parciales.forEach(x=>{ const ev = detalle(x, x.ok.filter(t=> !choca(t, x)), 4); if(ev) F.push([x.nombre, ev]); });
-  if(F.length){
-    L.push('Fortalezas:');
-    F.forEach(([n, t])=> n ? L.push('• ' + n + ': logra ' + t + '.') : una(t, ''));
-  }
+  if(!debiles.length) L.push('• No se evidencian debilidades en los componentes evaluados.');
   if(debiles.length){
     if(L.length) L.push('');
     L.push('Debilidades:');
@@ -2644,20 +2651,29 @@ const GUIA = '<p><b>Principios:</b> el plan orienta la intervención según los 
 const sec = document.createElement('section');
 sec.className = 'view'; sec.id = 'view-plan'; sec.hidden = true;
 sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Formato ' + CODIGO + '. Se llena con lo registrado en la valoración; revisa, corrige y descárgalo en Word.</p></div>'
-  + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="planRegenBtn">↻ Volver a generar</button><button class="btn primary" type="button" id="planWordBtn">⬇️ Descargar Word</button></div></div>'
+  + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="planCargarBtn" title="Sube un plan R-AMI-055 ya hecho (.docx): se parafrasea y se llena con los datos actuales del niño/a">📂 Cargar plan anterior (Word)</button>'
+  + '<button class="btn ghost" type="button" id="planOtraBtn" hidden title="Vuelve a parafrasear el plan cargado con otras palabras">🔀 Otra redacción</button>'
+  + '<button class="btn ghost" type="button" id="planRegenBtn">↻ Volver a generar</button><button class="btn primary" type="button" id="planWordBtn">⬇️ Descargar Word</button></div></div>'
   + '<p class="tag-note" id="planAviso" style="margin-bottom:14px;"></p>'
   + '<div class="card"><div class="card-head"><h3>Datos del plan</h3><span class="sub">Nombre, edad, diagnóstico y CIE se toman de la Portada</span></div><div class="grid cols-2">'
   + campo('planHc', 'Historia clínica') + campo('planInicio', 'Periodo de ejecución: desde', 'type="date"')
   + campo('planFin', 'Periodo de ejecución: hasta', 'type="date"') + campo('planArea', 'Área tratante')
   + campo('planSocializacion', 'Fecha de socialización con el equipo', 'type="date"') + campo('planAprobo', 'Aprobó', 'list="planAproboLista" placeholder="Escribe o elige el nombre…"') + '<datalist id="planAproboLista"></datalist>'
   + '</div></div>'
-  + '<div class="card"><div class="card-head"><h3>Hallazgos</h3><span class="sub">¿Qué encontré durante la valoración? Fortalezas y debilidades</span></div>'
-  + texto('planHallazgos', 'Hallazgos (las líneas que empiezan con • salen como viñetas)', 200, 'Fortalezas y debilidades encontradas…') + '</div>'
+  + '<div class="card"><div class="card-head"><h3>Hallazgos</h3><span class="sub">¿Qué no logra el paciente en la valoración? Solo debilidades</span></div>'
+  + texto('planHallazgos', 'Hallazgos (las líneas que empiezan con • salen como viñetas)', 200, 'Debilidades encontradas (lo que el paciente aún no logra)…') + '</div>'
   + '<div class="card"><div class="card-head"><h3>Objetivos e indicadores</h3><span class="sub">Verbo + habilidad + contexto + propósito funcional</span></div>'
   + texto('planObjGeneral', 'Objetivo general: verbo + función o habilidad principal + propósito funcional (amplio, sin contexto)', 80, '¿Qué cambio global esperamos lograr en el paciente durante este periodo terapéutico?')
   + texto('planObjEspecificos', 'Objetivos específicos (mínimo ' + MIN_OBJETIVOS + ', uno por línea): verbo + habilidad específica + contexto + propósito funcional', 140, '¿Qué logros concretos permitirán alcanzar el objetivo general?')
   + texto('planIndicadores', 'Indicadores de logro (uno por línea, en el mismo orden de los objetivos, en afirmativo)', 140, 'Ej.: Mantiene la atención en actividades estructuradas con mínimo apoyo verbal.')
   + '</div>'
+  + '<div class="card no-print"><div class="card-head"><h3>✨ Parafrasear y enriquecer con IA</h3><span class="sub">Reescribe y amplía hallazgos, objetivos e indicadores con la guía R-AMI-055</span></div>'
+  + '<p class="tag-note" style="margin-bottom:10px;">Al texto para la IA <b>no se le pone el nombre ni el documento</b> del niño/a: solo el área, la edad y lo clínico. '
+  + '<span id="planIaModo">Usa "📋 Copiar para la IA", pégalo en ChatGPT, Gemini o Claude (gratis), copia lo que te responda y pégalo abajo.</span></p>'
+  + '<div class="btn-row"><button class="btn primary" type="button" id="planIaBtn" hidden>✨ Parafrasear y enriquecer con IA</button><button class="btn dark" type="button" id="planIaCopiar">📋 Copiar para la IA</button></div>'
+  + '<p class="tag-note" id="planIaEstado" style="margin-top:8px;display:none;"></p>'
+  + '<label class="field" style="margin-top:12px;"><span class="lbl">Respuesta de la IA (pégala aquí si la copiaste de otra página)</span><textarea class="input" id="planIaResp" style="min-height:120px;" placeholder="HALLAZGOS: … OBJETIVO GENERAL: … OBJETIVOS ESPECÍFICOS: … INDICADORES DE LOGRO: …"></textarea></label>'
+  + '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost" type="button" id="planIaAplicar">⬇ Pasar la respuesta al plan</button></div></div>'
   + '<div class="card"><div class="card-head"><h3>Lista de verificación</h3><span class="sub">Se revisa sola mientras escribes</span></div><div id="planCheck"></div></div>'
   + '<div class="card"><details><summary style="cursor:pointer;font-weight:800;font-size:14.5px;">📘 Guía rápida para redactar el plan (R-AMI-055)</summary><div class="plan-guia">' + GUIA + '</div></details></div>'
   + '<div class="card"><div class="card-head"><h3>Vista previa</h3><span class="sub">Así se verá el cuerpo del documento en Word</span></div><div class="plan-doc" id="planPreview"></div></div>';
@@ -2681,8 +2697,9 @@ function ajustarFin(){
   if(document.activeElement !== el) el.value = finPeriodo(p);
 }
 function avisar(sug){
-  const a = document.getElementById('planAviso');
-  if(!sug) a.textContent = '⚠ Aún no hay respuestas en Evaluación: marca los ítems y los hallazgos y objetivos se sugerirán solos.';
+  const a = document.getElementById('planAviso'), imp = state.plan.importado;
+  if(imp) a.textContent = '📂 Plan renovado desde "' + imp.archivo + '" (' + fmtDate(imp.fecha) + '). Revisa los textos antes de descargar: "🔀 Otra redacción" cambia las palabras y "↻ Volver a generar" lo arma de nuevo desde la valoración.';
+  else if(!sug) a.textContent = '⚠ Aún no hay respuestas en Evaluación: marca los ítems y los hallazgos y objetivos se sugerirán solos.';
   else if(state.plan.base && state.plan.base !== firma(sug)) a.textContent = '⚠ La valoración cambió después de generar el plan. Usa "Volver a generar" si quieres actualizar hallazgos, objetivos e indicadores (se reemplaza lo que escribiste en esos cuadros).';
   else a.textContent = '';
 }
@@ -2698,6 +2715,7 @@ function render(){
   ajustarFin();
   document.getElementById('planHc').placeholder = d.hcAuto || 'Número de historia clínica';
   document.getElementById('planArea').placeholder = d.areaAuto;
+  document.getElementById('planOtraBtn').hidden = !p.importado;
   avisar(sug);
   preview();
   verificar();
@@ -2712,7 +2730,7 @@ function verificar(){
   // Afirmativo: sin negaciones ni verbos en futuro ("No…", "sin…", "Mantendrá…").
   const noAfirmativos = ind.filter(l=> /^(\d+[.)]\s*)?no\b|\bno (logra|presenta|realiza)\b|\bsin\b|^(\d+[.)]\s*)?(se\s+)?\S+(rá|rán)(\s|$)/i.test(l));
   const estrategias = [p.objGeneral].concat(esp).filter(l=> /econom[ií]a de fichas|modelado|reforzamiento|refuerzo positivo|t[ée]cnica|mediante el uso|a trav[ée]s de (la|el|los|las) (t[ée]cnica|estrategia|terapia)/i.test(l || ''));
-  out.push([!!lineas(p.hallazgos).length, 'Hallazgos coherentes con la valoración', lineas(p.hallazgos).length ? 'Describen fortalezas y debilidades observadas; revisa que no sea solo el diagnóstico.' : 'Escribe los hallazgos de la valoración.']);
+  out.push([!!lineas(p.hallazgos).length, 'Hallazgos coherentes con la valoración', lineas(p.hallazgos).length ? 'Describen las debilidades observadas (lo que aún no logra); revisa que no sea solo el diagnóstico.' : 'Escribe los hallazgos de la valoración.']);
   out.push([!!p.objGeneral && !malVerbo.length, 'Objetivos inician con un verbo recomendado', !p.objGeneral ? 'Falta el objetivo general.' : malVerbo.length ? 'Revisa: ' + malVerbo.join(', ') + (evitados.length ? ' (verbo a evitar)' : ' (no está en la lista recomendada)') + '.' : 'Fortalecer, Favorecer, Promover, Desarrollar, Facilitar, Preservar, Potenciar u Optimizar.']);
   out.push([esp.length >= MIN_OBJETIVOS, 'Mínimo ' + MIN_OBJETIVOS + ' objetivos específicos', esp.length >= MIN_OBJETIVOS ? esp.length + ' objetivo(s) específico(s).' : 'Hay ' + esp.length + '; agrega al menos ' + (MIN_OBJETIVOS - esp.length) + ' más (uno por línea).']);
   out.push([!!esp.length && esp.length === ind.length, 'Objetivos relacionados con los hallazgos, con un indicador por objetivo', esp.length === ind.length ? (esp.length + ' objetivo(s) específico(s) y ' + ind.length + ' indicador(es).') : 'Hay ' + esp.length + ' objetivo(s) específico(s) y ' + ind.length + ' indicador(es): deben coincidir en número y orden.']);
@@ -2756,10 +2774,511 @@ nav.addEventListener('click', ()=>{ goto('plan'); render(); });
 document.getElementById('planRegenBtn').addEventListener('click', ()=>{
   const sug = sugerido();
   if(!sug){ alert('Aún no hay respuestas en Evaluación para generar el plan.'); return; }
-  if(!confirm('¿Volver a generar hallazgos, objetivos e indicadores desde la valoración?\nSe reemplaza lo que escribiste en esos cuadros.')) return;
-  Object.assign(state.plan, sug); state.plan.base = firma(sug);
+  if(!confirmar('¿Volver a generar hallazgos, objetivos e indicadores desde la valoración?\nSe reemplaza lo que escribiste en esos cuadros.')) return;
+  Object.assign(state.plan, sug); state.plan.base = firma(sug); delete state.plan.importado;
   render(); queueSave();
 });
+
+/* ---------- Cargar un plan anterior (Word) y renovarlo ---------- */
+// Se sube un R-AMI-055 ya hecho (.docx): se leen hallazgos, objetivos e indicadores, se
+// parafrasean (sin internet, con reglas propias), los indicadores que falten se redactan
+// desde los objetivos específicos, y los datos del niño/a se traen de la base de pacientes
+// por la historia clínica. El profesional y el sello son los del formato.
+// IMPORTAR:PURO:INICIO
+const sinTilde = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const VINETA = /^\s*(?:[-–—•▪◦●○■□*·➢➤►✓✔]|\d{1,2}\s*[.)\-]|[a-z]\))\s*/i;
+// Grupos de expresiones equivalentes (mismo género y número): cada una se cambia por otra del grupo.
+const SINONIMOS = [
+  ['pobre vocabulario semántico','vocabulario semántico reducido'],
+  ['pobre vocabulario','vocabulario reducido','vocabulario limitado'],
+  ['el entorno donde se desenvuelve','los contextos en los que participa','su entorno cotidiano'],
+  ['el entorno en el que se desenvuelve','los contextos en los que participa','su entorno cotidiano'],
+  ['dificultades en la realización de','dificultad para realizar','dificultades para ejecutar'],
+  ['dificultades en la identificación de','dificultad para identificar','dificultades para reconocer'],
+  ['con dificultad para','presentando dificultad para'],
+  ['capacidad para','habilidad para'], ['capacidad de','habilidad de'],
+  ['instrucciones simples','instrucciones sencillas'], ['órdenes simples','órdenes sencillas'], ['consignas simples','consignas sencillas'],
+  ['encaminadas a','orientadas a','dirigidas a'], ['encaminados a','orientados a','dirigidos a'],
+  ['encaminada a','orientada a','dirigida a'], ['encaminado a','orientado a','dirigido a'],
+  ['que favorezcan','que beneficien'], ['que favorezca','que beneficie'],
+  ['a nivel del','en el'], ['a nivel de la','en la'],
+  ['categorías esenciales','categorías básicas'],
+  ['vocabulario receptivo','vocabulario comprensivo'], ['vocabulario expresivo','léxico expresivo'],
+  ['habilidades comunicativas','competencias comunicativas'], ['habilidades sociales','competencias sociales'],
+  ['poca tolerancia','baja tolerancia'], ['poca inteligibilidad','baja inteligibilidad'],
+  ['poco inteligible','de baja inteligibilidad'], ['poco inteligibles','de baja inteligibilidad'],
+  ['sonidos vocálicos','sonidos vocales'],
+  ['comandos','pasos'],
+  ['adecuado','apropiado'], ['adecuada','apropiada'], ['adecuados','apropiados'], ['adecuadas','apropiadas'],
+  ['aumentar','incrementar'], ['disminuir','reducir'], ['lograr','alcanzar'],
+  ['permitan','posibiliten'], ['permita','posibilite'],
+  ['ejecutar instrucciones','seguir instrucciones','cumplir instrucciones'], ['ejecutar órdenes','seguir órdenes','cumplir órdenes'],
+  ['efectuar','realizar','ejecutar'],
+  ['identificación','reconocimiento'], ['realización','ejecución'],
+  ['favoreciendo','promoviendo','facilitando'],
+  ['mediante','a través de'], ['actividades lúdicas','actividades de juego'], ['de manera','de forma'],
+  ['con apoyo mínimo','con mínimo apoyo'], ['acorde a su edad','esperado para su edad'],
+  ['contextos','entornos'], ['producciones','emisiones'], ['por medio de','a través de']
+];
+// Correcciones de ortografía frecuentes (siempre se aplican).
+const ORTOGRAFIA = [[/\bespontaneo\b/g,'espontáneo'],[/\bespontanea\b/g,'espontánea'],[/\bcientifico\b/gi,'científico'],[/\bmotriz fina\b/g,'motricidad fina'],[/\s+([,.;:])/g,'$1'],[/\s{2,}/g,' ']];
+const VERBO_ALT = {
+  favorecer:['Fortalecer','Promover','Potenciar'], fortalecer:['Favorecer','Potenciar','Optimizar'], promover:['Favorecer','Desarrollar','Fortalecer'],
+  desarrollar:['Promover','Potenciar','Favorecer'], potenciar:['Fortalecer','Optimizar','Desarrollar'], optimizar:['Potenciar','Fortalecer','Favorecer'],
+  facilitar:['Favorecer','Promover','Potenciar'], incrementar:['Fortalecer','Potenciar','Favorecer'], mejorar:['Potenciar','Optimizar','Fortalecer'],
+  estimular:['Promover','Favorecer','Potenciar'], preservar:['Preservar'], ampliar:['Fortalecer','Potenciar','Favorecer'], afianzar:['Fortalecer','Potenciar','Favorecer'],
+  consolidar:['Fortalecer','Potenciar','Optimizar'], adquirir:['Desarrollar','Promover','Favorecer'], iniciar:['Promover','Favorecer','Desarrollar']
+};
+const NOMINAL = { disminuir:'la disminución de', reducir:'la reducción de', aumentar:'el aumento de', lograr:'el logro de', mantener:'el mantenimiento de', adquirir:'la adquisición de' };
+const RE_PALABRA = (txt) => new RegExp('(^|[^\\p{L}])(' + txt.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')(?![\\p{L}])', 'giu');
+
+function parafrasear(txt, variante, semilla){
+  let s = String(txt||'').trim(); if(!s) return s;
+  // Se reemplaza todo en una sola pasada: cada expresión cambia una vez (sin ir y volver).
+  const pares = [];
+  SINONIMOS.forEach((g, gi)=> g.forEach((m, mi)=> pares.push({ m, g, gi, mi })));
+  pares.sort((a,b)=> b.m.length - a.m.length);
+  const marcas = [];
+  pares.forEach(p=>{
+    s = s.replace(RE_PALABRA(p.m), (todo, pre, enc)=>{
+      const otros = p.g.filter((x,i)=> i !== p.mi);
+      let nuevo = otros[(variante + p.gi + semilla) % otros.length];
+      if(/^\p{Lu}/u.test(enc)) nuevo = may1(nuevo);
+      marcas.push(nuevo);
+      return pre + '\u0001' + (marcas.length - 1) + '\u0002';
+    });
+  });
+  s = s.replace(/\u0001(\d+)\u0002/g, (t, n)=> marcas[Number(n)]);
+  ORTOGRAFIA.forEach(([re, r])=> { s = s.replace(re, r); });
+  return s.trim();
+}
+// Objetivo: el verbo inicial se cambia por otro recomendado de la guía; se quitan las técnicas.
+function parafrasearObjetivo(txt, variante, semilla, usadosV){
+  let s = String(txt||'').replace(VINETA,'').trim(); if(!s) return s;
+  usadosV = usadosV || {};
+  // elige el verbo siguiente de la rotación que aún no inicie otro objetivo
+  const elegir = a => { for(let k = 0; k < a.length; k++){ const v = a[(variante + semilla + k) % a.length]; if(!usadosV[v]){ usadosV[v] = 1; return v; } } return a[(variante + semilla) % a.length]; };
+  const OTROS = ['Favorecer','Promover','Fortalecer','Potenciar','Desarrollar'];
+  s = s.replace(/\s*,?\s*(?:mediante|a trav[ée]s de|por medio de)\s+(?:el uso de\s+)?(?:estrategias|t[ée]cnicas)\b[^,.]*?,?\s*(?:encaminad|orientad|dirigid)[oa]s? a\s+/i, ', con el fin de ');
+  s = s.replace(/\s*,?\s*(?:mediante|a trav[ée]s de|por medio de)\s+(?:el uso de\s+)?(?:estrategias|t[ée]cnicas)\b[^,.]*/i, '');
+  const m = s.match(/^(\p{L}+?)(ar|er|ir)\b\s*(.*)$/u);
+  if(m){
+    const verbo = sinTilde(m[1] + m[2]), resto = m[3];
+    if(VERBO_ALT[verbo]){ const a = VERBO_ALT[verbo]; s = (a.length > 1 ? elegir(a.concat(OTROS.filter(v=> !a.includes(v) && sinTilde(v) !== verbo))) : a[0]) + ' ' + resto; }
+    else if(NOMINAL[verbo]) s = elegir(OTROS) + ' ' + NOMINAL[verbo] + ' ' + resto;
+    else if(/^que\b/i.test(resto)) s = elegir(OTROS) + ' ' + resto;
+    else s = elegir(OTROS) + ' la capacidad para ' + min1(m[1] + m[2]) + (resto ? ' ' + resto : '');
+  }
+  s = parafrasear(s, variante, semilla);
+  return may1(s.replace(/de el\b/g,'del').replace(/a el\b/g,'al')).replace(/[.;\s]*$/, '.');
+}
+// Indicadores de logro: conducta observable + contexto + criterio, en afirmativo y presente.
+function enumeracion(o){
+  const m = o.match(/(?:tales como|como|\()\s*([^.;()]+?)(?:\)|[.;]|,\s*(?:favoreciendo|promoviendo|facilitando|para|con el fin)|$)/i);
+  return m ? m[1].trim() : '';
+}
+const IND = [
+  { re:/instrucci|ordenes|consignas|comandos/, f:o=> 'Sigue ' + (/simple|sencill|un paso|1 accion/.test(o) ? 'instrucciones sencillas de uno y dos pasos' : /varios|tres|3|complej/.test(o) ? 'instrucciones de varios pasos' : 'instrucciones de dos pasos') + ' durante las actividades terapéuticas con máximo una repetición de la instrucción.' },
+  { re:/vocabulario|lexico|categori|denomin/, f:(o, txt, e)=> e ? 'Identifica y nombra ' + e + ' durante actividades dirigidas con apoyo visual.' : MAPA.fono['Semántico'].i },
+  { re:/orofacial|praxia|\blengua\b|labios|velo del paladar|mejillas|mandibul/, f:(o, txt)=> { const m = txt.match(/(?:orofaciales?|praxias)[^,.]*?\bde\s+(.+?)(?:,\s*(?:favoreciendo|promoviendo|facilitando|para)\b|[.;]|$)/i); return 'Realiza praxias orofaciales' + (m ? ' de ' + m[1].trim() : ' de lengua, labios y mejillas') + ' por imitación del modelo del terapeuta.'; } },
+  { re:/inteligib|articula|fonema|sonidos del habla|fonolog/, f:()=> MAPA.fono['Fonológico'].i },
+  { re:/conciencia fonol|silab|segment|rima/, f:()=> MAPA.fono['Conciencia fonológica'].i },
+  { re:/imitaci|imitar/, f:()=> 'Imita sonidos, palabras y gestos presentados por el terapeuta durante actividades dirigidas.' },
+  { re:/contacto visual|mirada/, f:()=> 'Establece contacto visual durante los intercambios comunicativos con el terapeuta.' },
+  { re:/intencion comunicativa|pragmat|conversaci|turnos comunicativos|uso funcional del lenguaje|uso social del lenguaje/, f:()=> MAPA.fono['Pragmática'].i },
+  { re:/frases|enunciados|sintax|morfosint|lenguaje expresivo|expresi[oó]n verbal|expresivo/, f:()=> 'Utiliza frases funcionales para expresar sus necesidades e ideas durante la sesión.' },
+  { re:/comprensi|lenguaje receptivo|receptivo/, f:()=> 'Comprende y responde a preguntas e instrucciones sencillas durante actividades dirigidas con apoyo visual.' },
+  { re:/lectura|lector/, f:()=> MAPA.fono['Lectura'].i },
+  { re:/escritura|grafomotr|trazo|grafism/, f:()=> 'Realiza los trazos y grafías trabajados en sesión respetando la direccionalidad, con mínimo apoyo del terapeuta.' },
+  { re:/atenci|concentr/, f:()=> MAPA.psi['Cognitivo'].i },
+  { re:/frustr|regulaci[oó]n emocional|autorregulaci|berrinche|rabieta|emocion/, f:()=> MAPA.psi['Socioemocional'].i },
+  { re:/espera|turno|impuls/, f:()=> 'Espera su turno y controla respuestas impulsivas durante actividades estructuradas con máximo dos redirecciones.' },
+  { re:/norma|limite|conducta|comportamiento|oposicion/, f:()=> MAPA.psi['Comportamental'].i },
+  { re:/memoria|evoca/, f:()=> 'Recupera y relata información de experiencias recientes durante actividades dirigidas con mínimo apoyo del terapeuta.' },
+  { re:/razonamiento|clasific|resoluci[oó]n de problemas|asociaci/, f:()=> 'Clasifica, asocia y resuelve problemas sencillos acordes a su edad durante actividades estructuradas con mínimo apoyo del terapeuta.' },
+  { re:/juego simb|juego funcional|simbolic/, f:()=> MAPA.psi['Juego individual'].i },
+  { re:/interacci|social|pares|compart/, f:()=> 'Participa en actividades compartidas con pares y adultos respetando turnos y normas, con máximo dos redirecciones.' },
+  { re:/motricidad fina|motora fina|pinza|manipula|destreza manual/, f:()=> MAPA.to['Habilidades motoras'].i },
+  { re:/planificaci[oó]n motora|praxis|secuencia/, f:()=> MAPA.is['Praxis e ideación'].i },
+  { re:/vestido|alimentaci|higiene|vida diaria|avd|autocuidado/, f:()=> MAPA.to['Actividades de la vida diaria'].i },
+  { re:/esfinter|control de esfinteres|ir al bano/, f:()=> MAPA.taller['Control de esfínteres'].i },
+  { re:/tactil|textura/, f:()=> MAPA.is['Táctil'].i },
+  { re:/vestibular|movimiento/, f:()=> MAPA.is['Vestibular'].i },
+  { re:/propiocep|graduaci[oó]n de la fuerza/, f:()=> MAPA.is['Propioceptivo'].i },
+  { re:/equilibrio|balance/, f:()=> MAPA.fisio['Reacciones de equilibrio y balance'].i },
+  { re:/marcha|desplazamiento|deambula/, f:()=> MAPA.fisio['Marcha'].i },
+  { re:/postur|control cefalico|control de tronco/, f:()=> MAPA.fisio['Postura'].i },
+  { re:/tono muscular/, f:()=> MAPA.fisio['Tono muscular'].i },
+  { re:/fuerza/, f:()=> MAPA.fisio['Fuerza muscular y movilidad articular'].i },
+  { re:/cambios de posici|transicion|traslado/, f:()=> MAPA.fisio['Movilidad y transiciones funcionales'].i },
+  { re:/motricidad gruesa|motora gruesa|saltar|correr|lanzar/, f:()=> MAPA.fisio['Habilidades motoras gruesas'].i }
+];
+function indicadorDe(obj, usados){
+  const txt = String(obj||'').replace(VINETA,''), o = sinTilde(txt), e = enumeracion(txt);
+  for(const r of IND){ if(r.re.test(o)){ const i = r.f(o, txt, e); if(!usados[i]){ usados[i] = 1; return i; } } }
+  // Sin regla conocida: se describe la habilidad del objetivo como desempeño observable.
+  let hab = txt.replace(/^\p{L}+(?:ar|er|ir)\s+/u, '').split(/,|\s(?:favoreciendo|promoviendo|facilitando|para|con el fin de|que permita)\s/)[0].trim().replace(/[.;]$/,'');
+  hab = min1(hab);
+  const i = 'Evidencia ' + (!hab ? 'las habilidades trabajadas' : /^(la|su) (capacidad|habilidad)\b/.test(hab) ? hab : 'un desempeño funcional en ' + hab) + ' durante las actividades terapéuticas con mínimo apoyo del terapeuta.';
+  usados[i] = 1; return i;
+}
+// Lectura del Word: texto de cada párrafo y si es viñeta o número de lista.
+function parrafosDe(nodo){
+  return Array.from(nodo.getElementsByTagNameNS('*','p')).map(p=>{
+    let t = '';
+    const walk = n => { for(const c of Array.from(n.childNodes)){ if(c.nodeType !== 1) continue; const ln = c.localName;
+      if(ln === 't') t += c.textContent; else if(ln === 'tab' || ln === 'br' || ln === 'cr') t += ' '; else if(ln === 'Fallback' || ln === 'p') continue; else walk(c); } };
+    walk(p);
+    return { t: t.replace(/\s+/g,' ').trim(), item: p.getElementsByTagNameNS('*','numPr').length > 0 };
+  }).filter(x=> x.t);
+}
+function items(pars){
+  const out = [];
+  pars.forEach(p=>{
+    const t = p.t, nuevo = p.item || VINETA.test(t) || /:$/.test(t), limpio = t.replace(VINETA,'').trim();
+    if(!limpio) return;
+    const ult = out[out.length-1];
+    if(!nuevo && ult && !/:$/.test(ult) && (!/[.;]$/.test(ult) || /^\p{Ll}/u.test(limpio))) out[out.length-1] = ult + ' ' + limpio;
+    else out.push(limpio);
+  });
+  return out;
+}
+function leerPlanXml(docXml){
+  const doc = new DOMParser().parseFromString(docXml, 'application/xml');
+  const filas = Array.from(doc.getElementsByTagNameNS('*','tr'));
+  const celdas = tr => Array.from(tr.childNodes).filter(c=> c.localName === 'tc');
+  let cab = -1, cols = {};
+  for(let i = 0; i < filas.length && cab < 0; i++){
+    const tx = celdas(filas[i]).map(c=> sinTilde(c.textContent));
+    const hi = tx.findIndex(t=> /hallazgo/.test(t)), oi = tx.findIndex(t=> /objetivo/.test(t));
+    if(hi >= 0 && oi >= 0){ cab = i; cols = { h:hi, o:oi, i:tx.findIndex(t=> /indicador/.test(t)), p:tx.findIndex(t=> /profesional/.test(t)) }; }
+  }
+  if(cab < 0) throw new Error('No encontré la tabla con las columnas HALLAZGOS y OBJETIVOS. ¿Es un plan terapéutico R-AMI-055?');
+  const junta = { h:[], o:[], i:[] };
+  for(let i = cab + 1; i < filas.length; i++){
+    const tr = filas[i];
+    let n = tr.parentNode, interna = false; while(n && n !== doc){ if(n.localName === 'tc'){ interna = true; break; } n = n.parentNode; }
+    if(interna) continue; // filas de tablas dentro de una celda
+    const cs = celdas(tr), tx = sinTilde(tr.textContent);
+    if(/socializaci|^\s*aprob|direccion cientifica|control de versiones/.test(tx) || cs.length < 3) break;
+    ['h','o','i'].forEach(k=>{ if(cols[k] >= 0 && cs[cols[k]]) junta[k] = junta[k].concat(parrafosDe(cs[cols[k]])); });
+  }
+  // Objetivos: "GENERAL:" y "ESPECÍFICOS:"
+  let general = '', modo = '';
+  const esp = [];
+  junta.o.forEach(p=>{
+    let t = p.t, mg = t.match(/^(?:objetivos?\s+)?general(?:es)?\s*:?\s*(.*)$/i), me = t.match(/^(?:objetivos?\s+)?espec[ií]ficos?\s*:?\s*(.*)$/i);
+    if(mg){ modo = 'g'; t = mg[1]; if(!t) return; }
+    else if(me){ modo = 'e'; t = me[1]; if(!t) return; }
+    if(modo === 'e') esp.push({ t, item: p.item });
+    else general += (general ? ' ' : '') + t;
+  });
+  // Encabezado: Nombre, Historia clínica, etc. (fuera de la tabla principal)
+  const todo = parrafosDe(doc).map(p=> p.t).join('\n');
+  const ETQ = 'Nombre|Historia Cl[ií]nica|H\\.?\\s?C\\.?|Edad|Diagn[oó]stico|Fecha de Ingreso|Periodo de Ejecuci[oó]n|CIE(?:-?10)?|[ÁA]REA';
+  const dato = re => { const m = todo.match(new RegExp('(?:^|\\s)(?:' + re + ')\\s*:\\s*(.*?)(?=\\s*(?:' + ETQ + ')\\s*:|\\n|$)', 'i')); return m ? m[1].trim() : ''; };
+  return {
+    nombre: dato('Nombre'), hc: dato('Historia Cl[ií]nica|H\\.?\\s?C\\.?'), edad: dato('Edad'), diag: dato('Diagn[oó]stico'),
+    ingreso: dato('Fecha de Ingreso'), periodo: dato('Periodo de Ejecuci[oó]n'), cie: dato('CIE(?:-?10)?'), area: dato('[ÁA]REA'),
+    hallazgos: items(junta.h), general: general.replace(VINETA,'').trim(), especificos: items(esp), indicadores: items(junta.i)
+  };
+}
+// El plan solo lleva debilidades: se quita la sección "Fortalezas:" de un plan anterior.
+function sinFortalezas(hs){
+  let fuera = false;
+  return hs.filter(t=>{ const tt = sinTilde(t.replace(VINETA,'').trim());
+    if(/:$/.test(t.trim())) fuera = /^fortalezas?\b|^capacidades\b|^habilidades (conservadas|preservadas)\b/.test(tt);
+    return !fuera; });
+}
+// Arma el plan renovado (variante 0, 1, 2… da redacciones distintas).
+function renovar(o, variante){
+  const usadosV = {};
+  const esp = o.especificos.map((t, k)=> parafrasearObjetivo(t, variante, k + 1, usadosV));
+  const usados = {}, ind = [];
+  esp.forEach((t, k)=> { const viejo = o.indicadores[k];
+    ind.push(viejo ? parafrasear(viejo.replace(VINETA,''), variante, k + 2).replace(/[.;\s]*$/, '.') : indicadorDe(t, usados)); });
+  o.indicadores.slice(esp.length).forEach((t, k)=> ind.push(parafrasear(t, variante, k + 5)));
+  return {
+    hallazgos: sinFortalezas(o.hallazgos).map((t, k)=> /:$/.test(t) ? t : '• ' + may1(parafrasear(t, variante, k)).replace(/[.;\s]*$/, '.')).join('\n'),
+    objGeneral: o.general ? parafrasearObjetivo(o.general, variante, 0) : '',
+    objEspecificos: esp.join('\n'), indicadores: ind.join('\n')
+  };
+}
+// IMPORTAR:PURO:FIN
+
+/* Word antiguo (.doc, Word 97-2003): archivo "compuesto" de Microsoft. Se saca el texto con la
+   tabla de piezas y se arma un document.xml mínimo (tablas, celdas y párrafos) para que lo lea
+   leerPlanXml igual que un .docx. En el .doc cada párrafo es un renglón de la lista. */
+function docBinAXml(u8){
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const sec = 1 << dv.getUint16(30, true), mini = 1 << dv.getUint16(32, true), corte = dv.getUint32(56, true);
+  const FIN = 0xFFFFFFFE, off = s => (s + 1) * sec;
+  // Tabla FAT a partir de la DIFAT
+  const difat = [];
+  for(let i = 0; i < 109; i++){ const s = dv.getUint32(76 + i*4, true); if(s < 0xFFFFFFFA) difat.push(s); }
+  for(let s = dv.getUint32(68, true), n = dv.getUint32(72, true); n-- > 0 && s < 0xFFFFFFFA; ){
+    for(let i = 0; i < sec/4 - 1; i++){ const x = dv.getUint32(off(s) + i*4, true); if(x < 0xFFFFFFFA) difat.push(x); }
+    s = dv.getUint32(off(s) + sec - 4, true);
+  }
+  const fat = [];
+  difat.forEach(s=>{ for(let i = 0; i < sec/4; i++) fat.push(dv.getUint32(off(s) + i*4, true)); });
+  const cadena = (s, tabla) => { const out = []; while(s < 0xFFFFFFFA && out.length < 1e6){ out.push(s); s = tabla[s]; if(s === FIN) break; } return out; };
+  const leerCadena = s => { const c = cadena(s, fat), b = new Uint8Array(c.length * sec); c.forEach((x, i)=> b.set(u8.subarray(off(x), off(x) + sec), i*sec)); return b; };
+  // Directorio
+  const dir = leerCadena(dv.getUint32(48, true)), ddv = new DataView(dir.buffer), entradas = [];
+  for(let o = 0; o + 128 <= dir.length; o += 128){
+    const ln = ddv.getUint16(o + 64, true); if(!ln) continue;
+    let nombre = ''; for(let i = 0; i < ln/2 - 1; i++) nombre += String.fromCharCode(ddv.getUint16(o + i*2, true));
+    entradas.push({ nombre, tipo: dir[o + 66], ini: ddv.getUint32(o + 116, true), tam: ddv.getUint32(o + 120, true) });
+  }
+  const raiz = entradas.find(e=> e.tipo === 5);
+  const miniFat = []; { const b = leerCadena(dv.getUint32(60, true)), bd = new DataView(b.buffer); if(dv.getUint32(64, true)) for(let i = 0; i < b.length/4; i++) miniFat.push(bd.getUint32(i*4, true)); }
+  const miniStream = raiz ? leerCadena(raiz.ini) : new Uint8Array(0);
+  const flujo = nombre => {
+    const e = entradas.find(x=> x.nombre === nombre); if(!e) return null;
+    if(e.tam < corte){ const c = cadena(e.ini, miniFat), b = new Uint8Array(c.length * mini); c.forEach((x, i)=> b.set(miniStream.subarray(x*mini, x*mini + mini), i*mini)); return b.subarray(0, e.tam); }
+    return leerCadena(e.ini).subarray(0, e.tam);
+  };
+  const wd = flujo('WordDocument');
+  if(!wd) throw new Error('El archivo .doc no tiene el contenido de Word que esperaba.');
+  const w = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
+  if(w.getUint16(0, true) !== 0xA5EC) throw new Error('El .doc no es de Word 97 o posterior. Ábrelo en Word y guárdalo como .docx.');
+  if(w.getUint16(10, true) & 0x0100) throw new Error('El .doc está protegido con contraseña.');
+  const tabla = flujo(w.getUint16(10, true) & 0x0200 ? '1Table' : '0Table');
+  if(!tabla) throw new Error('No encontré la tabla de texto del .doc.');
+  const csw = w.getUint16(32, true), base = 34 + csw*2, cslw = w.getUint16(base, true);
+  const ccpText = w.getUint32(base + 2 + 3*4, true), blob = base + 2 + cslw*4 + 2;
+  const fcClx = w.getUint32(blob + 33*8, true), lcbClx = w.getUint32(blob + 33*8 + 4, true);
+  const t = new DataView(tabla.buffer, tabla.byteOffset, tabla.byteLength);
+  let p = fcClx;
+  while(p < fcClx + lcbClx && tabla[p] === 1) p += 3 + t.getUint16(p + 1, true); // Prc: formato, se salta
+  if(tabla[p] !== 2) throw new Error('No pude leer el texto del .doc (tabla de piezas).');
+  const lcb = t.getUint32(p + 1, true), n = (lcb - 4) / 12, cps = p + 5, pcds = cps + (n + 1)*4;
+  const ansi = new TextDecoder('windows-1252'), uni = new TextDecoder('utf-16le');
+  let texto = '';
+  for(let i = 0; i < n; i++){
+    const cp0 = t.getUint32(cps + i*4, true), cp1 = Math.min(t.getUint32(cps + (i+1)*4, true), ccpText);
+    if(cp1 <= cp0) continue;
+    const fc = t.getUint32(pcds + i*8 + 2, true), comprimido = (fc & 0x40000000) !== 0, ini = comprimido ? (fc & 0x3FFFFFFF) / 2 : fc;
+    texto += comprimido ? ansi.decode(wd.subarray(ini, ini + (cp1 - cp0))) : uni.decode(wd.subarray(ini, ini + (cp1 - cp0)*2));
+  }
+  // Campos: se deja solo el resultado (lo que se ve); se quitan imágenes y marcas
+  texto = texto.replace(/\x13[^\x13\x14\x15]*\x14([^\x13\x15]*)\x15/g, '$1').replace(/\x13[^\x13\x15]*\x15/g, '')
+    .replace(/[\x01\x08\x0C\x1E\x1F]/g, '').replace(/\x0B/g, ' ').replace(/ /g, ' ');
+  return textoDocAXml(texto);
+}
+function textoDocAXml(texto){
+  const x = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const pars = (s, item) => s.split('\r').map(l=> l.trim()).filter(Boolean).map(l=> '<w:p>' + (item ? '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr>' : '') + '<w:r><w:t xml:space="preserve">' + x(l) + '</w:t></w:r></w:p>').join('');
+  const c = texto.split('\x07'), ult = s => { const l = s.split('\r').map(v=> v.trim()).filter(Boolean); return l.length ? l[l.length-1] : ''; };
+  const i = c.findIndex((v, k)=> /hallazgo/i.test(sinTilde(ult(v))) && k + 1 < c.length && /objetivo/i.test(sinTilde(c[k+1])));
+  if(i < 0) return '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + pars(texto.replace(/\x07/g, '\r')) + '</w:body></w:document>';
+  let ncol = 0; while(i + ncol < c.length && c[i + ncol].trim()) ncol++;
+  const antes = c.slice(0, i).join('\r') + '\r' + c[i].split('\r').slice(0, -1).join('\r');
+  let filas = '<w:tr>' + c.slice(i, i + ncol).map((v, k)=> '<w:tc>' + pars(k ? v : ult(v)) + '</w:tc>').join('') + '</w:tr>';
+  let j = i + ncol + 1;
+  while(j + ncol <= c.length){
+    const fila = c.slice(j, j + ncol);
+    if(/socializaci|aprob|direccion cientifica|control de versiones/.test(sinTilde(fila[0]))) break;
+    filas += '<w:tr>' + fila.map(v=> '<w:tc>' + pars(v, true) + '</w:tc>').join('') + '</w:tr>';
+    j += ncol + 1;
+  }
+  return '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + pars(antes) + '<w:tbl>' + filas + '</w:tbl>' + pars(c.slice(j).join('\r')) + '</w:body></w:document>';
+}
+async function leerDocx(archivo){
+  const buf = await archivo.arrayBuffer(), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  if(u8.length > 8 && dv.getUint32(0, true) === 0xE011CFD0 && dv.getUint32(4, true) === 0xE11AB1A1) return docBinAXml(u8); // .doc antiguo
+  if(dv.getUint32(0, true) !== 0x04034b50) throw new Error(/\.pdf$/i.test(archivo.name) ? 'Es un PDF: abre el plan en Word y guárdalo como .docx (o .doc).' : 'El archivo no es un documento de Word (.docx o .doc).');
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--){ if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error('El Word está dañado o incompleto.');
+  let p = dv.getUint32(eocd + 16, true);
+  for(let n = 0, total = dv.getUint16(eocd + 10, true); n < total; n++){
+    const metodo = dv.getUint16(p + 10, true), comp = dv.getUint32(p + 20, true), lnom = dv.getUint16(p + 28, true);
+    const local = dv.getUint32(p + 42, true), nombre = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + lnom));
+    p += 46 + lnom + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+    if(nombre !== 'word/document.xml') continue;
+    const ini = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true), datos = u8.slice(ini, ini + comp);
+    if(metodo === 0) return new TextDecoder().decode(datos);
+    if(typeof DecompressionStream === 'undefined') throw new Error('Este navegador es muy antiguo para leer Word. Actualízalo (Chrome o Edge).');
+    return await new Response(new Blob([datos]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+  }
+  throw new Error('No encontré el contenido del documento dentro del Word.');
+}
+const aISO = s => { const m = String(s||'').match(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4})/); return m ? m[3] + '-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0') : ''; };
+function ponerCampo(id, valor){
+  const el = document.getElementById(id); if(!el || !valor) return;
+  el.value = valor; el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true }));
+}
+// Datos del niño/a: de la base de pacientes (por la historia clínica = documento); si no está, los del Word.
+function datosNino(o){
+  const B = window.CISADDE_BASE, id = String(o.hc||'').replace(/[^0-9A-Za-z]/g,'').toUpperCase();
+  const actual = String(state.numeroId||'').replace(/[^0-9A-Za-z]/g,'').toUpperCase();
+  if(actual && id && actual !== id && !confirmar('En la Portada está ' + (state.childName || 'otro niño/a') + ' (' + state.numeroId + ').\nEl plan es de ' + (o.nombre || id) + ' (' + id + ').\n\n¿Cambiar los datos de la Portada por los de este plan?')) return 'Se dejaron los datos que ya estaban en la Portada.';
+  const p = B && id ? B.porDocumento(id) : null;
+  if(p){ B.llenar(p); return 'Datos de ' + (p.nombre || id) + ' tomados de la base de pacientes (edad, EPS y diagnóstico al día).'; }
+  if(!id && !o.nombre) return 'El Word no trae nombre ni historia clínica: escríbelos en la Portada.';
+  ponerCampo('childName', o.nombre); ponerCampo('numeroId', id);
+  ponerCampo('cie10Code', String(o.cie||'').toUpperCase().replace(/^([A-Z]\d{2})(\d)$/, '$1.$2'));
+  ponerCampo('cie10Diag', o.diag); ponerCampo('fechaIngreso', aISO(o.ingreso));
+  return (B && B.lista() ? '⚠ ' + (o.nombre || id) + ' no está en la base de pacientes' : '⚠ No hay base de pacientes cargada') + ': se usaron los datos del Word. Completa la fecha de nacimiento en la Portada para que salga la edad.';
+}
+function aplicarImportado(){
+  const p = state.plan, imp = p.importado;
+  Object.assign(p, renovar(imp.o, imp.variante || 0));
+  const sug = sugerido(); p.base = sug ? firma(sug) : 'importado';
+}
+const inputPlan = document.createElement('input');
+inputPlan.type = 'file'; inputPlan.hidden = true;
+// .docx y .doc (con su tipo, para que el celular y Windows los muestren en Descargas)
+inputPlan.accept = '.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword';
+sec.appendChild(inputPlan);
+// El selector se abre directo con el clic: dentro de Claude una ventana previa puede impedir que se abra.
+document.getElementById('planCargarBtn').addEventListener('click', ()=>{ inputPlan.value = ''; inputPlan.click(); });
+function errorPlan(m){ document.getElementById('planAviso').textContent = '⚠ ' + m; try{ alert(m); }catch(e){} }
+inputPlan.addEventListener('change', async ()=>{
+  const f = inputPlan.files[0]; if(!f) return;
+  try{
+    if((state.plan.objGeneral || state.plan.objEspecificos) && !confirmar('Se reemplazarán los hallazgos, objetivos e indicadores que hay ahora en el plan por los de "' + f.name + '", parafraseados.\n¿Continuar?')) return;
+    document.getElementById('planAviso').textContent = '⏳ Leyendo "' + f.name + '"…';
+    const o = leerPlanXml(await leerDocx(f));
+    if(!o.general && !o.especificos.length) throw new Error('No encontré objetivos (GENERAL / ESPECÍFICOS) en la tabla del plan.');
+    const areaW = sinTilde(o.area).replace(/[^a-z ]/g,'').trim(), areaF = sinTilde(AREAS[FORM_ID] || '');
+    if(areaW && areaF && !areaF.startsWith(areaW.slice(0, 6)) && !areaW.startsWith(areaF.slice(0, 6))
+      && !confirmar('El plan es del área "' + o.area + '" y estás en el formato de ' + AREAS[FORM_ID] + '.\n¿Cargarlo igual?')) return;
+    const msg = datosNino(o);
+    const p = state.plan;
+    p.importado = { archivo: f.name, fecha: hoyISO(), variante: 0, o };
+    p.hc = ''; p.inicio = hoyISO(); p.fin = ''; p.socializacion = '';
+    aplicarImportado();
+    render(); queueSave();
+    const aviso = document.getElementById('planAviso');
+    aviso.textContent = '📂 Plan "' + f.name + '" cargado y parafraseado (' + o.especificos.length + ' objetivos específicos'
+      + (o.indicadores.length < o.especificos.length ? '; los indicadores que faltaban se redactaron desde los objetivos' : '') + '). ' + msg + ' Revisa los textos antes de descargar; "🔀 Otra redacción" cambia las palabras.';
+    // Dentro de Claude: la IA parafrasea y enriquece el plan cargado sin tener que pulsar otro botón.
+    if(sampleIA){
+      const base = aviso.textContent;
+      aviso.textContent = '⏳ ' + base + ' ✨ La IA lo está parafraseando y enriqueciendo…';
+      const ok = await redactarIA(false);
+      aviso.textContent = ok ? '📂✨ Plan "' + f.name + '" cargado, parafraseado y enriquecido con IA. ' + msg + ' Revisa los textos antes de descargar.'
+        : base + ' (La IA no pudo enriquecerlo: quedó la redacción automática; puedes intentar con "✨ Parafrasear y enriquecer con IA".)';
+    }
+  }catch(e){ errorPlan('No se pudo leer el plan "' + f.name + '": ' + (e && e.message || e)); }
+});
+document.getElementById('planOtraBtn').addEventListener('click', ()=>{
+  const p = state.plan; if(!p.importado) return;
+  if(firma(p) !== firma(renovar(p.importado.o, p.importado.variante || 0)) && !confirmar('Se reemplazan los cambios que escribiste a mano en hallazgos, objetivos e indicadores.\n¿Cambiar la redacción?')) return;
+  p.importado.variante = (p.importado.variante || 0) + 1;
+  aplicarImportado(); render(); queueSave();
+});
+
+/* ---------- Mejorar la redacción con IA ---------- */
+// Dentro de Claude (enlace claude.ai con permiso "sample") redacta sola; en cualquier otra página
+// se copia el texto, se pega en una IA gratuita y la respuesta se pega de vuelta.
+// Al texto NO va el nombre ni el documento del niño/a.
+// Texto que se le pasa a la IA: si el plan se cargó de un Word y no se ha editado a mano, va el
+// ORIGINAL del Word (no la versión parafraseada sin internet), para que la IA parta del texto real.
+function fuenteIA(){
+  const p = state.plan, imp = p.importado;
+  if(imp && imp.o && firma(p) === firma(renovar(imp.o, imp.variante || 0)))
+    return { hallazgos: imp.o.hallazgos.join('\n'), objGeneral: imp.o.general, objEspecificos: imp.o.especificos.join('\n'), indicadores: imp.o.indicadores.join('\n'), anterior: true };
+  return { hallazgos: p.hallazgos, objGeneral: p.objGeneral, objEspecificos: p.objEspecificos, indicadores: p.indicadores, anterior: !!imp };
+}
+function promptIA(){
+  const p = fuenteIA(), d = datos(), area = d.area || 'terapia';
+  const lista = (txt, num) => lineas(txt).map((l, i)=> (num ? (i+1) + '. ' : '- ') + l.replace(/^[•\-*]\s*|^\d+[.)]\s*/, '')).join('\n') || '(vacío)';
+  return 'Eres profesional de ' + area + ' en un centro de rehabilitación infantil en Colombia. Parafrasea y ENRIQUECE este plan terapéutico (formato institucional R-AMI-055) '
+    + 'de un niño/a' + (d.edad ? ' de ' + d.edad : '') + (d.diag ? ' con diagnóstico ' + d.diag : '') + '. '
+    + (p.anterior ? 'Es el plan del periodo anterior y se renueva para un nuevo periodo: ' : '')
+    + 'conserva el mismo sentido clínico, pero con otras palabras (no copies las frases tal cual), en lenguaje técnico, claro y más completo que el original.\n\n'
+    + 'CÓMO ENRIQUECERLO:\n'
+    + '- Hallazgos: desarrolla cada uno explicando cómo se observa en sesión y qué impacto funcional tiene en el hogar, el colegio o el juego; incluye SOLO las debilidades (lo que el niño/a aún no logra), bajo el subtítulo Debilidades; no escribas fortalezas. '
+    + 'Puedes precisar y detallar lo que ya dice el plan, pero no inventes resultados de pruebas, diagnósticos ni dificultades que no se mencionen.\n'
+    + '- Objetivo general: sale solo de las debilidades; más preciso, nombrando las habilidades que trabajan los específicos.\n'
+    + '- Objetivos específicos: completa los que estén cortos con la habilidad concreta, el contexto (actividades estructuradas, juego, rutinas, aula, hogar) y el propósito funcional. '
+    + 'Si hay una debilidad de los hallazgos sin objetivo, agrega uno (máximo ' + MAX_OBJETIVOS + ' en total).\n'
+    + '- Indicadores: hazlos más observables y verificables, con criterio claro (nivel de apoyo, número de pasos o repeticiones, tiempo en minutos, contexto).\n\n'
+    + 'REGLAS DE LA INSTITUCIÓN:\n'
+    + '- Hallazgos: descripción objetiva solo de las debilidades observadas (lo que aún no logra); sin fortalezas.\n'
+    + '- Objetivo general: verbo + función o habilidad principal + propósito funcional; amplio y sin contexto.\n'
+    + '- Objetivos específicos: mínimo ' + MIN_OBJETIVOS + ' y máximo ' + MAX_OBJETIVOS + '; verbo + habilidad específica + contexto + propósito funcional; cada uno desarrolla el objetivo general.\n'
+    + '- Inicia cada objetivo con uno de estos verbos: Fortalecer, Favorecer, Promover, Desarrollar, Potenciar, Optimizar, Facilitar, Preservar. Evita: Trabajar, Hacer, Realizar, Ejecutar, Ayudar, Mantener.\n'
+    + '- No pongas técnicas ni estrategias en los objetivos (economía de fichas, modelado, "mediante estrategias…").\n'
+    + '- Un indicador de logro por cada objetivo específico, en el mismo orden: conducta observable + contexto + criterio, en forma afirmativa y en presente (ej.: "Sigue instrucciones de dos pasos con máximo una repetición de la instrucción."). Sin porcentajes, sin "no" ni "sin", sin futuro ("mantendrá").\n\n'
+    + 'PLAN ACTUAL:\nHALLAZGOS:\n' + lista(p.hallazgos) + '\n\nOBJETIVO GENERAL:\n' + (p.objGeneral || '(vacío)')
+    + '\n\nOBJETIVOS ESPECÍFICOS:\n' + lista(p.objEspecificos, 1) + '\n\nINDICADORES DE LOGRO:\n' + lista(p.indicadores, 1) + '\n\n'
+    + 'Responde SOLO con el plan, sin saludos ni explicaciones, exactamente con estos títulos:\n'
+    + 'HALLAZGOS:\n- …\nOBJETIVO GENERAL:\n…\nOBJETIVOS ESPECÍFICOS:\n1. …\nINDICADORES DE LOGRO:\n1. …';
+}
+function leerRespuestaIA(txt){
+  const partes = { h:[], g:[], e:[], i:[] };
+  let k = '';
+  String(txt||'').replace(/\*\*|__/g,'').split('\n').forEach(l=>{
+    l = l.replace(/^#+\s*/, '').trim(); if(!l) return;
+    const m = sinTilde(l).match(/^(hallazgos|objetivo general|objetivos especificos|indicadores(?: de logro)?)\s*:?\s*/);
+    if(m){ k = { hallazgos:'h', 'objetivo general':'g', 'objetivos especificos':'e' }[m[1]] || 'i'; l = l.slice(m[0].length).trim(); if(!l) return; }
+    if(k) partes[k].push(l);
+  });
+  const limpio = l => l.replace(VINETA, '').trim();
+  if(!partes.g.length && !partes.e.length) return null;
+  return {
+    hallazgos: partes.h.map(l=> /:$/.test(l) ? l : '• ' + limpio(l)).join('\n'),
+    objGeneral: partes.g.map(limpio).join(' '),
+    objEspecificos: partes.e.map(limpio).filter(Boolean).join('\n'),
+    indicadores: partes.i.map(limpio).filter(Boolean).join('\n')
+  };
+}
+function estadoIA(msg, error){
+  const n = document.getElementById('planIaEstado');
+  n.style.display = msg ? 'block' : 'none'; n.textContent = msg || ''; n.style.color = error ? 'var(--red)' : '';
+}
+function aplicarIA(txt, preguntar){
+  const r = leerRespuestaIA(txt);
+  if(!r){ estadoIA('No encontré los títulos OBJETIVO GENERAL / OBJETIVOS ESPECÍFICOS en la respuesta. Pega la respuesta completa de la IA.', true); return false; }
+  if(preguntar && !confirmar('Se reemplazarán los hallazgos, objetivos e indicadores del plan por los de la IA.\n¿Continuar?')) return false;
+  const p = state.plan;
+  if(!r.hallazgos) delete r.hallazgos; // si la IA no los devolvió, se dejan los que había
+  Object.assign(p, r);
+  const sug = sugerido(); p.base = sug ? firma(sug) : (p.base || 'ia'); // que la valoración no lo sobrescriba
+  render(); queueSave();
+  estadoIA('✅ Redacción de la IA aplicada. Revísala y la lista de verificación antes de descargar.');
+  return true;
+}
+document.getElementById('planIaCopiar').addEventListener('click', async ()=>{
+  const t = promptIA();
+  try{ await Promise.race([navigator.clipboard.writeText(t), new Promise((ok, mal)=> setTimeout(()=> mal(new Error('tiempo')), 1500))]); estadoIA('📋 Copiado. Pégalo en ChatGPT, Gemini o Claude; luego copia su respuesta y pégala en el recuadro de abajo.'); }
+  catch(e){ const r = document.getElementById('planIaResp'); r.value = t; r.select(); estadoIA('No se pudo copiar solo: el texto quedó en el recuadro, cópialo con Ctrl+C y luego reemplázalo por la respuesta de la IA.', true); }
+});
+document.getElementById('planIaAplicar').addEventListener('click', ()=> aplicarIA(document.getElementById('planIaResp').value, true));
+let sampleIA = null;
+if(window.claude && typeof window.claude.use === 'function'){
+  window.claude.use('sample').then(s=>{
+    if(!s) return;
+    sampleIA = s;
+    document.getElementById('planIaBtn').hidden = false;
+    document.getElementById('planIaModo').textContent = 'Al cargar un plan anterior la IA lo parafrasea y enriquece sola; también puedes usar "✨ Parafrasear y enriquecer con IA" cuando quieras.';
+  }).catch(()=>{});
+}
+// Parafrasea y enriquece con la IA de Claude. preguntar=false cuando viene de "Cargar plan anterior".
+async function redactarIA(preguntar){
+  const btn = document.getElementById('planIaBtn'), resp = document.getElementById('planIaResp');
+  if(!sampleIA || btn.disabled) return false;
+  if(!state.plan.objGeneral && !state.plan.objEspecificos){ estadoIA('Primero carga un plan anterior o genera el plan desde la valoración.', true); return false; }
+  if(preguntar && !confirmar('La IA parafraseará y enriquecerá los hallazgos, objetivos e indicadores del plan.\n¿Continuar?')) return false;
+  btn.disabled = true; const txt0 = btn.textContent; btn.textContent = '⏳ Redactando…'; estadoIA('✨ La IA está parafraseando y enriqueciendo el plan…');
+  let ok = false;
+  try{
+    const r = await sampleIA(promptIA(), { modelTier:'default', onText: ({ text })=>{ resp.value = text; } });
+    resp.value = r.text; ok = aplicarIA(r.text, false);
+  }catch(e){
+    if(e && e.text) resp.value = e.text;
+    estadoIA(e && e.code === 'not_granted' ? 'No se dio el permiso para usar la IA. Puedes usar "📋 Copiar para la IA".'
+      : e && e.code === 'rate_limited' ? 'Demasiadas solicitudes seguidas: espera un momento e intenta de nuevo.' : 'La IA no respondió. Intenta de nuevo o usa "📋 Copiar para la IA".', true);
+    if(e && e.code === 'not_granted') btn.hidden = true;
+  }finally{ btn.disabled = false; btn.textContent = txt0; }
+  return ok;
+}
+document.getElementById('planIaBtn').addEventListener('click', ()=> redactarIA(true));
 
 /* ---------- Word (.docx) ---------- */
 const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
@@ -2854,7 +3373,11 @@ function zip(archivos){
 }
 
 async function descargarWord(){
-  const d = datos(), p = state.plan;
+  const d = datos();
+  await guardarArchivo(await crearWordPlan(d, state.plan), [CODIGO, 'Plan_Terapeutico', slug(d.area), slug(d.nombre) || 'sin_nombre', state.evalDate || new Date().toISOString().slice(0,10)].join('_') + '.docx');
+}
+// Arma el .docx del plan con los datos d (encabezado y profesional) y el plan p (hallazgos, objetivos…).
+async function crearWordPlan(d, p){
   const logo = await aPng(typeof LOGO_SRC !== 'undefined' ? LOGO_SRC : '', 1000000, 560000);
   const sello = await aPng(d.sello, 1150000, 750000);
   const gris = (t, o) => run(t, Object.assign({ b:1, color:GRIS }, o||{}));
@@ -2926,18 +3449,42 @@ async function descargarWord(){
   if(logo) archivos.push({ name:'word/media/logo.png', data:logo.data });
   if(sello) archivos.push({ name:'word/media/sello.png', data:sello.data });
 
+  return zip(archivos);
+}
+// Dentro de Claude (enlace claude.ai) la descarga pasa por el permiso "downloads"; en el navegador normal, enlace directo.
+async function guardarArchivo(blob, nombre){
+  try{
+    const dl = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('downloads') : null;
+    if(dl){ await dl.save({ filename: nombre, data: blob }); return; }
+  }catch(e){ if(e && (e.code === 'declined' || e.code === 'rate_limited')) return; }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(zip(archivos));
-  a.download = [CODIGO, 'Plan_Terapeutico', slug(d.area), slug(d.nombre) || 'sin_nombre', state.evalDate || new Date().toISOString().slice(0,10)].join('_') + '.docx';
+  a.href = URL.createObjectURL(blob); a.download = nombre;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
 }
 document.getElementById('planWordBtn').addEventListener('click', ()=>{
   render();
-  if(!state.childName && !confirm('Falta el nombre del niño/a en la Portada. ¿Descargar el plan de todas formas?')) return;
-  if(verificar() && !confirm('La lista de verificación tiene puntos por revisar (⚠️). ¿Descargar el plan de todas formas?')) return;
+  if(!state.childName && !confirmar('Falta el nombre del niño/a en la Portada. ¿Descargar el plan de todas formas?')) return;
+  if(verificar() && !confirmar('La lista de verificación tiene puntos por revisar (⚠️). ¿Descargar el plan de todas formas?')) return;
   descargarWord().catch(err=> alert('No se pudo crear el archivo de Word: ' + err.message));
 });
+
+/* ---------- Para "Tus pacientes": renovar varios planes a la vez ---------- */
+window.CISADDE_PLAN = {
+  // Lee un plan anterior (.doc o .docx); error si no trae objetivos.
+  leer: async f => { const o = leerPlanXml(await leerDocx(f)); if(!o.general && !o.especificos.length) throw new Error('no encontré objetivos (GENERAL / ESPECÍFICOS) en la tabla del plan'); return o; },
+  // ¿El plan es del área de este formato? (si el Word no dice el área, sí)
+  mismaArea: o => { const w = sinTilde(o.area).replace(/[^a-z ]/g,'').trim(), f = sinTilde(AREAS[FORM_ID] || ''); return !w || !f || f.startsWith(w.slice(0, 6)) || w.startsWith(f.slice(0, 6)); },
+  // Plan renovado listo para guardar en state.plan
+  plan: (o, archivo) => Object.assign(vacio(), renovar(o, 0), { inicio: hoyISO(), aprobo: (state.plan && state.plan.aprobo) || APROBO_DEFECTO,
+    base: 'importado', importado: { archivo, fecha: hoyISO(), variante: 0, o } }),
+  // Datos del encabezado del Word que no dependen del niño/a: área, periodo, profesional y sello del formato
+  comunes: () => { const d = datos(); return { area: d.areaAuto, periodo: fmtDate(hoyISO()) + ' al ' + fmtDate(cierres(hoyISO())[0]), profesional: d.profesional, tarjeta: d.tarjeta, sello: d.sello, socializacion: '', aprobo: d.aprobo || APROBO_DEFECTO }; },
+  word: (d, p) => crearWordPlan(d, p),
+  zip: archivos => zip(archivos),
+  guardar: (blob, nombre) => guardarArchivo(blob, nombre),
+  codigo: CODIGO
+};
 })();
 </script>
 <!-- PLAN TERAPEUTICO:FIN -->
@@ -3155,7 +3702,7 @@ async function leerXlsx(buf){
 /* ---------- Lectura del .csv ---------- */
 function leerCsv(buf){
   let txt = new TextDecoder('utf-8').decode(buf);
-  if(txt.includes('�')) txt = new TextDecoder('windows-1252').decode(buf);
+  if(txt.includes('\uFFFD')) txt = new TextDecoder('windows-1252').decode(buf);
   txt = txt.replace(/^﻿/, '');
   const primera = txt.split(/\r?\n/)[0] || '';
   const sep = [';', ',', '\t', '|'].map(s => [s, primera.split(s).length]).sort((a,b) => b[1] - a[1])[0][0];
@@ -3663,6 +4210,18 @@ function conectar(input, porId){
 }
 conectar(campoNombre, false);
 conectar(campoId, true);
+// Para otros bloques (ej. "Cargar plan anterior" del Plan terapéutico): buscar por documento exacto y llenar la Portada.
+window.CISADDE_BASE = {
+  lista: () => indice.length > 0,
+  porDocumento: id => { const q = normId(id); const x = q && indice.find(x => x.id === q); return x ? x.p : null; },
+  llenar: p => llenar(p),
+  // para "Tus pacientes": buscar por nombre, leer otro Excel y detectar sus encabezados
+  buscar: (texto, porId) => buscar(texto, porId),
+  leerArchivo: async f => /\.csv$/i.test(f.name) ? leerCsv(await f.arrayBuffer()) : await leerXlsx(await f.arrayBuffer()),
+  detectar: filas => detectar(filas),
+  normId: s => normId(s), norm: s => norm(s), aISO: v => aISO(v), separarDx: (c, d) => separarDx(c, d),
+  listo: null // promesa: se cumple cuando la base guardada ya se leyó
+};
 
 /* ---------- Fecha de ingreso (campo de la Portada) ---------- */
 const campoIngreso = document.getElementById('fechaIngreso');
@@ -3671,8 +4230,11 @@ if(campoIngreso && typeof state !== 'undefined'){
   campoIngreso.addEventListener('change', e=>{ state.fechaIngreso = e.target.value; });
 }
 
-leerBase().then(async b=>{
+window.CISADDE_BASE.listo = leerBase().then(b=>{
   if(b && Array.isArray(b.filas)){ base = b; prepararIndice(); pintarEstado(); }
+  return b;
+});
+window.CISADDE_BASE.listo.then(async ()=>{
   // carpeta conectada: revisar si el Excel cambió (también al volver a esta pestaña)
   if(!HAY_CARPETAS) return;
   const revisar = async ()=>{ const c = await leerClave(CARPETA_KEY); if(c) desdeCarpeta(c); };
@@ -4347,11 +4909,20 @@ btn.addEventListener('click', async () => {
     const titulo = (hoja.querySelector('h2') || {}).textContent || 'Informe';
     const nombre = (typeof state !== 'undefined' && state.childName) || '';
     const fecha = (typeof state !== 'undefined' && state.evalDate) || new Date().toISOString().slice(0, 10);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = [slug(titulo), slug(nombre) || 'sin_nombre', fecha].join('_') + '.docx';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    const archivo = [slug(titulo), slug(nombre) || 'sin_nombre', fecha].join('_') + '.docx';
+    // Dentro de Claude (enlace claude.ai) la descarga pasa por el permiso "downloads".
+    let hecho = false;
+    try{
+      const dl = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('downloads') : null;
+      if(dl){ hecho = true; await dl.save({ filename: archivo, data: blob }); }
+    }catch(e){ if(!(e && (e.code === 'declined' || e.code === 'rate_limited'))) hecho = false; }
+    if(!hecho){
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = archivo;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    }
   }catch(err){
     alert('No se pudo crear el archivo de Word: ' + (err && err.message || err));
   }finally{
@@ -4362,5 +4933,415 @@ window.CISADDE_INFORME_DOCX = crearDocx; // para pruebas
 })();
 </script>
 <!-- INFORME WORD:FIN -->
+<!-- MIS PACIENTES:INICIO -->
+<script>
+/* =====================================================================
+   TUS PACIENTES
+   Vista "Tus pacientes" (debajo de Plan terapéutico). Se carga un Excel con
+   los pacientes del terapeuta (basta el documento o el nombre); cada uno se
+   cruza con la base de pacientes para traer todos sus datos. La lista sale
+   numerada; al abrir un paciente se llenan la Portada y el Plan terapéutico,
+   y lo trabajado con cada niño/a queda guardado aparte (su "expediente"),
+   así se puede pasar de uno a otro sin perder nada. "✅ Realizado" lleva el
+   control de los planes terminados.
+   Todo queda solo en este navegador (localStorage), separado por formato.
+   Fuente: herramientas/mis-pacientes.js → node herramientas/insertar-mis-pacientes.js
+   ===================================================================== */
+(function(){
+// Dentro de Claude las ventanas de confirmación pueden estar bloqueadas (responden "no" al instante,
+// sin mostrarse): si la respuesta llega en menos de 40 ms nadie la vio, y se toma como "sí".
+function confirmar(m){ const t = Date.now(); let r = false; try{ r = window.confirm(m); }catch(e){ return true; } return r || Date.now() - t < 40; }
+if(typeof state === 'undefined' || typeof FORM_ID === 'undefined' || typeof DRAFT_KEY === 'undefined') return;
+const KEY_LISTA = 'cisadde.mispacientes.' + FORM_ID;
+const PRE_EXP = 'cisadde.expediente.' + FORM_ID + '.';
+const KEY_IR = 'cisadde.irA.' + FORM_ID;
+const B = () => window.CISADDE_BASE || null;
+const normId = s => String(s == null ? '' : s).replace(/\.0+$/, '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const hoyISO = () => { const t = new Date(); return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); };
+const fmt = iso => iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : '';
+const ESTADOS = { pendiente:['Pendiente', 'gray'], proceso:['En proceso', 'amber'], realizado:['Realizado', 'green'] };
+
+/* ---------- Guardado ---------- */
+let lista = leerLista(); // { archivo, cargado, filas:[{ id, nombre, b, extra, estado, fecha, varios }] }
+function leerLista(){ try{ const l = JSON.parse(localStorage.getItem(KEY_LISTA) || 'null'); return l && Array.isArray(l.filas) ? l : null; }catch(e){ return null; } }
+function guardarLista(){ try{ localStorage.setItem(KEY_LISTA, JSON.stringify(lista)); }catch(e){ alert('No se pudo guardar la lista en este navegador (sin espacio).'); } }
+const claveDe = (id, nombre) => id ? id : 'n_' + norm(nombre).replace(/ /g, '_');
+function claveActual(){ return claveDe(normId(state.numeroId), state.childName); }
+function filaActual(){
+  if(!lista) return null;
+  const id = normId(state.numeroId), n = norm(state.childName);
+  return lista.filas.find(f => (id && f.id === id) || (!id && n && norm(f.nombre) === n)) || null;
+}
+
+/* ---------- Leer el Excel del terapeuta ---------- */
+async function leerExcel(archivo){
+  const base = B();
+  if(!base || !base.leerArchivo) throw new Error('El lector de Excel no está disponible en esta página.');
+  if(/\.xls$/i.test(archivo.name)) throw new Error('Es un Excel antiguo (.xls). Ábrelo en Excel y usa "Guardar como" → Libro de Excel (.xlsx).');
+  const hojas = await base.leerArchivo(archivo);
+  // la hoja con más columnas reconocidas (y, si empatan, más filas)
+  let mejor = null;
+  hojas.forEach(h => { const d = base.detectar(h.filas); const p = d.puntos * 100000 + h.filas.length; if(!mejor || p > mejor.p) mejor = { h, d, p }; });
+  const { h, d } = mejor, m = Object.assign({}, d.mapa);
+  let desde = d.fila + 1, enc = h.filas[d.fila] || [];
+  if(!('id' in m) && !('n1' in m)){
+    // Sin encabezados reconocibles: documento = columna de números largos; nombre = columna con más letras
+    desde = 0; enc = [];
+    const datos = h.filas.slice(0, 200), nCols = Math.max(0, ...datos.map(f => f.length));
+    let idC = -1, idMax = .5, nC = -1, nMax = 0;
+    for(let c = 0; c < nCols; c++){
+      const vals = datos.map(f => String(f[c] == null ? '' : f[c]).trim()).filter(Boolean);
+      if(!vals.length) continue;
+      const nums = vals.filter(v => /^\d{6,12}$/.test(normId(v))).length / vals.length;
+      const letras = vals.filter(v => /[a-záéíóúñ]{3,}\s+[a-záéíóúñ]{3,}/i.test(v)).length / vals.length;
+      if(nums > idMax){ idMax = nums; idC = c; }
+      if(letras > nMax){ nMax = letras; nC = c; }
+    }
+    if(idC >= 0) m.id = idC;
+    if(nC >= 0) m.n1 = nC;
+    if(!('id' in m) && !('n1' in m)) throw new Error('No encontré en el Excel una columna de documento ni de nombre.');
+  }
+  const val = (f, k) => k in m ? String(f[m[k]] == null ? '' : f[m[k]]).trim() : '';
+  const filas = [], vistos = {};
+  h.filas.slice(desde).forEach(f => {
+    const id = normId(val(f, 'id')), nombre = [val(f, 'n1'), val(f, 'n2'), val(f, 'a1'), val(f, 'a2')].join(' ').replace(/\s+/g, ' ').trim();
+    if(!id && !nombre) return;
+    if(!/\d/.test(id) && !/[a-záéíóúñ]/i.test(nombre)) return;
+    const k = claveDe(id, nombre); if(vistos[k]) return; vistos[k] = 1;
+    // Todas las columnas del Excel del terapeuta, con su encabezado
+    const extra = {};
+    f.forEach((v, i) => {
+      if(v === '' || v == null) return;
+      const t = String(enc[i] == null ? '' : enc[i]).trim() || ('Columna ' + (i + 1));
+      extra[t] = typeof v === 'number' && /fecha|nac|ingreso|egreso/i.test(t) && base.aISO ? fmt(base.aISO(v)) || String(v) : String(v);
+    });
+    filas.push({ id, nombre, extra, estado:'pendiente', fecha:'' });
+  });
+  if(!filas.length) throw new Error('No encontré pacientes en el Excel.');
+  return { hoja: h.nombre, filas };
+}
+// Cruza cada paciente con la base: por documento exacto o, si no, por nombre (una sola coincidencia).
+function cruzar(){
+  const base = B(); if(!lista || !base || !base.lista || !base.lista()) return 0;
+  let n = 0;
+  lista.filas.forEach(f => { if(cruzarFila(f)) n++; });
+  guardarLista();
+  return n;
+}
+function cruzarFila(f){
+  const base = B(); if(!base || !base.lista || !base.lista()) return false;
+  let p = f.id ? base.porDocumento(f.id) : null;
+  delete f.varios;
+  if(!p && f.nombre){
+    const r = base.buscar(f.nombre, false);
+    if(r.length === 1) p = r[0]; else if(r.length > 1) f.varios = r.length;
+  }
+  if(!p){ f.b = null; return false; }
+  f.b = { nombre: p.nombre, id: p.id, tipo: p.tipo, nac: p.nac, ing: p.ing, eps: p.eps, cie: p.cie, dx: p.dx, est: p.est };
+  if(!f.id) f.id = normId(p.id);
+  if(!f.nombre) f.nombre = p.nombre;
+  return true;
+}
+
+/* ---------- Renovar varios planes a la vez ----------
+   Se eligen varios planes anteriores (.doc o .docx). Cada uno se une con su paciente por la
+   historia clínica (o el nombre); si no está en la lista, se agrega. Se parafrasea, se completa
+   con la base de pacientes, se guarda en el expediente del niño/a y se descargan todos los Word
+   renovados juntos en un .zip (o el Word solo, si es uno). */
+const slugT = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+async function renovarLote(archivos){
+  const P = window.CISADDE_PLAN;
+  if(!P){ alert('El módulo del plan terapéutico no está disponible en esta página.'); return; }
+  const base = B(); if(base && base.listo) await base.listo;
+  if(!lista) lista = { archivo: '(planes cargados)', cargado: Date.now(), filas: [] };
+  const comunes = P.comunes(), hoy = hoyISO(), res = [], docs = [], nombres = {};
+  for(let k = 0; k < archivos.length; k++){
+    const a = archivos[k];
+    aviso('⏳ Renovando ' + (k + 1) + ' de ' + archivos.length + ': ' + a.name + '…');
+    try{
+      const o = await P.leer(a);
+      if(!P.mismaArea(o)) throw new Error('es del área "' + o.area + '", no de ' + FORM_TITLE);
+      const id = normId(o.hc);
+      let f = lista.filas.find(x => id && x.id === id) || (o.nombre && lista.filas.find(x => norm(x.nombre) === norm(o.nombre) || (x.b && norm(x.b.nombre) === norm(o.nombre))));
+      const nueva = !f;
+      if(nueva){ f = { id, nombre: o.nombre, extra: {}, estado: 'pendiente', fecha: '' }; lista.filas.push(f); }
+      cruzarFila(f);
+      const b = f.b || {};
+      const plan = P.plan(o, a.name);
+      // Encabezado del Word: datos actuales de la base (o los del Word si no está en la base)
+      const nac = b.nac && b.nac <= hoy ? b.nac : '';
+      const d = Object.assign({}, comunes, {
+        nombre: b.nombre || f.nombre || o.nombre, hc: b.id || f.id || id,
+        edad: nac && typeof monthsBetween === 'function' ? ageLabel(monthsBetween(nac, null)) : '',
+        diag: b.dx || o.diag, cie: b.cie || o.cie, ingreso: fmt(b.ing) || o.ingreso
+      });
+      // Guardar el plan en el expediente del niño/a (o en pantalla, si es el que está abierto)
+      if(filaActual() === f){ Object.assign(state.plan, plan); try{ saveDraft(); }catch(e){} }
+      else {
+        const clave = claveDe(f.id, f.nombre);
+        const exp = leerExpediente(clave) || JSON.parse(JSON.stringify(STATE_DEFAULTS));
+        delete exp.evaluator; datosNino(exp, f); exp.plan = plan;
+        if(!f.b){ // sin base: lo que trae el Word
+          if(o.cie && !exp.cie10Code) exp.cie10Code = String(o.cie).toUpperCase().replace(/^([A-Z]\d{2})(\d)$/, '$1.$2');
+          if(o.diag && !exp.cie10Diag) exp.cie10Diag = o.diag;
+          const m = String(o.ingreso || '').match(/(\d{1,2})\D+(\d{1,2})\D+(\d{4})/);
+          if(m && !exp.fechaIngreso) exp.fechaIngreso = m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+        }
+        try{ localStorage.setItem(PRE_EXP + clave, JSON.stringify({ guardado: new Date().toISOString(), state: exp })); }catch(e){}
+      }
+      if(f.estado === 'pendiente') f.estado = 'proceso';
+      f.renovado = hoy;
+      let nombre = [P.codigo, 'Plan', slugT(comunes.area), slugT(d.nombre) || 'sin_nombre'].join('_');
+      if(nombres[nombre]) nombre += '_' + (++nombres[nombre]); else nombres[nombre] = 1;
+      docs.push({ name: nombre + '.docx', data: new Uint8Array(await (await P.word(d, plan)).arrayBuffer()) });
+      res.push({ ok: true, archivo: a.name, nombre: d.nombre, nueva, enBase: !!f.b, edad: !!d.edad, nEsp: o.especificos.length });
+    }catch(e){ res.push({ ok: false, archivo: a.name, error: (e && e.message) || String(e) }); }
+  }
+  guardarLista(); pintar(); pintarBotonPlan();
+  mostrarResultado(res);
+  if(docs.length === 1) await P.guardar(new Blob([docs[0].data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), docs[0].name);
+  else if(docs.length) await P.guardar(P.zip(docs), 'Planes_renovados_' + slugT(FORM_TITLE) + '_' + hoy + '.zip');
+}
+function mostrarResultado(res){
+  const ok = res.filter(r => r.ok), mal = res.filter(r => !r.ok);
+  aviso('📑 ' + ok.length + ' de ' + res.length + ' planes renovados' + (ok.length > 1 ? ' (se descargan juntos en un .zip)' : '') + (mal.length ? '; ' + mal.length + ' con problema (ver abajo).' : '.'));
+  const caja = document.getElementById('tpLote');
+  caja.hidden = false;
+  caja.innerHTML = '<div class="card-head"><h3>📑 Resultado de la renovación</h3><button type="button" class="btn ghost" id="tpLoteCerrar" style="padding:5px 10px;font-size:12px;">Cerrar</button></div>'
+    + '<div class="tp-tabla-wrap"><table class="tp-tabla" style="min-width:560px"><thead><tr><th>Archivo</th><th>Paciente</th><th>Resultado</th></tr></thead><tbody>'
+    + res.map(r => '<tr><td>' + esc(r.archivo) + '</td><td>' + esc(r.nombre || '—') + '</td><td>'
+      + (r.ok ? '<span class="tp-badge green">✓ Renovado</span> <small>' + r.nEsp + ' objetivos específicos'
+          + (r.nueva ? ' · agregado a tu lista' : '') + (r.enBase ? '' : ' · ⚠ no está en la base: datos del Word') + (r.edad ? '' : ' · ⚠ sin fecha de nacimiento: la edad queda vacía') + '</small>'
+        : '<span class="tp-badge red">⚠ No se pudo</span> <small>' + esc(r.error) + '</small>') + '</td></tr>').join('')
+    + '</tbody></table></div><p class="tag-note" style="margin-top:10px;">Cada plan quedó guardado en el expediente de su paciente: ábrelo en la lista ("📂 Abrir") para revisarlo, cambiar la redacción o mejorarlo con IA, y márcalo como realizado.</p>';
+  document.getElementById('tpLoteCerrar').onclick = () => { caja.hidden = true; };
+}
+
+/* ---------- Abrir un paciente: guardar el expediente del actual y cargar el suyo ---------- */
+function copiaSinEvaluador(){ const s = JSON.parse(JSON.stringify(state)); delete s.evaluator; return s; }
+function guardarExpediente(){
+  if(!state.childName && !state.numeroId) return true;
+  try{ localStorage.setItem(PRE_EXP + claveActual(), JSON.stringify({ guardado: new Date().toISOString(), state: copiaSinEvaluador() })); return true; }
+  catch(e){ return confirmar('No hay espacio en este navegador para guardar aparte el trabajo de ' + (state.childName || 'este niño/a') + ' (las firmas pesan mucho).\nExpórtalo con "Exportar valoración" antes de seguir.\n\n¿Cambiar de paciente de todas formas?'); }
+}
+function leerExpediente(clave){ try{ const e = JSON.parse(localStorage.getItem(PRE_EXP + clave) || 'null'); return e && e.state ? e.state : null; }catch(e){ return null; } }
+function datosNino(s, f){
+  const b = f.b || {}, hoy = hoyISO(), hace30 = (Number(hoy.slice(0, 4)) - 30) + hoy.slice(4);
+  s.childName = b.nombre || f.nombre || s.childName || '';
+  s.numeroId = b.id || f.id || s.numeroId || '';
+  if(b.tipo) s.tipoId = b.tipo;
+  if(b.nac && b.nac <= hoy && b.nac > hace30 && (!b.ing || b.nac <= b.ing)) s.birthDate = b.nac; // fechas del Excel con errores de digitación no se usan
+  if(b.ing && b.ing <= hoy) s.fechaIngreso = b.ing;
+  if(b.eps) s.eps = b.eps;
+  if(b.cie) s.cie10Code = b.cie;
+  if(b.dx) s.cie10Diag = b.dx;
+}
+function abrir(f){
+  if(filaActual() === f){ irA('plan'); return; }
+  const actual = (state.childName || '').trim();
+  if(actual && !confirmar('Vas a pasar de ' + actual + ' a ' + (f.nombre || f.id) + '.\nLo que llevas de ' + actual + ' queda guardado en su expediente y lo recuperas al volver a abrirlo.\n\n¿Continuar?')) return;
+  if(!guardarExpediente()) return;
+  const guardado = leerExpediente(claveDe(f.id, f.nombre));
+  const nuevo = guardado || JSON.parse(JSON.stringify(STATE_DEFAULTS));
+  datosNino(nuevo, f); // los datos de la base se actualizan (EPS, diagnóstico…)
+  nuevo.evaluator = state.evaluator; // el profesional, su sello y firma siguen iguales
+  if(f.estado === 'pendiente'){ f.estado = 'proceso'; guardarLista(); }
+  try{
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ formato: FORM_ID, titulo: FORM_TITLE, version: 1, guardado: new Date().toISOString(), state: nuevo }));
+  }catch(e){ alert('No se pudo abrir el paciente: el navegador no tiene espacio. Exporta y usa "Borrar datos de este equipo".'); return; }
+  try{ lastSaved = JSON.stringify(state); clearTimeout(saveTimer); }catch(e){}
+  try{ window.removeEventListener('pagehide', saveDraft); }catch(e){}
+  try{ sessionStorage.setItem(KEY_IR, 'plan'); }catch(e){}
+  location.reload();
+}
+function irA(v){ const n = document.querySelector('.nav-item[data-view="' + v + '"]'); if(n) n.click(); }
+function marcar(f, realizado){
+  f.estado = realizado ? 'realizado' : (filaActual() === f ? 'proceso' : 'pendiente');
+  f.fecha = realizado ? hoyISO() : '';
+  if(realizado && filaActual() === f){ try{ saveDraft(); }catch(e){} guardarExpediente(); }
+  guardarLista(); pintar(); pintarBotonPlan();
+}
+
+/* ---------- Estilos ---------- */
+const css = document.createElement('style');
+css.textContent = ''
+  + '.tp-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}'
+  + '.tp-stat{background:var(--surface-alt);border:1px solid var(--border);border-radius:12px;padding:10px 12px}.tp-stat b{display:block;font-size:22px;font-family:var(--font-display)}.tp-stat span{font-size:11.5px;color:var(--text-dim);font-weight:700}'
+  + '.tp-bar{height:8px;border-radius:99px;background:var(--gray-bg,#EEF1F3);overflow:hidden;margin:4px 0 14px}.tp-bar i{display:block;height:100%;background:var(--green,#1EA672);border-radius:99px;transition:width .3s}'
+  + '.tp-filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.tp-filtros .input{max-width:280px}'
+  + '.tp-chip{padding:6px 12px;border-radius:99px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-dim);font-weight:700;font-size:12px;cursor:pointer}.tp-chip.on{background:var(--cyan-500,#17A2D6);border-color:var(--cyan-500,#17A2D6);color:#fff}'
+  + '.tp-tabla-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px}'
+  + '.tp-tabla{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px}.tp-tabla th{background:var(--navy-800,#154D77);color:#fff;text-align:left;padding:8px 10px;font-size:11px;white-space:nowrap}'
+  + '.tp-tabla td{padding:8px 10px;border-top:1px solid var(--border);vertical-align:top}.tp-tabla tr.tp-actual td{background:var(--blue-bg,#EAF1FC)}.tp-tabla tr.tp-hecho td{opacity:.78}'
+  + '.tp-tabla small{display:block;color:var(--text-faint);font-size:11px}.tp-num{font-weight:800;color:var(--text-dim);width:36px}'
+  + '.tp-acc{display:flex;gap:6px;flex-wrap:wrap}.tp-acc .btn{padding:5px 10px;font-size:12px}'
+  + '.tp-tabla details summary{cursor:pointer;color:var(--cyan-600,#0E8FC4);font-size:11.5px;margin-top:3px}.tp-tabla details div{font-size:11.5px;color:var(--text-dim);margin-top:4px;line-height:1.5}'
+  + '.tp-badge{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:99px;white-space:nowrap}'
+  + '.tp-badge.gray{background:var(--gray-bg,#EEF1F3);color:var(--text-dim)}.tp-badge.amber{background:var(--amber-bg,#FDF3DF);color:var(--amber,#E8A317)}.tp-badge.green{background:var(--green-bg,#E5F7EF);color:var(--green,#1EA672)}.tp-badge.red{background:var(--red-bg,#FCEAE9);color:var(--red,#E4544B)}'
+  + '.tp-vacio{padding:30px 16px;text-align:center;color:var(--text-dim);font-size:13.5px;line-height:1.6}'
+  + '@media (max-width:640px){.tp-stats{grid-template-columns:1fr 1fr}}'
+  + '@media print{#view-pacientes .no-print{display:none!important}}';
+document.head.appendChild(css);
+
+/* ---------- Vista ---------- */
+const nav = document.createElement('a');
+nav.className = 'nav-item'; nav.dataset.view = 'pacientes';
+nav.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.7.8 2.8 2.6 3 5.2"/></svg> Tus pacientes <span class="nav-badge" id="tpNavBadge" hidden></span>';
+const despuesDe = document.querySelector('.nav-item[data-view="plan"]') || document.querySelector('.nav-item[data-view="informe"]');
+if(!despuesDe) return;
+despuesDe.after(nav);
+views.push('pacientes');
+titles.pacientes = ['Tus pacientes', '· Lista para llevar el control de los planes'];
+
+const sec = document.createElement('section');
+sec.className = 'view'; sec.id = 'view-pacientes'; sec.hidden = true;
+sec.innerHTML = '<div class="page-head"><div><h2>Tus pacientes</h2><p>Carga tu lista en Excel: cada paciente se completa con la base de pacientes. Ábrelo para trabajar su valoración y su plan, y márcalo como realizado.</p></div>'
+  + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="tpCruzarBtn">🔄 Cruzar con la base</button><button class="btn ghost" type="button" id="tpQuitarBtn">🗑️ Quitar lista</button>'
+  + '<button class="btn dark" type="button" id="tpLoteBtn" title="Elige varios planes anteriores (.doc o .docx): se renuevan todos y se descargan juntos">📑 Renovar varios planes (Word)</button>'
+  + '<button class="btn primary" type="button" id="tpCargarBtn">📂 Cargar mi lista (Excel)</button></div></div>'
+  + '<p class="tag-note" id="tpAviso" style="margin-bottom:14px;"></p>'
+  + '<div class="card no-print" id="tpLote" hidden></div>'
+  + '<div class="card" id="tpCard"></div>';
+document.getElementById(despuesDe.dataset.view === 'plan' ? 'view-plan' : 'view-informe').after(sec);
+const inputLista = document.createElement('input');
+inputLista.type = 'file'; inputLista.accept = '.xlsx,.xlsm,.csv'; inputLista.hidden = true;
+sec.appendChild(inputLista);
+
+let filtro = 'todos', busqueda = '';
+function aviso(t){ document.getElementById('tpAviso').textContent = t || ''; document.getElementById('tpAviso').style.display = t ? '' : 'none'; }
+function edadDe(f){ const nac = f.b && f.b.nac; if(!nac || typeof monthsBetween !== 'function') return ''; const m = monthsBetween(nac, null); return m == null ? '' : (typeof ageLabel === 'function' ? ageLabel(m) : Math.floor(m / 12) + ' años'); }
+function pintarNav(){
+  const b = document.getElementById('tpNavBadge');
+  if(!lista || !lista.filas.length){ b.hidden = true; return; }
+  b.hidden = false; b.textContent = lista.filas.filter(f => f.estado === 'realizado').length + '/' + lista.filas.length;
+}
+function pintar(){
+  pintarNav();
+  const card = document.getElementById('tpCard');
+  document.getElementById('tpCruzarBtn').hidden = document.getElementById('tpQuitarBtn').hidden = !lista;
+  if(!lista || !lista.filas.length){
+    card.innerHTML = '<div class="tp-vacio">📋 Aún no has cargado tu lista.<br>Pulsa <b>"📂 Cargar mi lista (Excel)"</b> y elige un Excel (.xlsx) o CSV con tus pacientes.<br>Basta una columna con el <b>documento</b> o el <b>nombre</b>; lo demás se trae de la base de pacientes.</div>';
+    return;
+  }
+  const total = lista.filas.length, hechos = lista.filas.filter(f => f.estado === 'realizado').length;
+  const proceso = lista.filas.filter(f => f.estado === 'proceso').length, actual = filaActual();
+  const q = norm(busqueda), qid = normId(busqueda);
+  const ver = lista.filas.map((f, i) => [f, i]).filter(([f]) => (filtro === 'todos' || f.estado === filtro)
+    && (!q || norm(f.nombre + ' ' + ((f.b && f.b.nombre) || '')).includes(q) || (qid && f.id.includes(qid))));
+  card.innerHTML = '<div class="tp-stats"><div class="tp-stat"><b>' + total + '</b><span>PACIENTES</span></div><div class="tp-stat"><b style="color:var(--green)">' + hechos + '</b><span>REALIZADOS</span></div>'
+    + '<div class="tp-stat"><b style="color:var(--amber)">' + proceso + '</b><span>EN PROCESO</span></div><div class="tp-stat"><b>' + (total - hechos - proceso) + '</b><span>PENDIENTES</span></div></div>'
+    + '<div class="tp-bar" title="' + Math.round(hechos / total * 100) + ' % realizado"><i style="width:' + (hechos / total * 100) + '%"></i></div>'
+    + '<div class="tp-filtros no-print">' + [['todos', 'Todos'], ['pendiente', 'Pendientes'], ['proceso', 'En proceso'], ['realizado', 'Realizados']].map(([k, t]) => '<button type="button" class="tp-chip' + (filtro === k ? ' on' : '') + '" data-f="' + k + '">' + t + '</button>').join('')
+    + '<input class="input" id="tpBuscar" placeholder="Buscar por nombre o documento…" value="' + esc(busqueda) + '"></div>'
+    + '<div class="tp-tabla-wrap"><table class="tp-tabla"><thead><tr><th>N°</th><th>Paciente</th><th>Edad</th><th>EPS</th><th>Diagnóstico</th><th>Ingreso</th><th>Estado</th><th class="no-print">Acciones</th></tr></thead><tbody>'
+    + (ver.length ? ver.map(([f, i]) => {
+        const b = f.b || {}, e = ESTADOS[f.estado] || ESTADOS.pendiente, extra = Object.entries(f.extra || {});
+        return '<tr class="' + (f === actual ? 'tp-actual' : '') + (f.estado === 'realizado' ? ' tp-hecho' : '') + '">'
+          + '<td class="tp-num">' + (i + 1) + '</td>'
+          + '<td><b>' + esc(b.nombre || f.nombre || '—') + '</b>' + (f === actual ? ' <span class="tp-badge amber">📍 Abierto</span>' : '')
+          + '<small>' + esc([(b.tipo ? b.tipo + ' ' : '') + (b.id || f.id || 'sin documento'), b.est].filter(Boolean).join(' · ')) + '</small>'
+          + (!f.b ? '<span class="tp-badge red">' + (f.varios ? '⚠ ' + f.varios + ' parecidos en la base' : '⚠ No está en la base') + '</span>' : '')
+          + (extra.length ? '<details><summary>Datos de tu Excel</summary><div>' + extra.map(([k, v]) => '<b>' + esc(k) + ':</b> ' + esc(v)).join('<br>') + '</div></details>' : '') + '</td>'
+          + '<td>' + esc(edadDe(f) || '—') + '</td><td>' + esc(b.eps || '—') + '</td>'
+          + '<td>' + esc(b.cie || '') + (b.dx ? '<small>' + esc(b.dx) + '</small>' : (b.cie ? '' : '—')) + '</td>'
+          + '<td>' + esc(fmt(b.ing) || '—') + '</td>'
+          + '<td><span class="tp-badge ' + e[1] + '">' + (f.estado === 'realizado' ? '✅ ' : '') + e[0] + '</span>' + (f.fecha ? '<small>' + fmt(f.fecha) + '</small>' : '') + (f.renovado ? '<small>📄 Plan renovado ' + fmt(f.renovado) + '</small>' : '') + '</td>'
+          + '<td class="no-print"><div class="tp-acc"><button class="btn primary" type="button" data-abrir="' + i + '">' + (f === actual ? '📋 Ir al plan' : '📂 Abrir') + '</button>'
+          + '<button class="btn ghost" type="button" data-hecho="' + i + '">' + (f.estado === 'realizado' ? '↩ Quitar realizado' : '✅ Realizado') + '</button></div></td></tr>';
+      }).join('') : '<tr><td colspan="8" class="tp-vacio">No hay pacientes con ese filtro.</td></tr>')
+    + '</tbody></table></div>'
+    + '<p class="tag-note" style="margin-top:10px;">Lista: <b>' + esc(lista.archivo) + '</b> · cargada el ' + new Date(lista.cargado).toLocaleString('es-CO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    + '. Al abrir un paciente se llenan la Portada y el Plan; lo que trabajes con cada uno queda guardado aparte en este navegador. 🔒 No se sube a internet.</p>';
+  card.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filtro = b.dataset.f; pintar(); });
+  const bus = card.querySelector('#tpBuscar');
+  bus.oninput = () => { busqueda = bus.value; const pos = bus.selectionStart; pintar(); const n = document.getElementById('tpBuscar'); n.focus(); n.setSelectionRange(pos, pos); };
+  card.querySelectorAll('[data-abrir]').forEach(b => b.onclick = () => abrir(lista.filas[Number(b.dataset.abrir)]));
+  card.querySelectorAll('[data-hecho]').forEach(b => b.onclick = () => { const f = lista.filas[Number(b.dataset.hecho)]; marcar(f, f.estado !== 'realizado'); });
+}
+
+document.getElementById('tpCargarBtn').addEventListener('click', () => { inputLista.value = ''; inputLista.click(); });
+const inputPlanes = document.createElement('input');
+inputPlanes.type = 'file'; inputPlanes.multiple = true; inputPlanes.hidden = true;
+inputPlanes.accept = '.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword';
+sec.appendChild(inputPlanes);
+document.getElementById('tpLoteBtn').addEventListener('click', () => { inputPlanes.value = ''; inputPlanes.click(); });
+inputPlanes.addEventListener('change', () => {
+  const archivos = Array.from(inputPlanes.files || []); if(!archivos.length) return;
+  const btn = document.getElementById('tpLoteBtn'); btn.disabled = true;
+  renovarLote(archivos).catch(e => aviso('⚠ No se pudieron renovar los planes: ' + ((e && e.message) || e))).finally(() => { btn.disabled = false; });
+});
+inputLista.addEventListener('change', async () => {
+  const archivo = inputLista.files && inputLista.files[0]; if(!archivo) return;
+  try{
+    const r = await leerExcel(archivo);
+    // Si ya había lista, se conserva el estado (realizado / en proceso) de quienes siguen en la nueva
+    if(lista && lista.filas.length){
+      if(!confirmar('¿Reemplazar tu lista actual (' + lista.filas.length + ' pacientes) por la de "' + archivo.name + '" (' + r.filas.length + ')?\nSe conserva el estado de los que estén en las dos.')) return;
+      const antes = {}; lista.filas.forEach(f => { antes[claveDe(f.id, f.nombre)] = f; });
+      r.filas.forEach(f => { const a = antes[claveDe(f.id, f.nombre)]; if(a){ f.estado = a.estado; f.fecha = a.fecha; } });
+    }
+    lista = { archivo: archivo.name, cargado: Date.now(), hoja: r.hoja, filas: r.filas };
+    const base = B(); if(base && base.listo) await base.listo;
+    const n = cruzar(); guardarLista(); pintar();
+    const hayBase = B() && B().lista && B().lista();
+    aviso('✓ Lista cargada: ' + lista.filas.length + ' pacientes. ' + (hayBase ? n + ' encontrados en la base de pacientes' + (n < lista.filas.length ? '; los que dicen "No está en la base" se abren con lo que trae tu Excel.' : '.')
+      : '⚠ No hay base de pacientes cargada: cárgala en la Portada ("📊 Base de pacientes") y luego pulsa "🔄 Cruzar con la base".'));
+  }catch(e){ alert('No se pudo leer tu lista:\n\n' + (e && e.message || e)); }
+});
+document.getElementById('tpCruzarBtn').addEventListener('click', () => {
+  if(!B() || !B().lista()){ alert('No hay base de pacientes cargada. Cárgala en la Portada con "📊 Base de pacientes (Excel)".'); return; }
+  const n = cruzar(); pintar(); aviso('✓ ' + n + ' de ' + lista.filas.length + ' pacientes encontrados en la base.');
+});
+document.getElementById('tpQuitarBtn').addEventListener('click', () => {
+  if(!confirmar('¿Quitar tu lista de pacientes de este formato?\nLos expedientes guardados de cada niño/a no se borran.')) return;
+  lista = null; try{ localStorage.removeItem(KEY_LISTA); }catch(e){} pintar(); aviso('');
+});
+nav.addEventListener('click', () => { goto('pacientes'); pintar(); });
+
+/* ---------- En el Plan terapéutico: "✅ Marcar realizado" ---------- */
+const btnPlan = document.createElement('button');
+btnPlan.type = 'button'; btnPlan.className = 'btn ghost'; btnPlan.id = 'tpPlanHecho'; btnPlan.hidden = true;
+const filaBotones = document.querySelector('#view-plan .page-head .btn-row');
+if(filaBotones) filaBotones.insertBefore(btnPlan, filaBotones.firstChild);
+function pintarBotonPlan(){
+  const f = filaActual();
+  btnPlan.hidden = !f;
+  if(!f) return;
+  btnPlan.textContent = f.estado === 'realizado' ? '✅ Realizado · ' + fmt(f.fecha) : '✅ Marcar realizado';
+  btnPlan.className = 'btn ' + (f.estado === 'realizado' ? 'ghost' : 'dark');
+  btnPlan.title = f.estado === 'realizado' ? 'Clic para quitar la marca de realizado' : 'Marca este paciente como realizado en "Tus pacientes"';
+}
+btnPlan.addEventListener('click', () => {
+  const f = filaActual(); if(!f) return;
+  if(f.estado === 'realizado'){ if(confirmar('¿Quitar la marca de realizado de ' + f.nombre + '?')) marcar(f, false); }
+  else { marcar(f, true); aviso('✅ ' + (f.nombre || f.id) + ' quedó como realizado.'); }
+});
+const navPlan = document.querySelector('.nav-item[data-view="plan"]');
+if(navPlan) navPlan.addEventListener('click', pintarBotonPlan);
+document.getElementById('numeroId') && document.getElementById('numeroId').addEventListener('change', pintarBotonPlan);
+
+/* ---------- "Borrar datos de este equipo" también borra la lista y los expedientes ---------- */
+const wipe = document.getElementById('fileWipeBtn');
+if(wipe) wipe.addEventListener('click', () => setTimeout(() => {
+  const body = document.getElementById('czBody');
+  if(body && !body.querySelector('.tp-wipe')){ const p = document.createElement('p'); p.className = 'tp-wipe'; p.textContent = 'También se borran tu lista de pacientes y los expedientes guardados de cada niño/a de este formato.'; body.appendChild(p); }
+}, 0));
+document.addEventListener('click', e => {
+  if(!e.target.closest || !e.target.closest('#czActions .cz-danger')) return;
+  const todo = document.getElementById('czTodo') && document.getElementById('czTodo').checked;
+  try{ Object.keys(localStorage).forEach(k => { if(k === KEY_LISTA || k.startsWith(PRE_EXP) || (todo && /^cisadde\.(mispacientes|expediente)\./.test(k))) localStorage.removeItem(k); }); }catch(err){}
+}, true);
+
+/* ---------- Al cargar ---------- */
+aviso(''); pintarNav(); pintarBotonPlan();
+// la base puede terminar de leerse después: se vuelve a cruzar a quienes no se habían encontrado
+if(lista && B() && B().listo) B().listo.then(() => { if(lista.filas.some(f => !f.b)){ cruzar(); pintarNav(); } });
+let ir = ''; try{ ir = sessionStorage.getItem(KEY_IR) || ''; sessionStorage.removeItem(KEY_IR); }catch(e){}
+if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
+})();
+</script>
+<!-- MIS PACIENTES:FIN -->
 </body>
 </html>
