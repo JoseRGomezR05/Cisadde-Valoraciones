@@ -4,11 +4,11 @@
    Este archivo debe estar en la misma carpeta que los formatos. */
 window.CISADDE_PSICOLOGOS = [];
 
-/* Lista de terapeutas ocupacionales (vacía: el nombre se escribe a mano). */
+/* Lista de terapeutas ocupacionales: la edita el Panel CISADDE. */
 window.CISADDE_TO = [];
 
-/* Lista de fonoaudiólogos(as) (vacía: el nombre se escribe a mano). */
+/* Lista de fonoaudiólogos(as): la edita el Panel CISADDE. */
 window.CISADDE_FONO = [];
 
-/* Lista de fisioterapeutas (vacía: el nombre se escribe a mano). */
+/* Lista de fisioterapeutas: la edita el Panel CISADDE. */
 window.CISADDE_FISIO = [];

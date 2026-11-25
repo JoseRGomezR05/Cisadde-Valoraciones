@@ -2,6 +2,94 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- PUENTE-APP:INICIO -->
+<script>
+/* Puente con la app de Google (Apps Script).
+   Solo se activa cuando la página se abre DENTRO de la app CISADDE (la app la
+   carga con ?app=cisadde). Ahí crea window.claude.use('sample') y
+   window.claude.use('downloads') para que los botones de siempre funcionen:
+     · "Generar informe con IA" / "Parafrasear con IA" → Gemini (desde Código.gs)
+     · PDF y Word → se descargan y además se guardan en Google Drive.
+   Abierta fuera de la app (GitHub, archivo suelto o Claude) no hace nada. */
+(function () {
+  var MARCA = 'cisadde.app';
+  try { if (/[?&]app=cisadde(&|$)/.test(location.search)) sessionStorage.setItem(MARCA, '1'); } catch (e) {}
+  var enApp = false;
+  try { enApp = sessionStorage.getItem(MARCA) === '1' && window.parent !== window; } catch (e) {}
+  if (!enApp || window.claude) return;
+
+  var padre = window.parent, origenPadre = null, pendientes = {}, n = 0, listo;
+  var conectado = new Promise(function (ok) { listo = ok; });
+  // Si la app no contesta (p. ej. la página quedó en otro marco), se sigue sin puente.
+  setTimeout(function () { listo({ ia: false, sinApp: true }); }, 6000);
+
+  window.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (ev.source !== padre || !m || m.cisadde !== 1) return;
+    // Solo se habla con la app de Google (Apps Script se sirve desde googleusercontent.com).
+    if (!/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/.test(ev.origin)) return;
+    if (m.hola) { if (!origenPadre) { origenPadre = ev.origin; listo({ ia: !!m.ia }); } return; }
+    var p = m.id && pendientes[m.id];
+    if (!p) return;
+    delete pendientes[m.id];
+    if (m.error) p.mal(m.error); else p.ok(m.resultado);
+  });
+  // El saludo no lleva datos: solo pide a la app que se presente.
+  padre.postMessage({ cisadde: 1, tipo: 'hola' }, '*');
+
+  function pedir(tipo, datos) {
+    return conectado.then(function () {
+      return new Promise(function (ok, mal) {
+        var id = 'p' + (++n) + '_' + Date.now();
+        pendientes[id] = { ok: ok, mal: mal };
+        padre.postMessage({ cisadde: 1, id: id, tipo: tipo, datos: datos }, origenPadre);
+      });
+    });
+  }
+  function enBase64(blob) {
+    return new Promise(function (ok, mal) {
+      var r = new FileReader();
+      r.onload = function () { ok(String(r.result).split(',')[1] || ''); };
+      r.onerror = function () { mal(r.error); };
+      r.readAsDataURL(blob);
+    });
+  }
+  function descargarAqui(blob, nombre) {
+    try {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = nombre;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    } catch (e) {}
+  }
+
+  var ia = function (prompt, opciones) {
+    return pedir('ia', { prompt: String(prompt || '') }).then(function (r) {
+      if (opciones && typeof opciones.onText === 'function') { try { opciones.onText({ text: r.text }); } catch (e) {} }
+      return r;
+    });
+  };
+  var descargas = {
+    save: function (o) {
+      var blob = o.data instanceof Blob ? o.data : new Blob([o.data], { type: o.mimeType || 'application/octet-stream' });
+      var nombre = String(o.filename || 'archivo');
+      descargarAqui(blob, nombre);
+      return enBase64(blob).then(function (b64) {
+        return pedir('guardar', { nombre: nombre, mime: blob.type || 'application/octet-stream', base64: b64 });
+      });
+    }
+  };
+
+  window.claude = {
+    use: function (que) {
+      if (que === 'sample') return conectado.then(function (e) { return e.ia ? ia : null; });
+      if (que === 'downloads') return conectado.then(function (e) { return e.sinApp ? null : descargas; });
+      return Promise.resolve(null);
+    }
+  };
+})();
+</script>
+<!-- PUENTE-APP:FIN -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Valoración Psicológica Infantil</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -408,11 +496,11 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
         Informe
       </a>
       <div class="nav-label">ARCHIVO</div>
-      <button class="nav-item" type="button" id="fileExportBtn" style="display:none; width:100%; text-align:left;">
+      <button class="nav-item" type="button" id="fileExportBtn" style="width:100%; text-align:left;">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
         Exportar valoración
       </button>
-      <button class="nav-item" type="button" id="fileImportBtn" style="display:none; width:100%; text-align:left;">
+      <button class="nav-item" type="button" id="fileImportBtn" style="width:100%; text-align:left;">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
         Importar valoración
       </button>
@@ -441,7 +529,7 @@ table.xtable a.rowlink:hover{ text-decoration:underline; }
       </button>
       <h1 id="topTitle">Portada</h1>
       <span class="crumb" id="topCrumb">· Expediente del niño/a</span>
-      <div class="topbar-right"><button class="export-pill" type="button" id="exportPill" style="display:none" title="Esta valoración tiene cambios que aún no has exportado">⚠ <span class="ep-lbl">Sin exportar</span></button><button class="theme-btn" type="button" id="themeBtn" aria-label="Cambiar entre modo claro y oscuro"><svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="theme-lbl">Modo oscuro</span></button><span class="pill-inst">Centro de Desarrollo Infantil</span></div>
+      <div class="topbar-right"><button class="export-pill" type="button" id="exportPill" title="Esta valoración tiene cambios que aún no has exportado">⚠ <span class="ep-lbl">Sin exportar</span></button><button class="theme-btn" type="button" id="themeBtn" aria-label="Cambiar entre modo claro y oscuro"><svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="theme-lbl">Modo oscuro</span></button><span class="pill-inst">Centro de Desarrollo Infantil</span></div>
     </div>
 
     <!-- ===================== PORTADA ===================== -->
@@ -2083,7 +2171,7 @@ function saveDraft(){
     lastSaved = json;
     setSaveTag('✓ Guardado automáticamente · ' + new Date().toLocaleTimeString('es-CO',{hour:'2-digit', minute:'2-digit'}));
   }catch(e){
-    setSaveTag('⚠ No se pudo guardar en este navegador (firmas o sello muy pesados).', true);
+    setSaveTag('⚠ No se pudo guardar en este navegador (firmas o sello muy pesados). Usa "Exportar valoración".', true);
   }
 }
 function queueSave(){ clearTimeout(saveTimer); saveTimer = setTimeout(saveDraft, 400); }
@@ -2141,7 +2229,7 @@ document.getElementById('fileImportInput').addEventListener('change', e=>{
   reader.readAsText(file);
 });
 document.getElementById('fileNewBtn').addEventListener('click', ()=>{
-  if(!confirm('¿Empezar una valoración nueva?\nSe borrarán los datos del niño/a que hay ahora en pantalla.\n(Se conserva el evaluador.)')) return;
+  if(!confirm('¿Empezar una valoración nueva?\nSe borrarán los datos del niño/a que hay ahora en pantalla. Si no la has exportado, cancela y usa "Exportar valoración" primero.\n(Se conserva el evaluador.)')) return;
   const fresh = JSON.parse(JSON.stringify(STATE_DEFAULTS));
   fresh.evaluator = state.evaluator;
   clearTimeout(saveTimer);
@@ -2269,7 +2357,7 @@ renderChecklist();
   function exportada(){ try{ return localStorage.getItem(EXP_KEY) === huella(); }catch(e){ return false; } }
   function pendiente(){ return !sinDatos() && !exportada(); }
   function marcarExportada(){ try{ localStorage.setItem(EXP_KEY, huella()); }catch(e){} pintar(); }
-  function pintar(){ pill.classList.remove('show'); } // sin exportar/importar
+  function pintar(){ pill.classList.toggle('show', pendiente()); }
   let pt = null;
   ['input','change','click','touchend'].forEach(ev=> document.addEventListener(ev, ()=>{ clearTimeout(pt); pt = setTimeout(pintar, 500); }, true));
 
@@ -2338,7 +2426,7 @@ renderChecklist();
 
   /* ---- Recordatorio después de descargar el PDF o imprimir ---- */
   function recordar(){
-    return; // sin exportar/importar: no se recuerda exportar
+    if(!pendiente() || !modal.hidden) return;
     abrir('¿Ya exportaste esta valoración?',
       '<p>El PDF es el informe para la familia. Para poder volver a abrir o corregir la valoración de <b>' + esc(nombreNino()) + '</b> necesitas también el archivo de la valoración (.json).</p><p>Si este equipo o tablet lo usan otras personas, borra los datos cuando termines.</p>',
       [{txt:'Exportar valoración', cls:'cz-primary', fn:exportarAhora},
@@ -2352,12 +2440,15 @@ renderChecklist();
 
   /* ---- Borrar datos de este equipo ---- */
   function borrar(){
-    const aviso = '';
+    const aviso = pendiente()
+      ? '<p style="color:#D64545;"><b>⚠ Esta valoración tiene cambios sin exportar.</b> Si la borras ahora no se podrá recuperar.</p>'
+      : '<p>Si ya la exportaste, la puedes volver a abrir con "Importar valoración".</p>';
     abrir('Borrar datos de este equipo',
       aviso +
       '<p>Se borra de este navegador la valoración de <b>' + esc(nombreNino()) + '</b>, incluidos el evaluador, la firma y el sello.</p>' +
       '<label><input type="checkbox" id="czTodo"> También borrar las valoraciones guardadas de los otros formatos y el nombre recordado en Inicio.</label>',
-      [{txt:'Sí, borrar', cls:'cz-danger', cerrar:false, fn:()=>{
+      [{txt:'Exportar primero', cls:'cz-primary', fn:exportarAhora},
+       {txt:'Sí, borrar', cls:'cz-danger', cerrar:false, fn:()=>{
           const todo = document.getElementById('czTodo').checked;
           lastSaved = JSON.stringify(state); clearTimeout(saveTimer); // que no se vuelva a guardar al recargar
           window.removeEventListener('pagehide', saveDraft);
@@ -2375,6 +2466,145 @@ renderChecklist();
     document.getElementById('overlay').hidden = true;
     borrar();
   });
+})();
+</script>
+<script>
+/* Buzón CISADDE: botón "Reportar un problema" y conteo de valoraciones (sin datos del niño).
+   La dirección del buzón la publica el Panel CISADDE en config.json. Sin internet, el conteo
+   queda en espera y se envía la próxima vez que se abra con conexión. */
+(function(){
+  var SITE = 'https://josergomezr05.github.io/Cisadde-Valoraciones/';
+  var KEY_URL = 'cisadde.buzon.url', KEY_COLA = 'cisadde.uso.pendientes';
+  var esFormato = typeof FORM_ID !== 'undefined';
+  var AREAS = { psi:'Psicología', to:'Terapia ocupacional', is:'Terapia ocupacional', taller:'Terapia ocupacional', fono:'Fonoaudiología', fisio:'Fisioterapia' };
+  var formato = esFormato ? FORM_TITLE : 'Inicio';
+  function leer(k){ try{ return localStorage.getItem(k) || ''; }catch(e){ return ''; } }
+  function guardar(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+  var buzon = leer(KEY_URL);
+
+  function enviar(datos){
+    if(!buzon) return Promise.reject(new Error('sin-buzon'));
+    return fetch(buzon, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(datos) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(!j || !j.ok) throw new Error((j && j.error) || 'error'); return j; });
+  }
+  function nombreEvaluador(){
+    try{ if(typeof state !== 'undefined' && state.evaluator && state.evaluator.name) return state.evaluator.name; }catch(e){}
+    return leer('cisadde.nombre');
+  }
+
+  /* ---------- Conteo de valoraciones ---------- */
+  function cola(){ try{ return JSON.parse(leer(KEY_COLA) || '[]'); }catch(e){ return []; } }
+  function vaciarCola(){
+    var c = cola(); if(!c.length || !buzon) return;
+    guardar(KEY_COLA, '[]');
+    c.forEach(function(d){ enviar(d).catch(function(){ var r = cola(); r.push(d); guardar(KEY_COLA, JSON.stringify(r.slice(-200))); }); });
+  }
+  function contar(){
+    if(!esFormato || typeof state === 'undefined') return;
+    if(!state.usoId){
+      state.usoId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try{ saveDraft(); }catch(e){}
+    }
+    var d = { tipo:'uso', formato: formato, area: AREAS[FORM_ID] || formato, terapeuta: nombreEvaluador(), valoracion: FORM_ID + '-' + state.usoId, fecha: new Date().toISOString() };
+    enviar(d).catch(function(){ var r = cola(); r.push(d); guardar(KEY_COLA, JSON.stringify(r.slice(-200))); });
+  }
+  ['pdfBtn', 'printBtn', 'wordBtn'].forEach(function(id){ var b = document.getElementById(id); if(b) b.addEventListener('click', contar); });
+
+  /* ---------- Reportar un problema ---------- */
+  var css = document.createElement('style');
+  css.textContent =
+    '#cz-rep{position:fixed;inset:0;z-index:99998;background:rgba(8,24,40,.55);display:flex;align-items:center;justify-content:center;padding:16px}' +
+    '#cz-rep[hidden]{display:none}' +
+    '#cz-rep .box{background:var(--surface,#fff);color:var(--text,#12314A);width:100%;max-width:480px;border-radius:18px;padding:20px;box-shadow:0 20px 50px -10px rgba(0,0,0,.45);font:14px/1.5 Inter,system-ui,sans-serif;max-height:calc(100vh - 32px);overflow:auto}' +
+    '#cz-rep h3{margin:0 0 4px;font:800 18px Manrope,system-ui,sans-serif}' +
+    '#cz-rep p{margin:0 0 12px;color:var(--text-dim,#5B7386);font-size:13px}' +
+    '#cz-rep label{display:block;font-size:12px;font-weight:700;color:var(--text-dim,#5B7386);margin:10px 0 4px}' +
+    '#cz-rep input,#cz-rep textarea{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1.5px solid var(--border,#DDE6EE);background:var(--surface-alt,#F5F8FB);color:inherit;font:inherit}' +
+    '#cz-rep textarea{min-height:110px;resize:vertical}' +
+    '#cz-rep .acc{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}' +
+    '#cz-rep button{border:0;border-radius:12px;padding:10px 16px;font-weight:700;cursor:pointer;font:inherit;font-weight:700}' +
+    '#cz-rep .pri{background:#17A2D6;color:#fff}#cz-rep .sec{background:var(--surface-alt,#F5F8FB);color:inherit;border:1.5px solid var(--border,#DDE6EE)}' +
+    '#cz-rep .est{margin-top:10px;font-size:13px;font-weight:600}' +
+    '.cz-rep-link{display:block;margin:8px auto 0;background:none;border:0;color:var(--text-dim,#5B7386);font:600 13px Inter,system-ui,sans-serif;text-decoration:underline;cursor:pointer}' +
+    '@media print{#cz-rep,.cz-rep-link,#cz-rep-btn{display:none!important}}';
+  document.head.appendChild(css);
+
+  var modal = document.createElement('div');
+  modal.id = 'cz-rep'; modal.hidden = true;
+  modal.innerHTML = '<div class="box" role="dialog" aria-modal="true" aria-labelledby="cz-rep-t">' +
+    '<h3 id="cz-rep-t">Reportar un problema</h3>' +
+    '<p>Le llega al coordinador para revisarlo. <b>No escribas datos del niño o la niña.</b></p>' +
+    '<label for="cz-rep-n">Tu nombre</label><input id="cz-rep-n" autocomplete="name">' +
+    '<label for="cz-rep-x">¿Qué pasó?</label><textarea id="cz-rep-x" maxlength="2000" placeholder="Ej.: al pulsar Descargar PDF no pasa nada; el informe sale sin las gráficas…"></textarea>' +
+    '<div class="est" id="cz-rep-e"></div>' +
+    '<div class="acc"><button type="button" class="sec" id="cz-rep-c">Cancelar</button><button type="button" class="pri" id="cz-rep-s">Enviar reporte</button></div></div>';
+  document.body.appendChild(modal);
+  var $n = modal.querySelector('#cz-rep-n'), $x = modal.querySelector('#cz-rep-x'), $e = modal.querySelector('#cz-rep-e'), $s = modal.querySelector('#cz-rep-s');
+  function abrir(){ $n.value = nombreEvaluador(); $e.textContent = ''; $s.disabled = false; modal.hidden = false; ($n.value ? $x : $n).focus(); }
+  function cerrar(){ modal.hidden = true; }
+  modal.querySelector('#cz-rep-c').onclick = cerrar;
+  modal.addEventListener('click', function(e){ if(e.target === modal) cerrar(); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !modal.hidden) cerrar(); });
+  $s.onclick = function(){
+    var texto = $x.value.trim();
+    if(!texto){ $e.style.color = '#D38D0A'; $e.textContent = 'Cuenta brevemente qué pasó.'; return; }
+    if(!buzon){ $e.style.color = '#D9487A'; $e.textContent = 'El buzón todavía no está configurado o no hay internet. Avísale al coordinador por otro medio.'; return; }
+    $s.disabled = true; $e.style.color = ''; $e.textContent = 'Enviando…';
+    enviar({ tipo:'reporte', formato: formato, nombre: $n.value.trim(), texto: texto, pagina: location.protocol === 'file:' ? 'Archivo en el computador' : location.href.split('?')[0], navegador: navigator.userAgent })
+      .then(function(){ $e.style.color = '#1EA672'; $e.textContent = '✓ Reporte enviado. Gracias.'; $x.value = ''; setTimeout(cerrar, 1800); })
+      .catch(function(){ $s.disabled = false; $e.style.color = '#D9487A'; $e.textContent = 'No se pudo enviar. Revisa el internet e inténtalo de nuevo.'; });
+  };
+
+  var wipe = document.getElementById('fileWipeBtn');
+  if(wipe){
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'nav-item'; b.id = 'cz-rep-btn';
+    b.style.cssText = 'width:100%; text-align:left;';
+    b.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg> Reportar un problema';
+    b.onclick = abrir;
+    wipe.parentNode.insertBefore(b, wipe.nextSibling);
+  } else {
+    var l = document.createElement('button');
+    l.type = 'button'; l.className = 'cz-rep-link'; l.textContent = '¿Algo no funciona? Reportar un problema';
+    l.onclick = abrir;
+    (document.querySelector('.wrap') || document.body).appendChild(l);
+  }
+
+  /* ---------- Dirección del buzón (config.json) ---------- */
+  if(window.fetch) fetch(SITE + 'config.json?t=' + Date.now(), { cache:'no-store' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(c){ if(c && typeof c.buzon === 'string'){ buzon = c.buzon; guardar(KEY_URL, buzon); } vaciarCola(); })
+    .catch(function(){ vaciarCola(); });
+})();
+</script>
+<script>
+/* Aviso para el equipo: lo publica el Panel CISADDE en aviso.json. Necesita internet; sin conexión no muestra nada. */
+(function(){
+  var URL = 'https://josergomezr05.github.io/Cisadde-Valoraciones/aviso.json';
+  if(!window.fetch) return;
+  fetch(URL + '?t=' + Date.now(), { cache:'no-store' }).then(function(r){ return r.ok ? r.json() : null; }).then(function(a){
+    if(!a || !a.activo || !a.texto) return;
+    var cerrado = ''; try{ cerrado = localStorage.getItem('cisadde.aviso.cerrado') || ''; }catch(e){}
+    if(cerrado === a.id) return;
+    var c = { info:['#E4F6FC','#0B5F85','#17A2D6','Aviso'], importante:['#FDF3DF','#7A4F00','#D38D0A','Importante'], urgente:['#FCE9F0','#9C2149','#D9487A','Urgente'] }[a.nivel] || ['#E4F6FC','#0B5F85','#17A2D6','Aviso'];
+    var st = document.createElement('style');
+    st.textContent = '#cisaddeAviso{position:fixed;left:16px;right:16px;bottom:16px;max-width:640px;margin:0 auto;z-index:99999;display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:14px;border-left:6px solid '+c[2]+';background:'+c[0]+';color:'+c[1]+';box-shadow:0 10px 30px -8px rgba(0,0,0,.35);font:14px/1.45 Inter,system-ui,sans-serif}'
+      + '#cisaddeAviso b{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase}#cisaddeAviso p{margin:2px 0 0;white-space:pre-line}#cisaddeAviso small{display:block;opacity:.75;margin-top:4px;font-size:12px}'
+      + '#cisaddeAviso button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;background:'+c[2]+';color:#fff}'
+      + '@media print{#cisaddeAviso{display:none!important}}';
+    document.head.appendChild(st);
+    var d = document.createElement('div'); d.id = 'cisaddeAviso'; d.setAttribute('role', 'alert');
+    var box = document.createElement('div'); box.style.flex = '1';
+    var t = document.createElement('b'); t.textContent = c[3] + ' para el equipo';
+    var p = document.createElement('p'); p.textContent = a.texto;
+    box.appendChild(t); box.appendChild(p);
+    if(a.fecha){ var s = document.createElement('small'); s.textContent = 'Publicado: ' + new Date(a.fecha).toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' }); box.appendChild(s); }
+    var btn = document.createElement('button'); btn.type = 'button'; btn.textContent = 'Entendido';
+    btn.onclick = function(){ try{ localStorage.setItem('cisadde.aviso.cerrado', a.id); }catch(e){} d.remove(); };
+    d.appendChild(box); d.appendChild(btn);
+    document.body.appendChild(d);
+  }).catch(function(){});
 })();
 </script>
 <!-- PLAN TERAPEUTICO:INICIO -->
@@ -2743,7 +2973,9 @@ const GUIA = '<p><b>Principios:</b> el plan orienta la intervención según los 
 const sec = document.createElement('section');
 sec.className = 'view'; sec.id = 'view-plan'; sec.hidden = true;
 sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Formato ' + CODIGO + '. Se llena con lo registrado en la valoración; revisa, corrige y descárgalo en Word.</p></div>'
-  + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="planRegenBtn">↻ Volver a generar</button><button class="btn primary" type="button" id="planWordBtn">⬇️ Descargar Word</button></div></div>'
+  + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="planCargarBtn" title="Sube un plan R-AMI-055 ya hecho (.docx): se parafrasea y se llena con los datos actuales del niño/a">📂 Cargar plan anterior (Word)</button>'
+  + '<button class="btn ghost" type="button" id="planOtraBtn" hidden title="Vuelve a parafrasear el plan cargado con otras palabras">🔀 Otra redacción</button>'
+  + '<button class="btn ghost" type="button" id="planRegenBtn">↻ Volver a generar</button><button class="btn primary" type="button" id="planWordBtn">⬇️ Descargar Word</button></div></div>'
   + '<p class="tag-note" id="planAviso" style="margin-bottom:14px;"></p>'
   + '<div class="card"><div class="card-head"><h3>Datos del plan</h3><span class="sub">Nombre, edad, diagnóstico y CIE se toman de la Portada</span></div><div class="grid cols-2">'
   + campo('planHc', 'Historia clínica') + campo('planInicio', 'Periodo de ejecución: desde', 'type="date"')
@@ -2757,13 +2989,20 @@ sec.innerHTML = '<div class="page-head"><div><h2>Plan terapéutico</h2><p>Format
   + texto('planObjEspecificos', 'Objetivos específicos (mínimo ' + MIN_OBJETIVOS + ', uno por línea): verbo + habilidad específica + contexto + propósito funcional', 140, '¿Qué logros concretos permitirán alcanzar el objetivo general?')
   + texto('planIndicadores', 'Indicadores de logro (uno por línea, en el mismo orden de los objetivos, en afirmativo)', 140, 'Ej.: Mantiene la atención en actividades estructuradas con mínimo apoyo verbal.')
   + '</div>'
+  + '<div class="card no-print"><div class="card-head"><h3>✨ Parafrasear y enriquecer con IA</h3><span class="sub">Reescribe y amplía hallazgos, objetivos e indicadores con la guía R-AMI-055</span></div>'
+  + '<p class="tag-note" style="margin-bottom:10px;">Al texto para la IA <b>no se le pone el nombre ni el documento</b> del niño/a: solo el área, la edad y lo clínico. '
+  + '<span id="planIaModo">Usa "📋 Copiar para la IA", pégalo en ChatGPT, Gemini o Claude (gratis), copia lo que te responda y pégalo abajo.</span></p>'
+  + '<div class="btn-row"><button class="btn primary" type="button" id="planIaBtn" hidden>✨ Parafrasear y enriquecer con IA</button><button class="btn dark" type="button" id="planIaCopiar">📋 Copiar para la IA</button></div>'
+  + '<p class="tag-note" id="planIaEstado" style="margin-top:8px;display:none;"></p>'
+  + '<label class="field" style="margin-top:12px;"><span class="lbl">Respuesta de la IA (pégala aquí si la copiaste de otra página)</span><textarea class="input" id="planIaResp" style="min-height:120px;" placeholder="HALLAZGOS: … OBJETIVO GENERAL: … OBJETIVOS ESPECÍFICOS: … INDICADORES DE LOGRO: …"></textarea></label>'
+  + '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost" type="button" id="planIaAplicar">⬇ Pasar la respuesta al plan</button></div></div>'
   + '<div class="card"><div class="card-head"><h3>Lista de verificación</h3><span class="sub">Se revisa sola mientras escribes</span></div><div id="planCheck"></div></div>'
   + '<div class="card"><details><summary style="cursor:pointer;font-weight:800;font-size:14.5px;">📘 Guía rápida para redactar el plan (R-AMI-055)</summary><div class="plan-guia">' + GUIA + '</div></details></div>'
   + '<div class="card"><div class="card-head"><h3>Vista previa</h3><span class="sub">Así se verá el cuerpo del documento en Word</span></div><div class="plan-doc" id="planPreview"></div></div>';
 document.getElementById('view-informe').after(sec);
 
-// "Aprobó": sin nombre por defecto; se escribe a mano.
-const APROBO_DEFECTO = '';
+// "Aprobó": por defecto Iviana Torres; se puede escribir otro o elegirlo de la lista de profesionales.
+const APROBO_DEFECTO = 'Iviana Torres';
 (function(){
   const lista = document.getElementById('planAproboLista'), vistos = new Set();
   [[APROBO_DEFECTO]].concat(['CISADDE_PSICOLOGOS','CISADDE_TO','CISADDE_FONO','CISADDE_FISIO'].map(k=> window[k] || [])).forEach(arr=> arr.forEach(n=>{
@@ -2780,8 +3019,9 @@ function ajustarFin(){
   if(document.activeElement !== el) el.value = finPeriodo(p);
 }
 function avisar(sug){
-  const a = document.getElementById('planAviso');
-  if(!sug) a.textContent = '⚠ Aún no hay respuestas en Evaluación: marca los ítems y los hallazgos y objetivos se sugerirán solos.';
+  const a = document.getElementById('planAviso'), imp = state.plan.importado;
+  if(imp) a.textContent = '📂 Plan renovado desde "' + imp.archivo + '" (' + fmtDate(imp.fecha) + '). Revisa los textos antes de descargar: "🔀 Otra redacción" cambia las palabras y "↻ Volver a generar" lo arma de nuevo desde la valoración.';
+  else if(!sug) a.textContent = '⚠ Aún no hay respuestas en Evaluación: marca los ítems y los hallazgos y objetivos se sugerirán solos.';
   else if(state.plan.base && state.plan.base !== firma(sug)) a.textContent = '⚠ La valoración cambió después de generar el plan. Usa "Volver a generar" si quieres actualizar hallazgos, objetivos e indicadores (se reemplaza lo que escribiste en esos cuadros).';
   else a.textContent = '';
 }
@@ -2791,12 +3031,13 @@ function render(){
   // haya escrito a mano en los cuadros (si se escribió, sale el aviso de "Volver a generar").
   if(sug && (!p.base || (p.base !== firma(sug) && firma(p) === p.base))){ Object.assign(p, sug); p.base = firma(sug); queueSave(); }
   if(!p.inicio){ p.inicio = hoyISO(); queueSave(); }
-  if(!p.aproboSinDefecto){ if(!p.aproboManual) p.aprobo = ''; p.aproboSinDefecto = 1; queueSave(); } // quita el nombre que antes venía por defecto
+  if(!p.aprobo && !p.aproboManual){ p.aprobo = APROBO_DEFECTO; queueSave(); }
   const d = datos();
   Object.keys(CAMPOS).forEach(id=>{ const el = document.getElementById(id); if(document.activeElement !== el) el.value = p[CAMPOS[id]] || ''; });
   ajustarFin();
   document.getElementById('planHc').placeholder = d.hcAuto || 'Número de historia clínica';
   document.getElementById('planArea').placeholder = d.areaAuto;
+  document.getElementById('planOtraBtn').hidden = !p.importado;
   avisar(sug);
   preview();
   verificar();
@@ -2859,6 +3100,507 @@ document.getElementById('planRegenBtn').addEventListener('click', ()=>{
   Object.assign(state.plan, sug); state.plan.base = firma(sug); delete state.plan.importado;
   render(); queueSave();
 });
+
+/* ---------- Cargar un plan anterior (Word) y renovarlo ---------- */
+// Se sube un R-AMI-055 ya hecho (.docx): se leen hallazgos, objetivos e indicadores, se
+// parafrasean (sin internet, con reglas propias), los indicadores que falten se redactan
+// desde los objetivos específicos, y los datos del niño/a se traen de la base de pacientes
+// por la historia clínica. El profesional y el sello son los del formato.
+// IMPORTAR:PURO:INICIO
+const sinTilde = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const VINETA = /^\s*(?:[-–—•▪◦●○■□*·➢➤►✓✔]|\d{1,2}\s*[.)\-]|[a-z]\))\s*/i;
+// Grupos de expresiones equivalentes (mismo género y número): cada una se cambia por otra del grupo.
+const SINONIMOS = [
+  ['pobre vocabulario semántico','vocabulario semántico reducido'],
+  ['pobre vocabulario','vocabulario reducido','vocabulario limitado'],
+  ['el entorno donde se desenvuelve','los contextos en los que participa','su entorno cotidiano'],
+  ['el entorno en el que se desenvuelve','los contextos en los que participa','su entorno cotidiano'],
+  ['dificultades en la realización de','dificultad para realizar','dificultades para ejecutar'],
+  ['dificultades en la identificación de','dificultad para identificar','dificultades para reconocer'],
+  ['con dificultad para','presentando dificultad para'],
+  ['capacidad para','habilidad para'], ['capacidad de','habilidad de'],
+  ['instrucciones simples','instrucciones sencillas'], ['órdenes simples','órdenes sencillas'], ['consignas simples','consignas sencillas'],
+  ['encaminadas a','orientadas a','dirigidas a'], ['encaminados a','orientados a','dirigidos a'],
+  ['encaminada a','orientada a','dirigida a'], ['encaminado a','orientado a','dirigido a'],
+  ['que favorezcan','que beneficien'], ['que favorezca','que beneficie'],
+  ['a nivel del','en el'], ['a nivel de la','en la'],
+  ['categorías esenciales','categorías básicas'],
+  ['vocabulario receptivo','vocabulario comprensivo'], ['vocabulario expresivo','léxico expresivo'],
+  ['habilidades comunicativas','competencias comunicativas'], ['habilidades sociales','competencias sociales'],
+  ['poca tolerancia','baja tolerancia'], ['poca inteligibilidad','baja inteligibilidad'],
+  ['poco inteligible','de baja inteligibilidad'], ['poco inteligibles','de baja inteligibilidad'],
+  ['sonidos vocálicos','sonidos vocales'],
+  ['comandos','pasos'],
+  ['adecuado','apropiado'], ['adecuada','apropiada'], ['adecuados','apropiados'], ['adecuadas','apropiadas'],
+  ['aumentar','incrementar'], ['disminuir','reducir'], ['lograr','alcanzar'],
+  ['permitan','posibiliten'], ['permita','posibilite'],
+  ['ejecutar instrucciones','seguir instrucciones','cumplir instrucciones'], ['ejecutar órdenes','seguir órdenes','cumplir órdenes'],
+  ['efectuar','realizar','ejecutar'],
+  ['identificación','reconocimiento'], ['realización','ejecución'],
+  ['favoreciendo','promoviendo','facilitando'],
+  ['mediante','a través de'], ['actividades lúdicas','actividades de juego'], ['de manera','de forma'],
+  ['con apoyo mínimo','con mínimo apoyo'], ['acorde a su edad','esperado para su edad'],
+  ['contextos','entornos'], ['producciones','emisiones'], ['por medio de','a través de']
+];
+// Correcciones de ortografía frecuentes (siempre se aplican).
+const ORTOGRAFIA = [[/\bespontaneo\b/g,'espontáneo'],[/\bespontanea\b/g,'espontánea'],[/\bcientifico\b/gi,'científico'],[/\bmotriz fina\b/g,'motricidad fina'],[/\s+([,.;:])/g,'$1'],[/\s{2,}/g,' ']];
+const VERBO_ALT = {
+  favorecer:['Fortalecer','Promover','Potenciar'], fortalecer:['Favorecer','Potenciar','Optimizar'], promover:['Favorecer','Desarrollar','Fortalecer'],
+  desarrollar:['Promover','Potenciar','Favorecer'], potenciar:['Fortalecer','Optimizar','Desarrollar'], optimizar:['Potenciar','Fortalecer','Favorecer'],
+  facilitar:['Favorecer','Promover','Potenciar'], incrementar:['Fortalecer','Potenciar','Favorecer'], mejorar:['Potenciar','Optimizar','Fortalecer'],
+  estimular:['Promover','Favorecer','Potenciar'], preservar:['Preservar'], ampliar:['Fortalecer','Potenciar','Favorecer'], afianzar:['Fortalecer','Potenciar','Favorecer'],
+  consolidar:['Fortalecer','Potenciar','Optimizar'], adquirir:['Desarrollar','Promover','Favorecer'], iniciar:['Promover','Favorecer','Desarrollar']
+};
+const NOMINAL = { disminuir:'la disminución de', reducir:'la reducción de', aumentar:'el aumento de', lograr:'el logro de', mantener:'el mantenimiento de', adquirir:'la adquisición de' };
+const RE_PALABRA = (txt) => new RegExp('(^|[^\\p{L}])(' + txt.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')(?![\\p{L}])', 'giu');
+
+function parafrasear(txt, variante, semilla){
+  let s = String(txt||'').trim(); if(!s) return s;
+  // Se reemplaza todo en una sola pasada: cada expresión cambia una vez (sin ir y volver).
+  const pares = [];
+  SINONIMOS.forEach((g, gi)=> g.forEach((m, mi)=> pares.push({ m, g, gi, mi })));
+  pares.sort((a,b)=> b.m.length - a.m.length);
+  const marcas = [];
+  pares.forEach(p=>{
+    s = s.replace(RE_PALABRA(p.m), (todo, pre, enc)=>{
+      const otros = p.g.filter((x,i)=> i !== p.mi);
+      let nuevo = otros[(variante + p.gi + semilla) % otros.length];
+      if(/^\p{Lu}/u.test(enc)) nuevo = may1(nuevo);
+      marcas.push(nuevo);
+      return pre + '\u0001' + (marcas.length - 1) + '\u0002';
+    });
+  });
+  s = s.replace(/\u0001(\d+)\u0002/g, (t, n)=> marcas[Number(n)]);
+  ORTOGRAFIA.forEach(([re, r])=> { s = s.replace(re, r); });
+  return s.trim();
+}
+// Objetivo: el verbo inicial se cambia por otro recomendado de la guía; se quitan las técnicas.
+function parafrasearObjetivo(txt, variante, semilla, usadosV){
+  let s = String(txt||'').replace(VINETA,'').trim(); if(!s) return s;
+  usadosV = usadosV || {};
+  // elige el verbo siguiente de la rotación que aún no inicie otro objetivo
+  const elegir = a => { for(let k = 0; k < a.length; k++){ const v = a[(variante + semilla + k) % a.length]; if(!usadosV[v]){ usadosV[v] = 1; return v; } } return a[(variante + semilla) % a.length]; };
+  const OTROS = ['Favorecer','Promover','Fortalecer','Potenciar','Desarrollar'];
+  s = s.replace(/\s*,?\s*(?:mediante|a trav[ée]s de|por medio de)\s+(?:el uso de\s+)?(?:estrategias|t[ée]cnicas)\b[^,.]*?,?\s*(?:encaminad|orientad|dirigid)[oa]s? a\s+/i, ', con el fin de ');
+  s = s.replace(/\s*,?\s*(?:mediante|a trav[ée]s de|por medio de)\s+(?:el uso de\s+)?(?:estrategias|t[ée]cnicas)\b[^,.]*/i, '');
+  const m = s.match(/^(\p{L}+?)(ar|er|ir)\b\s*(.*)$/u);
+  if(m){
+    const verbo = sinTilde(m[1] + m[2]), resto = m[3];
+    if(VERBO_ALT[verbo]){ const a = VERBO_ALT[verbo]; s = (a.length > 1 ? elegir(a.concat(OTROS.filter(v=> !a.includes(v) && sinTilde(v) !== verbo))) : a[0]) + ' ' + resto; }
+    else if(NOMINAL[verbo]) s = elegir(OTROS) + ' ' + NOMINAL[verbo] + ' ' + resto;
+    else if(/^que\b/i.test(resto)) s = elegir(OTROS) + ' ' + resto;
+    else s = elegir(OTROS) + ' la capacidad para ' + min1(m[1] + m[2]) + (resto ? ' ' + resto : '');
+  }
+  s = parafrasear(s, variante, semilla);
+  return may1(s.replace(/de el\b/g,'del').replace(/a el\b/g,'al')).replace(/[.;\s]*$/, '.');
+}
+// Indicadores de logro: conducta observable + contexto + criterio, en afirmativo y presente.
+function enumeracion(o){
+  const m = o.match(/(?:tales como|como|\()\s*([^.;()]+?)(?:\)|[.;]|,\s*(?:favoreciendo|promoviendo|facilitando|para|con el fin)|$)/i);
+  return m ? m[1].trim() : '';
+}
+const IND = [
+  { re:/instrucci|ordenes|consignas|comandos/, f:o=> 'Sigue ' + (/simple|sencill|un paso|1 accion/.test(o) ? 'instrucciones sencillas de uno y dos pasos' : /varios|tres|3|complej/.test(o) ? 'instrucciones de varios pasos' : 'instrucciones de dos pasos') + ' durante las actividades terapéuticas con máximo una repetición de la instrucción.' },
+  { re:/vocabulario|lexico|categori|denomin/, f:(o, txt, e)=> e ? 'Identifica y nombra ' + e + ' durante actividades dirigidas con apoyo visual.' : MAPA.fono['Semántico'].i },
+  { re:/orofacial|praxia|\blengua\b|labios|velo del paladar|mejillas|mandibul/, f:(o, txt)=> { const m = txt.match(/(?:orofaciales?|praxias)[^,.]*?\bde\s+(.+?)(?:,\s*(?:favoreciendo|promoviendo|facilitando|para)\b|[.;]|$)/i); return 'Realiza praxias orofaciales' + (m ? ' de ' + m[1].trim() : ' de lengua, labios y mejillas') + ' por imitación del modelo del terapeuta.'; } },
+  { re:/inteligib|articula|fonema|sonidos del habla|fonolog/, f:()=> MAPA.fono['Fonológico'].i },
+  { re:/conciencia fonol|silab|segment|rima/, f:()=> MAPA.fono['Conciencia fonológica'].i },
+  { re:/imitaci|imitar/, f:()=> 'Imita sonidos, palabras y gestos presentados por el terapeuta durante actividades dirigidas.' },
+  { re:/contacto visual|mirada/, f:()=> 'Establece contacto visual durante los intercambios comunicativos con el terapeuta.' },
+  { re:/intencion comunicativa|pragmat|conversaci|turnos comunicativos|uso funcional del lenguaje|uso social del lenguaje/, f:()=> MAPA.fono['Pragmática'].i },
+  { re:/frases|enunciados|sintax|morfosint|lenguaje expresivo|expresi[oó]n verbal|expresivo/, f:()=> 'Utiliza frases funcionales para expresar sus necesidades e ideas durante la sesión.' },
+  { re:/comprensi|lenguaje receptivo|receptivo/, f:()=> 'Comprende y responde a preguntas e instrucciones sencillas durante actividades dirigidas con apoyo visual.' },
+  { re:/lectura|lector/, f:()=> MAPA.fono['Lectura'].i },
+  { re:/escritura|grafomotr|trazo|grafism/, f:()=> 'Realiza los trazos y grafías trabajados en sesión respetando la direccionalidad, con mínimo apoyo del terapeuta.' },
+  { re:/atenci|concentr/, f:()=> MAPA.psi['Cognitivo'].i },
+  { re:/frustr|regulaci[oó]n emocional|autorregulaci|berrinche|rabieta|emocion/, f:()=> MAPA.psi['Socioemocional'].i },
+  { re:/espera|turno|impuls/, f:()=> 'Espera su turno y controla respuestas impulsivas durante actividades estructuradas con máximo dos redirecciones.' },
+  { re:/norma|limite|conducta|comportamiento|oposicion/, f:()=> MAPA.psi['Comportamental'].i },
+  { re:/memoria|evoca/, f:()=> 'Recupera y relata información de experiencias recientes durante actividades dirigidas con mínimo apoyo del terapeuta.' },
+  { re:/razonamiento|clasific|resoluci[oó]n de problemas|asociaci/, f:()=> 'Clasifica, asocia y resuelve problemas sencillos acordes a su edad durante actividades estructuradas con mínimo apoyo del terapeuta.' },
+  { re:/juego simb|juego funcional|simbolic/, f:()=> MAPA.psi['Juego individual'].i },
+  { re:/interacci|social|pares|compart/, f:()=> 'Participa en actividades compartidas con pares y adultos respetando turnos y normas, con máximo dos redirecciones.' },
+  { re:/motricidad fina|motora fina|pinza|manipula|destreza manual/, f:()=> MAPA.to['Habilidades motoras'].i },
+  { re:/planificaci[oó]n motora|praxis|secuencia/, f:()=> MAPA.is['Praxis e ideación'].i },
+  { re:/vestido|alimentaci|higiene|vida diaria|avd|autocuidado/, f:()=> MAPA.to['Actividades de la vida diaria'].i },
+  { re:/esfinter|control de esfinteres|ir al bano/, f:()=> MAPA.taller['Control de esfínteres'].i },
+  { re:/tactil|textura/, f:()=> MAPA.is['Táctil'].i },
+  { re:/vestibular|movimiento/, f:()=> MAPA.is['Vestibular'].i },
+  { re:/propiocep|graduaci[oó]n de la fuerza/, f:()=> MAPA.is['Propioceptivo'].i },
+  { re:/equilibrio|balance/, f:()=> MAPA.fisio['Reacciones de equilibrio y balance'].i },
+  { re:/marcha|desplazamiento|deambula/, f:()=> MAPA.fisio['Marcha'].i },
+  { re:/postur|control cefalico|control de tronco/, f:()=> MAPA.fisio['Postura'].i },
+  { re:/tono muscular/, f:()=> MAPA.fisio['Tono muscular'].i },
+  { re:/fuerza/, f:()=> MAPA.fisio['Fuerza muscular y movilidad articular'].i },
+  { re:/cambios de posici|transicion|traslado/, f:()=> MAPA.fisio['Movilidad y transiciones funcionales'].i },
+  { re:/motricidad gruesa|motora gruesa|saltar|correr|lanzar/, f:()=> MAPA.fisio['Habilidades motoras gruesas'].i }
+];
+function indicadorDe(obj, usados){
+  const txt = String(obj||'').replace(VINETA,''), o = sinTilde(txt), e = enumeracion(txt);
+  for(const r of IND){ if(r.re.test(o)){ const i = r.f(o, txt, e); if(!usados[i]){ usados[i] = 1; return i; } } }
+  // Sin regla conocida: se describe la habilidad del objetivo como desempeño observable.
+  let hab = txt.replace(/^\p{L}+(?:ar|er|ir)\s+/u, '').split(/,|\s(?:favoreciendo|promoviendo|facilitando|para|con el fin de|que permita)\s/)[0].trim().replace(/[.;]$/,'');
+  hab = min1(hab);
+  const i = 'Evidencia ' + (!hab ? 'las habilidades trabajadas' : /^(la|su) (capacidad|habilidad)\b/.test(hab) ? hab : 'un desempeño funcional en ' + hab) + ' durante las actividades terapéuticas con mínimo apoyo del terapeuta.';
+  usados[i] = 1; return i;
+}
+// Lectura del Word: texto de cada párrafo y si es viñeta o número de lista.
+function parrafosDe(nodo){
+  return Array.from(nodo.getElementsByTagNameNS('*','p')).map(p=>{
+    let t = '';
+    const walk = n => { for(const c of Array.from(n.childNodes)){ if(c.nodeType !== 1) continue; const ln = c.localName;
+      if(ln === 't') t += c.textContent; else if(ln === 'tab' || ln === 'br' || ln === 'cr') t += ' '; else if(ln === 'Fallback' || ln === 'p') continue; else walk(c); } };
+    walk(p);
+    return { t: t.replace(/\s+/g,' ').trim(), item: p.getElementsByTagNameNS('*','numPr').length > 0 };
+  }).filter(x=> x.t);
+}
+function items(pars){
+  const out = [];
+  pars.forEach(p=>{
+    const t = p.t, nuevo = p.item || VINETA.test(t) || /:$/.test(t), limpio = t.replace(VINETA,'').trim();
+    if(!limpio) return;
+    const ult = out[out.length-1];
+    if(!nuevo && ult && !/:$/.test(ult) && (!/[.;]$/.test(ult) || /^\p{Ll}/u.test(limpio))) out[out.length-1] = ult + ' ' + limpio;
+    else out.push(limpio);
+  });
+  return out;
+}
+function leerPlanXml(docXml){
+  const doc = new DOMParser().parseFromString(docXml, 'application/xml');
+  const filas = Array.from(doc.getElementsByTagNameNS('*','tr'));
+  const celdas = tr => Array.from(tr.childNodes).filter(c=> c.localName === 'tc');
+  let cab = -1, cols = {};
+  for(let i = 0; i < filas.length && cab < 0; i++){
+    const tx = celdas(filas[i]).map(c=> sinTilde(c.textContent));
+    const hi = tx.findIndex(t=> /hallazgo/.test(t)), oi = tx.findIndex(t=> /objetivo/.test(t));
+    if(hi >= 0 && oi >= 0){ cab = i; cols = { h:hi, o:oi, i:tx.findIndex(t=> /indicador/.test(t)), p:tx.findIndex(t=> /profesional/.test(t)) }; }
+  }
+  if(cab < 0) throw new Error('No encontré la tabla con las columnas HALLAZGOS y OBJETIVOS. ¿Es un plan terapéutico R-AMI-055?');
+  const junta = { h:[], o:[], i:[] };
+  for(let i = cab + 1; i < filas.length; i++){
+    const tr = filas[i];
+    let n = tr.parentNode, interna = false; while(n && n !== doc){ if(n.localName === 'tc'){ interna = true; break; } n = n.parentNode; }
+    if(interna) continue; // filas de tablas dentro de una celda
+    const cs = celdas(tr), tx = sinTilde(tr.textContent);
+    if(/socializaci|^\s*aprob|direccion cientifica|control de versiones/.test(tx) || cs.length < 3) break;
+    ['h','o','i'].forEach(k=>{ if(cols[k] >= 0 && cs[cols[k]]) junta[k] = junta[k].concat(parrafosDe(cs[cols[k]])); });
+  }
+  // Objetivos: "GENERAL:" y "ESPECÍFICOS:"
+  let general = '', modo = '';
+  const esp = [];
+  junta.o.forEach(p=>{
+    let t = p.t, mg = t.match(/^(?:objetivos?\s+)?general(?:es)?\s*:?\s*(.*)$/i), me = t.match(/^(?:objetivos?\s+)?espec[ií]ficos?\s*:?\s*(.*)$/i);
+    if(mg){ modo = 'g'; t = mg[1]; if(!t) return; }
+    else if(me){ modo = 'e'; t = me[1]; if(!t) return; }
+    if(modo === 'e') esp.push({ t, item: p.item });
+    else general += (general ? ' ' : '') + t;
+  });
+  // Encabezado: Nombre, Historia clínica, etc. (fuera de la tabla principal)
+  const todo = parrafosDe(doc).map(p=> p.t).join('\n');
+  const ETQ = 'Nombre|Historia Cl[ií]nica|H\\.?\\s?C\\.?|Edad|Diagn[oó]stico|Fecha de Ingreso|Periodo de Ejecuci[oó]n|CIE(?:-?10)?|[ÁA]REA';
+  const dato = re => { const m = todo.match(new RegExp('(?:^|\\s)(?:' + re + ')\\s*:\\s*(.*?)(?=\\s*(?:' + ETQ + ')\\s*:|\\n|$)', 'i')); return m ? m[1].trim() : ''; };
+  return {
+    nombre: dato('Nombre'), hc: dato('Historia Cl[ií]nica|H\\.?\\s?C\\.?'), edad: dato('Edad'), diag: dato('Diagn[oó]stico'),
+    ingreso: dato('Fecha de Ingreso'), periodo: dato('Periodo de Ejecuci[oó]n'), cie: dato('CIE(?:-?10)?'), area: dato('[ÁA]REA'),
+    hallazgos: items(junta.h), general: general.replace(VINETA,'').trim(), especificos: items(esp), indicadores: items(junta.i)
+  };
+}
+// El plan solo lleva debilidades: se quita la sección "Fortalezas:" de un plan anterior.
+function sinFortalezas(hs){
+  let fuera = false;
+  return hs.filter(t=>{ const tt = sinTilde(t.replace(VINETA,'').trim());
+    if(/:$/.test(t.trim())) fuera = /^fortalezas?\b|^capacidades\b|^habilidades (conservadas|preservadas)\b/.test(tt);
+    return !fuera; });
+}
+// Arma el plan renovado (variante 0, 1, 2… da redacciones distintas).
+function renovar(o, variante){
+  const usadosV = {};
+  const esp = o.especificos.map((t, k)=> parafrasearObjetivo(t, variante, k + 1, usadosV));
+  const usados = {}, ind = [];
+  esp.forEach((t, k)=> { const viejo = o.indicadores[k];
+    ind.push(viejo ? parafrasear(viejo.replace(VINETA,''), variante, k + 2).replace(/[.;\s]*$/, '.') : indicadorDe(t, usados)); });
+  o.indicadores.slice(esp.length).forEach((t, k)=> ind.push(parafrasear(t, variante, k + 5)));
+  return {
+    hallazgos: sinFortalezas(o.hallazgos).map((t, k)=> /:$/.test(t) ? t : '• ' + may1(parafrasear(t, variante, k)).replace(/[.;\s]*$/, '.')).join('\n'),
+    objGeneral: o.general ? parafrasearObjetivo(o.general, variante, 0) : '',
+    objEspecificos: esp.join('\n'), indicadores: ind.join('\n')
+  };
+}
+// IMPORTAR:PURO:FIN
+
+/* Word antiguo (.doc, Word 97-2003): archivo "compuesto" de Microsoft. Se saca el texto con la
+   tabla de piezas y se arma un document.xml mínimo (tablas, celdas y párrafos) para que lo lea
+   leerPlanXml igual que un .docx. En el .doc cada párrafo es un renglón de la lista. */
+function docBinAXml(u8){
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const sec = 1 << dv.getUint16(30, true), mini = 1 << dv.getUint16(32, true), corte = dv.getUint32(56, true);
+  const FIN = 0xFFFFFFFE, off = s => (s + 1) * sec;
+  // Tabla FAT a partir de la DIFAT
+  const difat = [];
+  for(let i = 0; i < 109; i++){ const s = dv.getUint32(76 + i*4, true); if(s < 0xFFFFFFFA) difat.push(s); }
+  for(let s = dv.getUint32(68, true), n = dv.getUint32(72, true); n-- > 0 && s < 0xFFFFFFFA; ){
+    for(let i = 0; i < sec/4 - 1; i++){ const x = dv.getUint32(off(s) + i*4, true); if(x < 0xFFFFFFFA) difat.push(x); }
+    s = dv.getUint32(off(s) + sec - 4, true);
+  }
+  const fat = [];
+  difat.forEach(s=>{ for(let i = 0; i < sec/4; i++) fat.push(dv.getUint32(off(s) + i*4, true)); });
+  const cadena = (s, tabla) => { const out = []; while(s < 0xFFFFFFFA && out.length < 1e6){ out.push(s); s = tabla[s]; if(s === FIN) break; } return out; };
+  const leerCadena = s => { const c = cadena(s, fat), b = new Uint8Array(c.length * sec); c.forEach((x, i)=> b.set(u8.subarray(off(x), off(x) + sec), i*sec)); return b; };
+  // Directorio
+  const dir = leerCadena(dv.getUint32(48, true)), ddv = new DataView(dir.buffer), entradas = [];
+  for(let o = 0; o + 128 <= dir.length; o += 128){
+    const ln = ddv.getUint16(o + 64, true); if(!ln) continue;
+    let nombre = ''; for(let i = 0; i < ln/2 - 1; i++) nombre += String.fromCharCode(ddv.getUint16(o + i*2, true));
+    entradas.push({ nombre, tipo: dir[o + 66], ini: ddv.getUint32(o + 116, true), tam: ddv.getUint32(o + 120, true) });
+  }
+  const raiz = entradas.find(e=> e.tipo === 5);
+  const miniFat = []; { const b = leerCadena(dv.getUint32(60, true)), bd = new DataView(b.buffer); if(dv.getUint32(64, true)) for(let i = 0; i < b.length/4; i++) miniFat.push(bd.getUint32(i*4, true)); }
+  const miniStream = raiz ? leerCadena(raiz.ini) : new Uint8Array(0);
+  const flujo = nombre => {
+    const e = entradas.find(x=> x.nombre === nombre); if(!e) return null;
+    if(e.tam < corte){ const c = cadena(e.ini, miniFat), b = new Uint8Array(c.length * mini); c.forEach((x, i)=> b.set(miniStream.subarray(x*mini, x*mini + mini), i*mini)); return b.subarray(0, e.tam); }
+    return leerCadena(e.ini).subarray(0, e.tam);
+  };
+  const wd = flujo('WordDocument');
+  if(!wd) throw new Error('El archivo .doc no tiene el contenido de Word que esperaba.');
+  const w = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
+  if(w.getUint16(0, true) !== 0xA5EC) throw new Error('El .doc no es de Word 97 o posterior. Ábrelo en Word y guárdalo como .docx.');
+  if(w.getUint16(10, true) & 0x0100) throw new Error('El .doc está protegido con contraseña.');
+  const tabla = flujo(w.getUint16(10, true) & 0x0200 ? '1Table' : '0Table');
+  if(!tabla) throw new Error('No encontré la tabla de texto del .doc.');
+  const csw = w.getUint16(32, true), base = 34 + csw*2, cslw = w.getUint16(base, true);
+  const ccpText = w.getUint32(base + 2 + 3*4, true), blob = base + 2 + cslw*4 + 2;
+  const fcClx = w.getUint32(blob + 33*8, true), lcbClx = w.getUint32(blob + 33*8 + 4, true);
+  const t = new DataView(tabla.buffer, tabla.byteOffset, tabla.byteLength);
+  let p = fcClx;
+  while(p < fcClx + lcbClx && tabla[p] === 1) p += 3 + t.getUint16(p + 1, true); // Prc: formato, se salta
+  if(tabla[p] !== 2) throw new Error('No pude leer el texto del .doc (tabla de piezas).');
+  const lcb = t.getUint32(p + 1, true), n = (lcb - 4) / 12, cps = p + 5, pcds = cps + (n + 1)*4;
+  const ansi = new TextDecoder('windows-1252'), uni = new TextDecoder('utf-16le');
+  let texto = '';
+  for(let i = 0; i < n; i++){
+    const cp0 = t.getUint32(cps + i*4, true), cp1 = Math.min(t.getUint32(cps + (i+1)*4, true), ccpText);
+    if(cp1 <= cp0) continue;
+    const fc = t.getUint32(pcds + i*8 + 2, true), comprimido = (fc & 0x40000000) !== 0, ini = comprimido ? (fc & 0x3FFFFFFF) / 2 : fc;
+    texto += comprimido ? ansi.decode(wd.subarray(ini, ini + (cp1 - cp0))) : uni.decode(wd.subarray(ini, ini + (cp1 - cp0)*2));
+  }
+  // Campos: se deja solo el resultado (lo que se ve); se quitan imágenes y marcas
+  texto = texto.replace(/\x13[^\x13\x14\x15]*\x14([^\x13\x15]*)\x15/g, '$1').replace(/\x13[^\x13\x15]*\x15/g, '')
+    .replace(/[\x01\x08\x0C\x1E\x1F]/g, '').replace(/\x0B/g, ' ').replace(/ /g, ' ');
+  return textoDocAXml(texto);
+}
+function textoDocAXml(texto){
+  const x = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const pars = (s, item) => s.split('\r').map(l=> l.trim()).filter(Boolean).map(l=> '<w:p>' + (item ? '<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr>' : '') + '<w:r><w:t xml:space="preserve">' + x(l) + '</w:t></w:r></w:p>').join('');
+  const c = texto.split('\x07'), ult = s => { const l = s.split('\r').map(v=> v.trim()).filter(Boolean); return l.length ? l[l.length-1] : ''; };
+  const i = c.findIndex((v, k)=> /hallazgo/i.test(sinTilde(ult(v))) && k + 1 < c.length && /objetivo/i.test(sinTilde(c[k+1])));
+  if(i < 0) return '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + pars(texto.replace(/\x07/g, '\r')) + '</w:body></w:document>';
+  let ncol = 0; while(i + ncol < c.length && c[i + ncol].trim()) ncol++;
+  const antes = c.slice(0, i).join('\r') + '\r' + c[i].split('\r').slice(0, -1).join('\r');
+  let filas = '<w:tr>' + c.slice(i, i + ncol).map((v, k)=> '<w:tc>' + pars(k ? v : ult(v)) + '</w:tc>').join('') + '</w:tr>';
+  let j = i + ncol + 1;
+  while(j + ncol <= c.length){
+    const fila = c.slice(j, j + ncol);
+    if(/socializaci|aprob|direccion cientifica|control de versiones/.test(sinTilde(fila[0]))) break;
+    filas += '<w:tr>' + fila.map(v=> '<w:tc>' + pars(v, true) + '</w:tc>').join('') + '</w:tr>';
+    j += ncol + 1;
+  }
+  return '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + pars(antes) + '<w:tbl>' + filas + '</w:tbl>' + pars(c.slice(j).join('\r')) + '</w:body></w:document>';
+}
+async function leerDocx(archivo){
+  const buf = await archivo.arrayBuffer(), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  if(u8.length > 8 && dv.getUint32(0, true) === 0xE011CFD0 && dv.getUint32(4, true) === 0xE11AB1A1) return docBinAXml(u8); // .doc antiguo
+  if(dv.getUint32(0, true) !== 0x04034b50) throw new Error(/\.pdf$/i.test(archivo.name) ? 'Es un PDF: abre el plan en Word y guárdalo como .docx (o .doc).' : 'El archivo no es un documento de Word (.docx o .doc).');
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--){ if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error('El Word está dañado o incompleto.');
+  let p = dv.getUint32(eocd + 16, true);
+  for(let n = 0, total = dv.getUint16(eocd + 10, true); n < total; n++){
+    const metodo = dv.getUint16(p + 10, true), comp = dv.getUint32(p + 20, true), lnom = dv.getUint16(p + 28, true);
+    const local = dv.getUint32(p + 42, true), nombre = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + lnom));
+    p += 46 + lnom + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+    if(nombre !== 'word/document.xml') continue;
+    const ini = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true), datos = u8.slice(ini, ini + comp);
+    if(metodo === 0) return new TextDecoder().decode(datos);
+    if(typeof DecompressionStream === 'undefined') throw new Error('Este navegador es muy antiguo para leer Word. Actualízalo (Chrome o Edge).');
+    return await new Response(new Blob([datos]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+  }
+  throw new Error('No encontré el contenido del documento dentro del Word.');
+}
+const aISO = s => { const m = String(s||'').match(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4})/); return m ? m[3] + '-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0') : ''; };
+function ponerCampo(id, valor){
+  const el = document.getElementById(id); if(!el || !valor) return;
+  el.value = valor; el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true }));
+}
+// Datos del niño/a: de la base de pacientes (por la historia clínica = documento); si no está, los del Word.
+function datosNino(o){
+  const B = window.CISADDE_BASE, id = String(o.hc||'').replace(/[^0-9A-Za-z]/g,'').toUpperCase();
+  const actual = String(state.numeroId||'').replace(/[^0-9A-Za-z]/g,'').toUpperCase();
+  if(actual && id && actual !== id && !confirmar('En la Portada está ' + (state.childName || 'otro niño/a') + ' (' + state.numeroId + ').\nEl plan es de ' + (o.nombre || id) + ' (' + id + ').\n\n¿Cambiar los datos de la Portada por los de este plan?')) return 'Se dejaron los datos que ya estaban en la Portada.';
+  const p = B && id ? B.porDocumento(id) : null;
+  if(p){ B.llenar(p); return 'Datos de ' + (p.nombre || id) + ' tomados de la base de pacientes (edad, EPS y diagnóstico al día).'; }
+  if(!id && !o.nombre) return 'El Word no trae nombre ni historia clínica: escríbelos en la Portada.';
+  ponerCampo('childName', o.nombre); ponerCampo('numeroId', id);
+  ponerCampo('cie10Code', String(o.cie||'').toUpperCase().replace(/^([A-Z]\d{2})(\d)$/, '$1.$2'));
+  ponerCampo('cie10Diag', o.diag); ponerCampo('fechaIngreso', aISO(o.ingreso));
+  return (B && B.lista() ? '⚠ ' + (o.nombre || id) + ' no está en la base de pacientes' : '⚠ No hay base de pacientes cargada') + ': se usaron los datos del Word. Completa la fecha de nacimiento en la Portada para que salga la edad.';
+}
+function aplicarImportado(){
+  const p = state.plan, imp = p.importado;
+  Object.assign(p, renovar(imp.o, imp.variante || 0));
+  const sug = sugerido(); p.base = sug ? firma(sug) : 'importado';
+}
+const inputPlan = document.createElement('input');
+inputPlan.type = 'file'; inputPlan.hidden = true;
+// .docx y .doc (con su tipo, para que el celular y Windows los muestren en Descargas)
+inputPlan.accept = '.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword';
+sec.appendChild(inputPlan);
+// El selector se abre directo con el clic: dentro de Claude una ventana previa puede impedir que se abra.
+document.getElementById('planCargarBtn').addEventListener('click', ()=>{ inputPlan.value = ''; inputPlan.click(); });
+function errorPlan(m){ document.getElementById('planAviso').textContent = '⚠ ' + m; try{ alert(m); }catch(e){} }
+inputPlan.addEventListener('change', async ()=>{
+  const f = inputPlan.files[0]; if(!f) return;
+  try{
+    if((state.plan.objGeneral || state.plan.objEspecificos) && !confirmar('Se reemplazarán los hallazgos, objetivos e indicadores que hay ahora en el plan por los de "' + f.name + '", parafraseados.\n¿Continuar?')) return;
+    document.getElementById('planAviso').textContent = '⏳ Leyendo "' + f.name + '"…';
+    const o = leerPlanXml(await leerDocx(f));
+    if(!o.general && !o.especificos.length) throw new Error('No encontré objetivos (GENERAL / ESPECÍFICOS) en la tabla del plan.');
+    const areaW = sinTilde(o.area).replace(/[^a-z ]/g,'').trim(), areaF = sinTilde(AREAS[FORM_ID] || '');
+    if(areaW && areaF && !areaF.startsWith(areaW.slice(0, 6)) && !areaW.startsWith(areaF.slice(0, 6))
+      && !confirmar('El plan es del área "' + o.area + '" y estás en el formato de ' + AREAS[FORM_ID] + '.\n¿Cargarlo igual?')) return;
+    const msg = datosNino(o);
+    const p = state.plan;
+    p.importado = { archivo: f.name, fecha: hoyISO(), variante: 0, o };
+    p.hc = ''; p.inicio = hoyISO(); p.fin = ''; p.socializacion = '';
+    aplicarImportado();
+    render(); queueSave();
+    const aviso = document.getElementById('planAviso');
+    aviso.textContent = '📂 Plan "' + f.name + '" cargado y parafraseado (' + o.especificos.length + ' objetivos específicos'
+      + (o.indicadores.length < o.especificos.length ? '; los indicadores que faltaban se redactaron desde los objetivos' : '') + '). ' + msg + ' Revisa los textos antes de descargar; "🔀 Otra redacción" cambia las palabras.';
+    // Dentro de Claude: la IA parafrasea y enriquece el plan cargado sin tener que pulsar otro botón.
+    if(sampleIA){
+      const base = aviso.textContent;
+      aviso.textContent = '⏳ ' + base + ' ✨ La IA lo está parafraseando y enriqueciendo…';
+      const ok = await redactarIA(false);
+      aviso.textContent = ok ? '📂✨ Plan "' + f.name + '" cargado, parafraseado y enriquecido con IA. ' + msg + ' Revisa los textos antes de descargar.'
+        : base + ' (La IA no pudo enriquecerlo: quedó la redacción automática; puedes intentar con "✨ Parafrasear y enriquecer con IA".)';
+    }
+  }catch(e){ errorPlan('No se pudo leer el plan "' + f.name + '": ' + (e && e.message || e)); }
+});
+document.getElementById('planOtraBtn').addEventListener('click', ()=>{
+  const p = state.plan; if(!p.importado) return;
+  if(firma(p) !== firma(renovar(p.importado.o, p.importado.variante || 0)) && !confirmar('Se reemplazan los cambios que escribiste a mano en hallazgos, objetivos e indicadores.\n¿Cambiar la redacción?')) return;
+  p.importado.variante = (p.importado.variante || 0) + 1;
+  aplicarImportado(); render(); queueSave();
+});
+
+/* ---------- Mejorar la redacción con IA ---------- */
+// Dentro de Claude (enlace claude.ai con permiso "sample") redacta sola; en cualquier otra página
+// se copia el texto, se pega en una IA gratuita y la respuesta se pega de vuelta.
+// Al texto NO va el nombre ni el documento del niño/a.
+// Texto que se le pasa a la IA: si el plan se cargó de un Word y no se ha editado a mano, va el
+// ORIGINAL del Word (no la versión parafraseada sin internet), para que la IA parta del texto real.
+function fuenteIA(){
+  const p = state.plan, imp = p.importado;
+  if(imp && imp.o && firma(p) === firma(renovar(imp.o, imp.variante || 0)))
+    return { hallazgos: imp.o.hallazgos.join('\n'), objGeneral: imp.o.general, objEspecificos: imp.o.especificos.join('\n'), indicadores: imp.o.indicadores.join('\n'), anterior: true };
+  return { hallazgos: p.hallazgos, objGeneral: p.objGeneral, objEspecificos: p.objEspecificos, indicadores: p.indicadores, anterior: !!imp };
+}
+function promptIA(){
+  const p = fuenteIA(), d = datos(), area = d.area || 'terapia';
+  const lista = (txt, num) => lineas(txt).map((l, i)=> (num ? (i+1) + '. ' : '- ') + l.replace(/^[•\-*]\s*|^\d+[.)]\s*/, '')).join('\n') || '(vacío)';
+  return 'Eres profesional de ' + area + ' en un centro de rehabilitación infantil en Colombia. Parafrasea y ENRIQUECE este plan terapéutico (formato institucional R-AMI-055) '
+    + 'de un niño/a' + (d.edad ? ' de ' + d.edad : '') + (d.diag ? ' con diagnóstico ' + d.diag : '') + '. '
+    + (p.anterior ? 'Es el plan del periodo anterior y se renueva para un nuevo periodo: ' : '')
+    + 'conserva el mismo sentido clínico, pero con otras palabras (no copies las frases tal cual), en lenguaje técnico, claro y más completo que el original.\n\n'
+    + 'CÓMO ENRIQUECERLO:\n'
+    + '- Hallazgos: desarrolla cada uno explicando cómo se observa en sesión y qué impacto funcional tiene en el hogar, el colegio o el juego; incluye SOLO las debilidades (lo que el niño/a aún no logra), bajo el subtítulo Debilidades; no escribas fortalezas. '
+    + 'Puedes precisar y detallar lo que ya dice el plan, pero no inventes resultados de pruebas, diagnósticos ni dificultades que no se mencionen.\n'
+    + '- Objetivo general: sale solo de las debilidades; más preciso, nombrando las habilidades que trabajan los específicos.\n'
+    + '- Objetivos específicos: completa los que estén cortos con la habilidad concreta, el contexto (actividades estructuradas, juego, rutinas, aula, hogar) y el propósito funcional. '
+    + 'Si hay una debilidad de los hallazgos sin objetivo, agrega uno (máximo ' + MAX_OBJETIVOS + ' en total).\n'
+    + '- Indicadores: hazlos más observables y verificables, con criterio claro (nivel de apoyo, número de pasos o repeticiones, tiempo en minutos, contexto).\n\n'
+    + 'REGLAS DE LA INSTITUCIÓN:\n'
+    + '- Hallazgos: descripción objetiva solo de las debilidades observadas (lo que aún no logra); sin fortalezas.\n'
+    + '- Objetivo general: verbo + función o habilidad principal + propósito funcional; amplio y sin contexto.\n'
+    + '- Objetivos específicos: mínimo ' + MIN_OBJETIVOS + ' y máximo ' + MAX_OBJETIVOS + '; verbo + habilidad específica + contexto + propósito funcional; cada uno desarrolla el objetivo general.\n'
+    + '- Inicia cada objetivo con uno de estos verbos: Fortalecer, Favorecer, Promover, Desarrollar, Potenciar, Optimizar, Facilitar, Preservar. Evita: Trabajar, Hacer, Realizar, Ejecutar, Ayudar, Mantener.\n'
+    + '- No pongas técnicas ni estrategias en los objetivos (economía de fichas, modelado, "mediante estrategias…").\n'
+    + '- Un indicador de logro por cada objetivo específico, en el mismo orden: conducta observable + contexto + criterio, en forma afirmativa y en presente (ej.: "Sigue instrucciones de dos pasos con máximo una repetición de la instrucción."). Sin porcentajes, sin "no" ni "sin", sin futuro ("mantendrá").\n\n'
+    + 'PLAN ACTUAL:\nHALLAZGOS:\n' + lista(p.hallazgos) + '\n\nOBJETIVO GENERAL:\n' + (p.objGeneral || '(vacío)')
+    + '\n\nOBJETIVOS ESPECÍFICOS:\n' + lista(p.objEspecificos, 1) + '\n\nINDICADORES DE LOGRO:\n' + lista(p.indicadores, 1) + '\n\n'
+    + 'Responde SOLO con el plan, sin saludos ni explicaciones, exactamente con estos títulos:\n'
+    + 'HALLAZGOS:\n- …\nOBJETIVO GENERAL:\n…\nOBJETIVOS ESPECÍFICOS:\n1. …\nINDICADORES DE LOGRO:\n1. …';
+}
+function leerRespuestaIA(txt){
+  const partes = { h:[], g:[], e:[], i:[] };
+  let k = '';
+  String(txt||'').replace(/\*\*|__/g,'').split('\n').forEach(l=>{
+    l = l.replace(/^#+\s*/, '').trim(); if(!l) return;
+    const m = sinTilde(l).match(/^(hallazgos|objetivo general|objetivos especificos|indicadores(?: de logro)?)\s*:?\s*/);
+    if(m){ k = { hallazgos:'h', 'objetivo general':'g', 'objetivos especificos':'e' }[m[1]] || 'i'; l = l.slice(m[0].length).trim(); if(!l) return; }
+    if(k) partes[k].push(l);
+  });
+  const limpio = l => l.replace(VINETA, '').trim();
+  if(!partes.g.length && !partes.e.length) return null;
+  return {
+    hallazgos: partes.h.map(l=> /:$/.test(l) ? l : '• ' + limpio(l)).join('\n'),
+    objGeneral: partes.g.map(limpio).join(' '),
+    objEspecificos: partes.e.map(limpio).filter(Boolean).join('\n'),
+    indicadores: partes.i.map(limpio).filter(Boolean).join('\n')
+  };
+}
+function estadoIA(msg, error){
+  const n = document.getElementById('planIaEstado');
+  n.style.display = msg ? 'block' : 'none'; n.textContent = msg || ''; n.style.color = error ? 'var(--red)' : '';
+}
+function aplicarIA(txt, preguntar){
+  const r = leerRespuestaIA(txt);
+  if(!r){ estadoIA('No encontré los títulos OBJETIVO GENERAL / OBJETIVOS ESPECÍFICOS en la respuesta. Pega la respuesta completa de la IA.', true); return false; }
+  if(preguntar && !confirmar('Se reemplazarán los hallazgos, objetivos e indicadores del plan por los de la IA.\n¿Continuar?')) return false;
+  const p = state.plan;
+  if(!r.hallazgos) delete r.hallazgos; // si la IA no los devolvió, se dejan los que había
+  Object.assign(p, r);
+  const sug = sugerido(); p.base = sug ? firma(sug) : (p.base || 'ia'); // que la valoración no lo sobrescriba
+  render(); queueSave();
+  estadoIA('✅ Redacción de la IA aplicada. Revísala y la lista de verificación antes de descargar.');
+  return true;
+}
+document.getElementById('planIaCopiar').addEventListener('click', async ()=>{
+  const t = promptIA();
+  try{ await Promise.race([navigator.clipboard.writeText(t), new Promise((ok, mal)=> setTimeout(()=> mal(new Error('tiempo')), 1500))]); estadoIA('📋 Copiado. Pégalo en ChatGPT, Gemini o Claude; luego copia su respuesta y pégala en el recuadro de abajo.'); }
+  catch(e){ const r = document.getElementById('planIaResp'); r.value = t; r.select(); estadoIA('No se pudo copiar solo: el texto quedó en el recuadro, cópialo con Ctrl+C y luego reemplázalo por la respuesta de la IA.', true); }
+});
+document.getElementById('planIaAplicar').addEventListener('click', ()=> aplicarIA(document.getElementById('planIaResp').value, true));
+let sampleIA = null;
+if(window.claude && typeof window.claude.use === 'function'){
+  window.claude.use('sample').then(s=>{
+    if(!s) return;
+    sampleIA = s;
+    document.getElementById('planIaBtn').hidden = false;
+    document.getElementById('planIaModo').textContent = 'Al cargar un plan anterior la IA lo parafrasea y enriquece sola; también puedes usar "✨ Parafrasear y enriquecer con IA" cuando quieras.';
+  }).catch(()=>{});
+}
+// Parafrasea y enriquece con la IA de Claude. preguntar=false cuando viene de "Cargar plan anterior".
+async function redactarIA(preguntar){
+  const btn = document.getElementById('planIaBtn'), resp = document.getElementById('planIaResp');
+  if(!sampleIA || btn.disabled) return false;
+  if(!state.plan.objGeneral && !state.plan.objEspecificos){ estadoIA('Primero carga un plan anterior o genera el plan desde la valoración.', true); return false; }
+  if(preguntar && !confirmar('La IA parafraseará y enriquecerá los hallazgos, objetivos e indicadores del plan.\n¿Continuar?')) return false;
+  btn.disabled = true; const txt0 = btn.textContent; btn.textContent = '⏳ Redactando…'; estadoIA('✨ La IA está parafraseando y enriqueciendo el plan…');
+  let ok = false;
+  try{
+    const r = await sampleIA(promptIA(), { modelTier:'default', onText: ({ text })=>{ resp.value = text; } });
+    resp.value = r.text; ok = aplicarIA(r.text, false);
+  }catch(e){
+    if(e && e.text) resp.value = e.text;
+    estadoIA(e && e.code === 'not_granted' ? 'No se dio el permiso para usar la IA. Puedes usar "📋 Copiar para la IA".'
+      : e && e.code === 'rate_limited' ? 'Demasiadas solicitudes seguidas: espera un momento e intenta de nuevo.' : 'La IA no respondió. Intenta de nuevo o usa "📋 Copiar para la IA".', true);
+    if(e && e.code === 'not_granted') btn.hidden = true;
+  }finally{ btn.disabled = false; btn.textContent = txt0; }
+  return ok;
+}
+document.getElementById('planIaBtn').addEventListener('click', ()=> redactarIA(true));
 
 /* ---------- Word (.docx) ---------- */
 const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
@@ -3049,9 +3791,955 @@ document.getElementById('planWordBtn').addEventListener('click', ()=>{
   descargarWord().catch(err=> alert('No se pudo crear el archivo de Word: ' + err.message));
 });
 
+/* ---------- Para "Tus pacientes": renovar varios planes a la vez ---------- */
+window.CISADDE_PLAN = {
+  // Lee un plan anterior (.doc o .docx); error si no trae objetivos.
+  leer: async f => { const o = leerPlanXml(await leerDocx(f)); if(!o.general && !o.especificos.length) throw new Error('no encontré objetivos (GENERAL / ESPECÍFICOS) en la tabla del plan'); return o; },
+  // ¿El plan es del área de este formato? (si el Word no dice el área, sí)
+  mismaArea: o => { const w = sinTilde(o.area).replace(/[^a-z ]/g,'').trim(), f = sinTilde(AREAS[FORM_ID] || ''); return !w || !f || f.startsWith(w.slice(0, 6)) || w.startsWith(f.slice(0, 6)); },
+  // Plan renovado listo para guardar en state.plan
+  plan: (o, archivo) => Object.assign(vacio(), renovar(o, 0), { inicio: hoyISO(), aprobo: (state.plan && state.plan.aprobo) || APROBO_DEFECTO,
+    base: 'importado', importado: { archivo, fecha: hoyISO(), variante: 0, o } }),
+  // Datos del encabezado del Word que no dependen del niño/a: área, periodo, profesional y sello del formato
+  comunes: () => { const d = datos(); return { area: d.areaAuto, periodo: fmtDate(hoyISO()) + ' al ' + fmtDate(cierres(hoyISO())[0]), profesional: d.profesional, tarjeta: d.tarjeta, sello: d.sello, socializacion: '', aprobo: d.aprobo || APROBO_DEFECTO }; },
+  word: (d, p) => crearWordPlan(d, p),
+  zip: archivos => zip(archivos),
+  guardar: (blob, nombre) => guardarArchivo(blob, nombre),
+  codigo: CODIGO
+};
 })();
 </script>
 <!-- PLAN TERAPEUTICO:FIN -->
+<!-- BASE PACIENTES:INICIO -->
+<script>
+/* =====================================================================
+   BASE DE PACIENTES (Excel)
+   Se carga un .xlsx o .csv con los pacientes de CISADDE. Después, al
+   escribir el nombre o el número de documento en la Portada, se llenan
+   solos: nombres y apellidos, tipo y número de documento, fecha de
+   ingreso, fecha de nacimiento, EPS, código y nombre del diagnóstico.
+   Quien no está en la base se escribe a mano, igual que siempre.
+   La base vive solo en este navegador (IndexedDB), compartida por los
+   6 formatos cuando se abren desde el mismo sitio.
+   Fuente: herramientas/base-pacientes.js → node herramientas/insertar-base.js
+   ===================================================================== */
+(function(){
+const DB_NAME = 'cisadde_base_pacientes', DB_STORE = 'base', DB_KEY = 'actual';
+
+const CAMPOS = [
+  { k:'id',  lbl:'Número de documento (cédula, TI, RC)', obligatorio:true },
+  { k:'tipo', lbl:'Tipo de documento' },
+  { k:'n1',  lbl:'Nombres (o primer nombre, o nombre completo)', obligatorio:true },
+  { k:'n2',  lbl:'Segundo nombre' },
+  { k:'a1',  lbl:'Apellidos (o primer apellido)' },
+  { k:'a2',  lbl:'Segundo apellido' },
+  { k:'ing', lbl:'Fecha de ingreso' },
+  { k:'nac', lbl:'Fecha de nacimiento' },
+  { k:'eps', lbl:'EPS' },
+  { k:'cie', lbl:'Diagnóstico principal (código CIE-10)' },
+  { k:'dx',  lbl:'Nombre del diagnóstico' },
+  { k:'est', lbl:'Estado (activo / inactivo)' }
+];
+const VERSION = 2; // sube cuando cambia cómo se leen las columnas: obliga a releer la base vieja
+// "N°", "No", "Nro" solos suelen ser el consecutivo de la fila, no el documento.
+const ID_DEBIL = /^(n|no|nro|num|numero)( de)?$/;
+// Encabezados que dicen "documento" pero no son el del niño.
+const NO_ES_ID = /madre|padre|acudiente|autoriz|responsable|cuidador|fecha|lugar|expedic|inscrip|consecutivo|item/;
+// Orden en que se prueba cada encabezado: el primero que coincide se queda con la columna.
+const REGLAS = [
+  // \b en "cie" y "entidad": "paciente" contiene "cie" e "identidad" contiene "entidad"
+  ['dx',  /(nombre|descripcion|desc|detalle|texto).*(diag|\bdx|\bcie)|(diag|\bdx).*(nombre|descripcion|desc)/],
+  ['cie', /diag|\bdx\b|\bcie/],
+  ['eps', /\beps\b|\be p s\b|asegurador|eapb|\bentidad\b|administradora|convenio|pagador|empresa|contrato/],
+  ['tipo', /tipo.*(doc|ident|\bid\b)|^tipo$|^td$/],
+  ['est', /^estado( del| de la| de)?( paciente| usuario| nino| a)*$/],
+  ['nac', /nacimiento|\bnac\b|f ?nac/],
+  ['ing', /ingreso|admision|entrada/],
+  ['id',  /cedula|\bdoc|identi|\bid\b|nuip|^(n|no|nro|num|numero) (de )?(doc|id)|^cc$|^ti$|^rc$/],
+  ['idDebil', ID_DEBIL],
+  ['n2',  /segundo nombre|^nombre 2$|2 nombre/],
+  ['a2',  /segundo apellido|^apellido 2$|2 apellido/],
+  ['n1',  /nombre|paciente|usuario/],
+  ['a1',  /apellido/]
+];
+
+const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const normId = s => String(s == null ? '' : s).replace(/\.0+$/,'').replace(/[^0-9A-Za-z]/g,'').toUpperCase();
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const limpio = s => String(s == null ? '' : s).replace(/\s+/g,' ').trim();
+
+/* ---------- Guardado en el navegador (IndexedDB) ---------- */
+let base = null; // { archivo, cargado, filas:[{id,tipo,nombre,ing,nac,eps,cie,dx}] }
+function abrirDB(){
+  return new Promise((ok, mal)=>{
+    if(!window.indexedDB) return mal(new Error('sin IndexedDB'));
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = ()=> r.result.createObjectStore(DB_STORE);
+    r.onsuccess = ()=> ok(r.result);
+    r.onerror = ()=> mal(r.error);
+  });
+}
+async function leerBase(){
+  try{
+    const db = await abrirDB();
+    return await new Promise(ok=>{
+      const q = db.transaction(DB_STORE).objectStore(DB_STORE).get(DB_KEY);
+      q.onsuccess = ()=> ok(q.result || null); q.onerror = ()=> ok(null);
+    });
+  }catch(e){ return null; }
+}
+async function escribirBase(valor, clave){
+  const db = await abrirDB();
+  await new Promise((ok, mal)=>{
+    const t = db.transaction(DB_STORE, 'readwrite');
+    if(valor) t.objectStore(DB_STORE).put(valor, clave || DB_KEY); else t.objectStore(DB_STORE).delete(clave || DB_KEY);
+    t.oncomplete = ok; t.onerror = ()=> mal(t.error);
+  });
+}
+async function leerClave(clave){
+  try{
+    const db = await abrirDB();
+    return await new Promise(ok=>{
+      const q = db.transaction(DB_STORE).objectStore(DB_STORE).get(clave);
+      q.onsuccess = ()=> ok(q.result || null); q.onerror = ()=> ok(null);
+    });
+  }catch(e){ return null; }
+}
+
+/* ---------- Carpeta "Exel" del computador (Chrome / Edge) ----------
+   Se elige una vez la carpeta; el navegador guarda el permiso y cada vez
+   que se abre un formato revisa si el Excel de la carpeta cambió. */
+const CARPETA_KEY = 'carpeta';
+const HAY_CARPETAS = typeof window.showDirectoryPicker === 'function';
+const EXT_OK = /\.(xlsx|xlsm|csv)$/i;
+async function archivosDeCarpeta(dir){
+  const lista = [];
+  for await (const h of dir.values()){
+    if(h.kind !== 'file' || !EXT_OK.test(h.name) || /^~\$/.test(h.name)) continue; // ~$ = archivo temporal de Excel abierto
+    try{ const f = await h.getFile(); lista.push(f); }catch(e){}
+  }
+  return lista.sort((a, b) => b.lastModified - a.lastModified);
+}
+async function permiso(dir, pedir){
+  try{
+    if(await dir.queryPermission({ mode:'read' }) === 'granted') return true;
+    return pedir && await dir.requestPermission({ mode:'read' }) === 'granted';
+  }catch(e){ return false; }
+}
+async function leerHojas(f){
+  const buf = await f.arrayBuffer();
+  return /\.csv$/i.test(f.name) ? leerCsv(buf) : await leerXlsx(buf);
+}
+// Usa las columnas que se eligieron la última vez (por el texto del encabezado).
+function columnasGuardadas(hojas, cols, nombreHoja){
+  if(!cols || !Object.keys(cols).length) return null;
+  const orden = hojas.slice().sort((a, b) => (b.nombre === nombreHoja) - (a.nombre === nombreHoja));
+  for(const hoja of orden){
+    for(let r = 0; r < Math.min(hoja.filas.length, 15); r++){
+      const enc = (hoja.filas[r] || []).map(norm), mapa = {};
+      let todas = true;
+      for(const k in cols){ const c = enc.indexOf(cols[k]); if(c < 0){ todas = false; break; } mapa[k] = c; }
+      if(!todas) continue;
+      // columnas guardadas con la versión anterior: "N°" quedó como documento
+      if('id' in mapa && (ID_DEBIL.test(cols.id) || esConsecutivo(hoja.filas, r, mapa.id))){
+        const d = detectar(hoja.filas);
+        if(d.fila !== r || !('id' in d.mapa)) return null; // que la persona elija de nuevo
+        mapa.id = d.mapa.id;
+        if('est' in d.mapa && !('est' in mapa)) mapa.est = d.mapa.est;
+      }
+      const nuevas = {};
+      Object.keys(mapa).forEach(k => { const n = norm(enc[mapa[k]]); if(n) nuevas[k] = n; });
+      return { hoja, fila: r, mapa, cols: nuevas };
+    }
+  }
+  return null;
+}
+
+/* ---------- Lectura del .xlsx (zip + XML, sin librerías) ---------- */
+async function unzip(buf){
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--){ if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error('El archivo no es un Excel .xlsx válido.');
+  const total = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const archivos = {};
+  for(let n = 0; n < total; n++){
+    const metodo = dv.getUint16(p + 10, true), comp = dv.getUint32(p + 20, true);
+    const lnom = dv.getUint16(p + 28, true), lext = dv.getUint16(p + 30, true), lcom = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const nombre = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + lnom));
+    archivos[nombre] = { metodo, comp, local };
+    p += 46 + lnom + lext + lcom;
+  }
+  return async function leer(nombre){
+    const a = archivos[nombre]; if(!a) return null;
+    const ini = a.local + 30 + dv.getUint16(a.local + 26, true) + dv.getUint16(a.local + 28, true);
+    const datos = u8.slice(ini, ini + a.comp);
+    if(a.metodo === 0) return new TextDecoder().decode(datos);
+    if(typeof DecompressionStream === 'undefined') throw new Error('Este navegador es muy antiguo para leer Excel. Actualízalo o guarda el archivo como CSV.');
+    const flujo = new Blob([datos]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(flujo).text();
+  };
+}
+const xml = s => new DOMParser().parseFromString(s, 'application/xml');
+const tags = (nodo, t) => Array.from(nodo.getElementsByTagNameNS('*', t));
+function colIndex(ref){ let n = 0; for(const ch of String(ref).replace(/[0-9]/g,'')) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; }
+
+async function leerXlsx(buf){
+  const leer = await unzip(buf);
+  const wb = xml(await leer('xl/workbook.xml') || '');
+  const rels = xml(await leer('xl/_rels/workbook.xml.rels') || '<r/>');
+  const destino = {};
+  tags(rels, 'Relationship').forEach(r=>{ destino[r.getAttribute('Id')] = r.getAttribute('Target'); });
+  const ssTxt = await leer('xl/sharedStrings.xml');
+  const ss = ssTxt ? tags(xml(ssTxt), 'si').map(si => tags(si, 't').filter(t => !t.parentNode || t.parentNode.localName !== 'rPh').map(t => t.textContent).join('')) : [];
+  const hojas = [];
+  for(const h of tags(wb, 'sheet')){
+    const rid = h.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || h.getAttribute('r:id');
+    let ruta = destino[rid] || ''; if(!ruta) continue;
+    ruta = ruta.startsWith('/') ? ruta.slice(1) : 'xl/' + ruta.replace(/^\.\//,'');
+    const txt = await leer(ruta); if(!txt) continue;
+    const filas = [];
+    tags(xml(txt), 'row').forEach(row=>{
+      const fila = [];
+      tags(row, 'c').forEach((c, i)=>{
+        const ref = c.getAttribute('r'), t = c.getAttribute('t');
+        const v = tags(c, 'v')[0];
+        let val = '';
+        if(t === 's') val = v ? (ss[Number(v.textContent)] || '') : '';
+        else if(t === 'inlineStr') val = tags(c, 't').map(x => x.textContent).join('');
+        else if(t === 'b') val = v && v.textContent === '1' ? 'VERDADERO' : 'FALSO';
+        else if(v){ val = v.textContent; if(t !== 'str' && t !== 'e' && val !== '' && !isNaN(val)) val = Number(val); }
+        fila[ref ? colIndex(ref) : i] = val;
+      });
+      filas.push(Array.from(fila, x => x === undefined ? '' : x));
+    });
+    hojas.push({ nombre: h.getAttribute('name') || ('Hoja ' + (hojas.length + 1)), filas });
+  }
+  if(!hojas.length) throw new Error('No encontré hojas con datos en el Excel.');
+  return hojas;
+}
+
+/* ---------- Lectura del .csv ---------- */
+function leerCsv(buf){
+  let txt = new TextDecoder('utf-8').decode(buf);
+  if(txt.includes('\uFFFD')) txt = new TextDecoder('windows-1252').decode(buf);
+  txt = txt.replace(/^﻿/, '');
+  const primera = txt.split(/\r?\n/)[0] || '';
+  const sep = [';', ',', '\t', '|'].map(s => [s, primera.split(s).length]).sort((a,b) => b[1] - a[1])[0][0];
+  const filas = []; let fila = [], campo = '', comillas = false;
+  for(let i = 0; i < txt.length; i++){
+    const ch = txt[i];
+    if(comillas){
+      if(ch === '"' && txt[i+1] === '"'){ campo += '"'; i++; }
+      else if(ch === '"') comillas = false;
+      else campo += ch;
+    } else if(ch === '"') comillas = true;
+    else if(ch === sep){ fila.push(campo); campo = ''; }
+    else if(ch === '\n' || ch === '\r'){
+      if(ch === '\r' && txt[i+1] === '\n') i++;
+      fila.push(campo); filas.push(fila); fila = []; campo = '';
+    } else campo += ch;
+  }
+  if(campo !== '' || fila.length){ fila.push(campo); filas.push(fila); }
+  return [{ nombre: 'CSV', filas }];
+}
+
+/* ---------- Columnas: detectar encabezados ---------- */
+function detectar(filas){
+  let mejor = { fila: 0, mapa: {}, puntos: -1 };
+  for(let r = 0; r < Math.min(filas.length, 15); r++){
+    const mapa = {}; let puntos = 0;
+    (filas[r] || []).forEach((h, c)=>{
+      const n = norm(h); if(!n || n.length > 60) return;
+      for(const [k, re] of REGLAS){
+        if(!re.test(n)) continue;
+        if(k === 'id' && NO_ES_ID.test(n)) continue;
+        // el diagnóstico "principal" gana sobre los relacionados
+        if(k === 'cie' && /relacion|secund|\b[2-9]\b/.test(n) && !/principal/.test(n)) break;
+        if(!(k in mapa) || (k === 'cie' && /principal/.test(n))){ if(!(k in mapa)) puntos++; mapa[k] = c; }
+        break;
+      }
+    });
+    if('idDebil' in mapa){ if(!('id' in mapa)) mapa.id = mapa.idDebil; else puntos--; delete mapa.idDebil; }
+    if(puntos > mejor.puntos) mejor = { fila: r, mapa, puntos };
+  }
+  porContenido(filas, mejor);
+  return mejor;
+}
+// ¿La columna es un consecutivo (1, 2, 3...) y no un documento?
+function esConsecutivo(filas, desde, c){
+  const v = filas.slice(desde + 1, desde + 201).map(f => normId(f[c])).filter(Boolean);
+  if(v.length < 5) return false;
+  const cortos = v.filter(x => /^\d{1,5}$/.test(x)).length;
+  return cortos / v.length > 0.8;
+}
+// Si el encabezado no dijo cuál es el documento o la EPS, se buscan por lo que tienen las celdas.
+const EPS_CONOCIDAS = /\beps\b|sanitas|sura|coosalud|salud total|famisanar|compensar|mutual ?ser|cajacopi|asmet|emssanar|capresoca|comfenalco|savia|aliansalud|ecoopsos|dusakawi|pijaos|wayuu|capital salud|comfa|cafesalud|medimas|\bsos\b|magisterio|fomag|sanidad|nueva eps|coomeva|cosmitet|anas|mallamas|salud mia|ferrocarriles/;
+function porContenido(filas, det){
+  if('id' in det.mapa && esConsecutivo(filas, det.fila, det.mapa.id)) delete det.mapa.id;
+  const usadas = new Set(Object.values(det.mapa));
+  const datos = filas.slice(det.fila + 1, det.fila + 201).filter(f => f.some(v => v !== ''));
+  if(!datos.length) return;
+  const nCols = Math.max(...datos.map(f => f.length));
+  const mejorCol = prueba => {
+    let col = -1, max = 0.5; // más de la mitad de las filas debe parecerse
+    for(let c = 0; c < nCols; c++){
+      if(usadas.has(c)) continue;
+      const llenas = datos.filter(f => String(f[c] == null ? '' : f[c]).trim() !== '');
+      if(!llenas.length) continue;
+      const parte = llenas.filter(f => prueba(f[c])).length / llenas.length;
+      if(parte > max){ max = parte; col = c; }
+    }
+    return col;
+  };
+  if(!('id' in det.mapa)){
+    const c = mejorCol(v => /^\d{6,12}$/.test(normId(v)));
+    if(c >= 0){ det.mapa.id = c; usadas.add(c); }
+  }
+  if(!('eps' in det.mapa)){
+    const c = mejorCol(v => EPS_CONOCIDAS.test(norm(v)));
+    if(c >= 0){ det.mapa.eps = c; usadas.add(c); }
+  }
+}
+
+/* ---------- Conversión de valores ---------- */
+function aISO(v){
+  if(v === '' || v == null) return '';
+  if(typeof v === 'number' || /^\d{4,5}(\.\d+)?$/.test(String(v).trim())){
+    const n = Number(v); if(n < 1 || n > 80000) return '';
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+  if(m) return m[1] + '-' + m[2].padStart(2,'0') + '-' + m[3].padStart(2,'0');
+  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/);
+  if(m){
+    let d = Number(m[1]), mes = Number(m[2]), y = Number(m[3]);
+    if(mes > 12 && d <= 12){ const t = d; d = mes; mes = t; } // venía mes/día
+    if(y < 100){ const hoy = new Date().getFullYear() % 100; y += y > hoy ? 1900 : 2000; }
+    if(mes < 1 || mes > 12 || d < 1 || d > 31) return '';
+    return y + '-' + String(mes).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+  }
+  const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  m = norm(s).match(/^(\d{1,2}) (?:de )?([a-z]{3})[a-z]* (?:de )?(\d{4})/);
+  if(m && meses.indexOf(m[2]) >= 0) return m[3] + '-' + String(meses.indexOf(m[2]) + 1).padStart(2,'0') + '-' + m[1].padStart(2,'0');
+  return '';
+}
+function tipoDoc(v){
+  const n = norm(v);
+  if(!n) return '';
+  if(/^rc$|registro/.test(n)) return 'RC';
+  if(/^ti$|tarjeta/.test(n)) return 'TI';
+  if(/^cc$|cedula de ciudadania|^cedula$/.test(n)) return 'CC';
+  return 'Otro';
+}
+function separarDx(cie, dx){
+  cie = limpio(cie); dx = limpio(dx);
+  const m = cie.match(/^([A-Za-z]\d{2}(?:\.?[0-9X]{1,2})?)\s*[-–:,]?\s*(.*)$/);
+  if(m){ cie = m[1].toUpperCase(); if(!dx && m[2]) dx = m[2]; }
+  else if(cie && !dx){ dx = cie; cie = ''; }
+  if(/^[A-Z]\d{3}$/.test(cie)) cie = cie.slice(0, 3) + '.' + cie.slice(3); // F840 → F84.0
+  return { cie, dx };
+}
+function aFilas(hoja, encabezado, mapa){
+  const val = (f, k) => k in mapa && mapa[k] !== '' && mapa[k] != null ? f[mapa[k]] : '';
+  const out = [], porId = {};
+  hoja.filas.slice(encabezado + 1).forEach(f=>{
+    const id = limpio(val(f, 'id')).replace(/\.0+$/, '');
+    const nombre = limpio([val(f,'n1'), val(f,'n2'), val(f,'a1'), val(f,'a2')].join(' '));
+    if(!id && !nombre) return;
+    const d = separarDx(val(f, 'cie'), val(f, 'dx'));
+    const p = { id, tipo: tipoDoc(val(f, 'tipo')), nombre, ing: aISO(val(f, 'ing')), nac: aISO(val(f, 'nac')), eps: limpio(val(f, 'eps')), cie: d.cie, dx: d.dx, est: limpio(val(f, 'est')).toUpperCase() };
+    const k = normId(id);
+    if(!k){ out.push(p); return; }
+    // El mismo niño sale varias veces (ingresos y reingresos): queda una sola ficha,
+    // la ACTIVA o, si no, la de ingreso más reciente; los otros nombres sirven para buscarlo.
+    const ya = porId[k];
+    if(!ya){ porId[k] = p; out.push(p); return; }
+    const alias = new Set([ya.nombre].concat(ya.alias || [], [p.nombre]));
+    const gana = (p.est === 'ACTIVO') - (ya.est === 'ACTIVO') || (p.ing > ya.ing) - (p.ing < ya.ing) || 1;
+    const queda = gana > 0 ? p : ya;
+    alias.delete(queda.nombre); alias.delete('');
+    if(queda !== ya){ out[out.indexOf(ya)] = queda; porId[k] = queda; }
+    // lo que le falte a la ficha elegida se completa con la otra
+    ['tipo', 'nac', 'eps', 'cie', 'dx', 'ing'].forEach(c => { if(!queda[c]) queda[c] = (queda === p ? ya : p)[c]; });
+    if(alias.size) queda.alias = Array.from(alias); else delete queda.alias;
+  });
+  return out;
+}
+
+/* ---------- Estilos ---------- */
+const css = document.createElement('style');
+css.textContent = ''
+  + '.bp-modal{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(10,25,40,.55)}'
+  + '.bp-modal[hidden]{display:none}'
+  + '.bp-box{width:100%;max-width:620px;max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);color:var(--text);border-radius:18px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.35)}'
+  + '.bp-box h3{font-family:var(--font-display);font-size:18px;font-weight:800;margin:0 0 8px}'
+  + '.bp-box p{font-size:13.5px;line-height:1.55;color:var(--text-dim);margin:0 0 10px}'
+  + '.bp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:10px 0}'
+  + '.bp-map label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600;color:var(--text-dim)}'
+  + '.bp-map select{width:100%}'
+  + '.bp-prev{font-size:12px;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface-alt);margin:8px 0;line-height:1.55;overflow-wrap:anywhere}'
+  + '.bp-acc{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:14px}'
+  + '.bp-estado{font-size:12px;color:var(--text-faint);margin-top:6px;line-height:1.45}'
+  + '.bp-estado.ok{color:var(--green)}'
+  + '.bp-sug{position:absolute;left:0;right:0;top:100%;z-index:60;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.18);overflow:hidden;max-height:300px;overflow-y:auto}'
+  + '.bp-sug[hidden]{display:none}'
+  + '.bp-sug button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);font:13px var(--font-body);cursor:pointer}'
+  + '.bp-sug button:last-child{border-bottom:0}'
+  + '.bp-sug button.on,.bp-sug button:hover{background:var(--blue-bg)}'
+  + '.bp-sug small{display:block;color:var(--text-faint);font-size:11.5px;margin-top:2px}'
+  + '@media (max-width:560px){.bp-map{grid-template-columns:1fr}}';
+document.head.appendChild(css);
+
+/* ---------- Interfaz: botón y estado en la tarjeta "Datos del niño" ---------- */
+const campoNombre = document.getElementById('childName'), campoId = document.getElementById('numeroId');
+if(!campoNombre || !campoId) return;
+const tarjeta = campoNombre.closest('.card');
+const cabeza = tarjeta && tarjeta.querySelector('.card-head');
+const btnBase = document.createElement('button');
+btnBase.type = 'button'; btnBase.className = 'btn ghost'; btnBase.id = 'basePacientesBtn';
+btnBase.style.cssText = 'margin-left:auto;padding:6px 12px;font-size:12.5px;';
+btnBase.textContent = '📊 Base de pacientes (Excel)';
+if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(btnBase); }
+const estado = document.createElement('div');
+estado.className = 'bp-estado';
+if(tarjeta) tarjeta.appendChild(estado);
+
+const inputArchivo = document.createElement('input');
+inputArchivo.type = 'file'; inputArchivo.accept = '.xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv'; inputArchivo.hidden = true;
+document.body.appendChild(inputArchivo);
+
+const modal = document.createElement('div');
+modal.className = 'bp-modal'; modal.hidden = true;
+modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+modal.innerHTML = '<div class="bp-box"></div>';
+document.body.appendChild(modal);
+const caja = modal.firstChild;
+modal.addEventListener('click', e=>{ if(e.target === modal) modal.hidden = true; });
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && !modal.hidden) modal.hidden = true; });
+
+function fmt(iso){ if(!iso) return ''; const [y,m,d] = iso.split('-'); return d + '/' + m + '/' + y; }
+function pintarEstado(msg){
+  if(msg){ estado.textContent = msg; estado.classList.add('ok'); return; }
+  estado.classList.remove('ok');
+  estado.textContent = vieja()
+    ? '⚠ La base de pacientes se cargó con una versión anterior que podía confundir el número de documento. Pulsa "Base de pacientes" y vuelve a cargar el Excel (o "Actualizar desde la carpeta").'
+    : base && base.filas.length
+    ? '📊 Base cargada: ' + base.filas.length.toLocaleString('es-CO') + ' pacientes. Escribe el nombre o el número de documento y elige al paciente para llenar los datos.'
+      + (faltan().length ? ' ⚠ La base no trae ' + faltan().join(' ni ') + ': pulsa "Base de pacientes", vuelve a cargar el Excel y elige esa columna.' : '')
+    : '';
+}
+// Base guardada antes de esta corrección (podía tener el consecutivo "N°" como documento).
+function vieja(){ return !!(base && base.filas && base.filas.length && (base.ver || 1) < VERSION); }
+function faltan(){
+  if(!base) return [];
+  const f = [];
+  if(!base.filas.some(p => p.id)) f.push('número de documento');
+  if(!base.filas.some(p => p.eps)) f.push('EPS');
+  return f;
+}
+
+const fechaHora = t => new Date(t).toLocaleString('es-CO', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'});
+async function abrirPanel(){
+  const hay = base && base.filas.length;
+  const carpeta = HAY_CARPETAS ? await leerClave(CARPETA_KEY) : null;
+  caja.innerHTML = '<h3>📊 Base de pacientes</h3>'
+    + (hay
+      ? '<p>Base cargada: <b>' + esc(base.archivo) + '</b> · <b>' + base.filas.length.toLocaleString('es-CO') + '</b> pacientes · ' + fechaHora(base.cargado) + '.</p>'
+        + '<p>Escribe el nombre o el número de documento en la Portada y elige al paciente: se llenan nombres y apellidos, documento, fecha de ingreso, fecha de nacimiento, EPS y diagnóstico.</p>'
+      : '<p>Elige de dónde sale la lista de pacientes. Debe tener una fila de encabezados, por ejemplo: <i>Documento, Nombres, Apellidos, Fecha de ingreso, Fecha de nacimiento, EPS, Diagnóstico principal, Nombre del diagnóstico</i>.</p>')
+    + '<div class="bp-prev" style="line-height:1.7;">'
+    + (HAY_CARPETAS
+      ? '<b>📁 Carpeta del computador</b> (por ejemplo la carpeta <i>Exel</i>): ' + (carpeta
+          ? 'conectada a <b>' + esc(carpeta.dir.name) + '</b>' + (carpeta.archivo ? ' → ' + esc(carpeta.archivo) : '') + '. Cada vez que abras un formato se revisa si el Excel cambió y se actualiza solo.'
+          : 'eliges la carpeta una vez y, cuando guardes cambios en ese Excel, los formatos se actualizan solos.')
+        + '<br>'
+      : '<b>📁 Carpeta del computador:</b> este navegador no lo permite; usa Chrome o Edge en el computador, o sube el archivo.<br>')
+    + '<b>📂 Subir un archivo:</b> eliges un Excel o CSV nuevo. Queda guardado tal cual; si luego cambia, hay que volver a subirlo.<br>'
+    + '<b>✍️ A mano:</b> si el paciente no está en la base, escribe sus datos en la Portada como siempre.</div>'
+    + '<p style="font-size:12px;">🔒 La base se guarda solo en este navegador y en este equipo; no se sube a internet. Sirve para los 6 formatos.</p>'
+    + '<div class="bp-acc">'
+    + (hay ? '<button class="btn ghost" type="button" data-a="quitar">🗑️ Quitar base</button>' : '')
+    + '<button class="btn ghost" type="button" data-a="cerrar">Cerrar</button>'
+    + '<button class="btn ' + (HAY_CARPETAS ? 'ghost' : 'primary') + '" type="button" data-a="cargar">📂 Subir otro Excel</button>'
+    + (carpeta ? '<button class="btn ghost" type="button" data-a="otraCarpeta">📁 Cambiar carpeta</button>'
+        + '<button class="btn primary" type="button" data-a="actualizar">🔄 Actualizar desde la carpeta</button>'
+      : HAY_CARPETAS ? '<button class="btn primary" type="button" data-a="carpeta">📁 Elegir de la carpeta</button>' : '')
+    + '</div>';
+  caja.querySelector('[data-a="cerrar"]').onclick = ()=>{ modal.hidden = true; };
+  caja.querySelector('[data-a="cargar"]').onclick = ()=>{ inputArchivo.value = ''; inputArchivo.click(); };
+  const bc = caja.querySelector('[data-a="carpeta"]') || caja.querySelector('[data-a="otraCarpeta"]');
+  if(bc) bc.onclick = elegirCarpeta;
+  const ba = caja.querySelector('[data-a="actualizar"]');
+  if(ba) ba.onclick = ()=> desdeCarpeta(carpeta, { pedir:true, forzar:true });
+  const q = caja.querySelector('[data-a="quitar"]');
+  if(q) q.onclick = async ()=>{
+    if(!confirm('¿Quitar la base de pacientes de este navegador?\nLas valoraciones no se borran; solo deja de autocompletar.')) return;
+    try{ await escribirBase(null); await escribirBase(null, CARPETA_KEY); }catch(e){}
+    base = null; pintarEstado(); modal.hidden = true;
+  };
+  modal.hidden = false;
+}
+btnBase.addEventListener('click', abrirPanel);
+
+inputArchivo.addEventListener('change', async ()=>{
+  const f = inputArchivo.files && inputArchivo.files[0]; if(!f) return;
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+  if(ext === 'xls'){ alert('Este es un Excel antiguo (.xls).\nÁbrelo en Excel y usa "Guardar como" → "Libro de Excel (.xlsx)", y vuelve a cargarlo.'); return; }
+  try{
+    const hojas = ext === 'csv' || ext === 'txt' ? leerCsv(await f.arrayBuffer()) : await leerXlsx(await f.arrayBuffer());
+    // un archivo subido deja de seguir la carpeta
+    try{ await escribirBase(null, CARPETA_KEY); }catch(e){}
+    mostrarMapeo(f.name, hojas, { modificado: f.lastModified });
+  }catch(err){ alert('No pude leer el archivo: ' + (err && err.message || err)); }
+});
+
+async function elegirCarpeta(){
+  let dir;
+  try{ dir = await window.showDirectoryPicker({ id:'cisadde-exel', mode:'read' }); }
+  catch(e){ return; } // canceló
+  let lista;
+  try{ lista = await archivosDeCarpeta(dir); }
+  catch(e){ return alert('No pude leer la carpeta: ' + (e && e.message || e)); }
+  if(!lista.length) return alert('En la carpeta "' + dir.name + '" no hay archivos Excel (.xlsx) ni CSV.\nSi el Excel es .xls antiguo, ábrelo y guárdalo como .xlsx.');
+  const usar = async f => {
+    const carpeta = { dir, archivo: f.name };
+    try{ await escribirBase(carpeta, CARPETA_KEY); }catch(e){}
+    desdeCarpeta(carpeta, { forzar:true, preguntar:true });
+  };
+  if(lista.length === 1) return usar(lista[0]);
+  caja.innerHTML = '<h3>¿Cuál archivo de la carpeta ' + esc(dir.name) + '?</h3>'
+    + '<p>El más reciente está de primero.</p>'
+    + '<div class="bp-sug" style="position:static;max-height:320px;">' + lista.map((f, i) => '<button type="button" data-i="' + i + '">' + esc(f.name)
+      + '<small>Modificado ' + fechaHora(f.lastModified) + ' · ' + Math.max(1, Math.round(f.size / 1024)).toLocaleString('es-CO') + ' KB</small></button>').join('') + '</div>'
+    + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button></div>';
+  caja.querySelector('[data-a="cancelar"]').onclick = ()=>{ modal.hidden = true; };
+  caja.querySelectorAll('button[data-i]').forEach(b => b.onclick = ()=> usar(lista[Number(b.dataset.i)]));
+  modal.hidden = false;
+}
+
+// Lee el Excel de la carpeta conectada. Si es el mismo que ya está guardado, no hace nada
+// (salvo forzar). Si las columnas siguen iguales lo guarda sin preguntar.
+let revisando = false;
+async function desdeCarpeta(carpeta, op){
+  op = op || {};
+  if(!carpeta || !carpeta.dir || revisando) return;
+  revisando = true;
+  try{
+    if(!await permiso(carpeta.dir, op.pedir || op.preguntar)){
+      if(op.pedir) alert('El navegador no dio permiso para leer la carpeta.');
+      else pedirPermisoEnEstado(carpeta);
+      return;
+    }
+    const lista = await archivosDeCarpeta(carpeta.dir);
+    const f = lista.find(x => x.name === carpeta.archivo) || lista[0];
+    if(!f){ pintarEstado(); if(op.pedir) alert('Ya no hay ningún Excel en la carpeta "' + carpeta.dir.name + '".'); return; }
+    if(!op.forzar && !vieja() && base && base.archivo === f.name && base.modificado === f.lastModified) return; // sin cambios
+    if(f.name !== carpeta.archivo){ carpeta.archivo = f.name; try{ await escribirBase(carpeta, CARPETA_KEY); }catch(e){} }
+    const hojas = await leerHojas(f);
+    const g = op.preguntar ? null : columnasGuardadas(hojas, base && base.cols, base && base.hoja);
+    if(!g){ mostrarMapeo(f.name, hojas, { modificado: f.lastModified, carpeta:true }); return; }
+    const filas = aFilas(g.hoja, g.fila, g.mapa);
+    if(!filas.length){ mostrarMapeo(f.name, hojas, { modificado: f.lastModified, carpeta:true }); return; }
+    const antes = base ? base.filas.length : 0;
+    await guardarNueva({ ver: VERSION, archivo: f.name, cargado: Date.now(), modificado: f.lastModified, carpeta: true, cols: g.cols, hoja: g.hoja.nombre, filas });
+    modal.hidden = true;
+    const dif = filas.length - antes;
+    pintarEstado('✓ Base actualizada desde la carpeta: ' + filas.length.toLocaleString('es-CO') + ' pacientes'
+      + (dif > 0 ? ' (' + dif + ' nuevos)' : '') + '.');
+    setTimeout(()=> pintarEstado(), 6000);
+  }catch(err){
+    if(op.pedir || op.forzar) alert('No pude leer el Excel de la carpeta: ' + (err && err.message || err)
+      + '\nSi el archivo está abierto en Excel, ciérralo o guárdalo e inténtalo de nuevo.');
+  }finally{ revisando = false; }
+}
+// Sin permiso todavía (el navegador lo pide con un clic): se ofrece en la tarjeta.
+function pedirPermisoEnEstado(carpeta){
+  pintarEstado();
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn ghost';
+  b.style.cssText = 'margin-left:6px;padding:3px 10px;font-size:12px;';
+  b.textContent = '🔄 Revisar la carpeta ' + carpeta.dir.name;
+  b.onclick = ()=> desdeCarpeta(carpeta, { pedir:true });
+  estado.appendChild(document.createTextNode(base ? ' ' : '📊 '));
+  estado.appendChild(b);
+}
+async function guardarNueva(nueva){
+  try{ await escribirBase(nueva); }
+  catch(e){ alert('No se pudo guardar en este navegador; la base funcionará solo mientras no cierres esta página.'); }
+  base = nueva; prepararIndice();
+}
+
+function mostrarMapeo(archivo, hojas, origen){
+  origen = origen || {};
+  // la hoja con más columnas reconocidas es la inicial
+  let iHoja = 0, mejor = -1;
+  hojas.forEach((h, i)=>{ const d = detectar(h.filas); if(d.puntos > mejor){ mejor = d.puntos; iHoja = i; } });
+  let det = detectar(hojas[iHoja].filas), mapa = Object.assign({}, det.mapa);
+
+  function pintar(){
+    const hoja = hojas[iHoja], enc = hoja.filas[det.fila] || [];
+    const nCols = Math.max(enc.length, ...hoja.filas.slice(det.fila, det.fila + 20).map(f => f.length));
+    const opciones = sel => '<option value="">— No está en el Excel —</option>'
+      + Array.from({length: nCols}, (_, c) => '<option value="' + c + '"' + (String(sel) === String(c) ? ' selected' : '') + '>' + esc(limpio(enc[c]) || ('Columna ' + (c + 1))) + '</option>').join('');
+    const filas = aFilas(hoja, det.fila, mapa);
+    const ej = filas[0];
+    caja.innerHTML = '<h3>Revisa las columnas</h3>'
+      + '<p>Archivo <b>' + esc(archivo) + '</b>. Ya marqué lo que reconocí; corrige lo que haga falta.</p>'
+      + (hojas.length > 1 ? '<label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);">Hoja<select class="input" data-hoja style="margin-top:4px;">' + hojas.map((h, i) => '<option value="' + i + '"' + (i === iHoja ? ' selected' : '') + '>' + esc(h.nombre) + '</option>').join('') + '</select></label>' : '')
+      + '<div class="bp-map">' + CAMPOS.map(c => '<label>' + esc(c.lbl) + (c.obligatorio ? ' *' : '')
+        + ((c.k === 'id' || c.k === 'eps') && !(c.k in mapa) ? ' <span style="color:var(--red);">⚠ no la encontré, elígela</span>' : '') + '<select class="input" data-k="' + c.k + '">' + opciones(mapa[c.k]) + '</select></label>').join('') + '</div>'
+      + '<div class="bp-prev">' + (ej
+        ? '<b>Así queda el primer paciente:</b><br>' + esc(ej.nombre || '—') + ' · ' + esc(ej.tipo || '') + ' ' + esc(ej.id || '—')
+          + '<br>Ingreso: ' + esc(fmt(ej.ing) || '—') + ' · Nacimiento: ' + esc(fmt(ej.nac) || '—') + ' · EPS: ' + esc(ej.eps || '—')
+          + '<br>Diagnóstico: ' + esc(ej.cie || '—') + ' ' + esc(ej.dx || '')
+          + '<br><b>' + filas.length.toLocaleString('es-CO') + '</b> pacientes distintos (si un niño sale varias veces en el Excel, queda una sola vez: la fila ACTIVA o la de ingreso más reciente).'
+        : 'No encontré pacientes con estas columnas.') + '</div>'
+      + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button><button class="btn primary" type="button" data-a="guardar">✓ Guardar base</button></div>';
+    const sh = caja.querySelector('[data-hoja]');
+    if(sh) sh.onchange = ()=>{ iHoja = Number(sh.value); det = detectar(hojas[iHoja].filas); mapa = Object.assign({}, det.mapa); pintar(); };
+    caja.querySelectorAll('[data-k]').forEach(s => s.onchange = ()=>{ if(s.value === '') delete mapa[s.dataset.k]; else mapa[s.dataset.k] = Number(s.value); pintar(); });
+    caja.querySelector('[data-a="cancelar"]').onclick = ()=>{ modal.hidden = true; };
+    caja.querySelector('[data-a="guardar"]').onclick = async ()=>{
+      if(!('id' in mapa) && !('n1' in mapa)) return alert('Elige al menos la columna del número de documento o la del nombre.');
+      if(!filas.length) return alert('No hay pacientes para guardar con estas columnas.');
+      const enc = hojas[iHoja].filas[det.fila] || [], cols = {};
+      Object.keys(mapa).forEach(k => { const n = norm(enc[mapa[k]]); if(n) cols[k] = n; });
+      await guardarNueva({ ver: VERSION, archivo, cargado: Date.now(), modificado: origen.modificado || 0, carpeta: !!origen.carpeta, cols, hoja: hojas[iHoja].nombre, filas });
+      modal.hidden = true;
+      pintarEstado('✓ Base guardada: ' + filas.length.toLocaleString('es-CO') + ' pacientes.'
+        + (origen.carpeta ? ' Se actualizará sola cuando cambie el Excel de la carpeta.' : '') + ' Ya puedes escribir el nombre o el documento.');
+      setTimeout(()=> pintarEstado(), 6000);
+    };
+  }
+  pintar();
+  modal.hidden = false;
+}
+
+/* ---------- Búsqueda y autocompletado ---------- */
+let indice = [];
+function prepararIndice(){
+  // una base vieja podía tener el consecutivo como documento: no se usa hasta releerla
+  indice = base && !vieja() ? base.filas.map(p => ({ p, id: normId(p.id), n: norm([p.nombre].concat(p.alias || []).join(' | ')) })) : [];
+}
+function buscar(texto, porId){
+  if(!indice.length) return [];
+  if(porId){
+    const q = normId(texto); if(q.length < 3) return [];
+    const exactos = indice.filter(x => x.id === q), otros = indice.filter(x => x.id !== q && x.id.startsWith(q));
+    return exactos.concat(otros).slice(0, 8).map(x => x.p);
+  }
+  const palabras = norm(texto).split(' ').filter(Boolean);
+  if(!palabras.length || norm(texto).length < 3) return [];
+  const hallados = indice.filter(x => palabras.every(w => x.n.includes(w)) || (x.id && x.id === normId(texto)));
+  // Por nombre salen solo los pacientes ACTIVOS; los inactivos aparecen únicamente si
+  // no hay ningún activo con ese nombre (para no perder a quien vuelve a ingresar).
+  const activos = hallados.filter(x => x.p.est === 'ACTIVO');
+  return (activos.length ? activos : hallados)
+    .sort((a, b) => (b.n.startsWith(palabras[0]) - a.n.startsWith(palabras[0])) || a.n.localeCompare(b.n))
+    .slice(0, 8).map(x => x.p);
+}
+
+let anterior = {}; // lo que puso el último paciente elegido, para no dejar datos suyos en el siguiente
+function poner(idCampo, valor){
+  const el = document.getElementById(idCampo);
+  if(!el || valor == null) return;
+  if(valor === ''){ if(!anterior[idCampo] || el.value !== anterior[idCampo]) return; } // vacío: solo borra lo del paciente anterior
+  else if(el.tagName === 'SELECT' && !Array.from(el.options).some(o => o.value === valor)) return;
+  el.value = valor;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+// Revisa que las fechas del Excel tengan sentido (errores de digitación como 2029 en vez de 2019).
+function fechasDudosas(p){
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const iso = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+  const fmt = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
+  const malas = [];
+  if(p.nac && p.nac > iso) malas.push(['nac', 'La fecha de nacimiento del Excel (' + fmt(p.nac) + ') es una fecha en el futuro.']);
+  else if(p.nac && p.ing && p.nac > p.ing) malas.push(['nac', 'La fecha de nacimiento del Excel (' + fmt(p.nac) + ') es posterior a la fecha de ingreso (' + fmt(p.ing) + ').']);
+  else if(p.nac && Number(p.nac.slice(0, 4)) < hoy.getFullYear() - 30) malas.push(['nac', 'La fecha de nacimiento del Excel (' + fmt(p.nac) + ') daría más de 30 años de edad.']);
+  if(p.ing && p.ing > iso) malas.push(['ing', 'La fecha de ingreso del Excel (' + fmt(p.ing) + ') es una fecha en el futuro.']);
+  return malas;
+}
+function llenar(p){
+  const malas = fechasDudosas(p);
+  const campos = { childName: p.nombre, tipoId: p.tipo, numeroId: p.id, birthDate: p.nac, fechaIngreso: p.ing, eps: p.eps, cie10Code: p.cie, cie10Diag: p.dx };
+  // Una fecha imposible no se llena: se deja vacía para escribirla a mano
+  malas.forEach(([k]) => { campos[k === 'nac' ? 'birthDate' : 'fechaIngreso'] = ''; });
+  // el código va antes que el nombre: si el código está en la lista del formato, sugiere el diagnóstico
+  Object.keys(campos).forEach(k => poner(k, campos[k]));
+  anterior = {};
+  Object.keys(campos).forEach(k => { const el = document.getElementById(k); if(el) anterior[k] = el.value; });
+  ocultar();
+  if(malas.length){
+    pintarEstado('⚠ Datos de ' + (p.nombre || p.id) + ' traídos de la base, pero revisa la fecha: ' + malas.map(m => m[1]).join(' ') + ' Parece un error del Excel; escríbela a mano y corrígela en el Excel.');
+    alert('Revisa el Excel de ' + (p.nombre || p.id) + ':\n\n' + malas.map(m => '• ' + m[1]).join('\n') + '\n\nParece un error de digitación en el Excel. Ese campo quedó vacío para que lo escribas a mano.');
+    return;
+  }
+  pintarEstado('✓ Datos de ' + (p.nombre || p.id) + ' traídos de la base de pacientes.');
+  setTimeout(()=> pintarEstado(), 5000);
+}
+
+function crearLista(input){
+  const cont = input.closest('.field') || input.parentNode;
+  if(getComputedStyle(cont).position === 'static') cont.style.position = 'relative';
+  const caja = document.createElement('div');
+  caja.className = 'bp-sug'; caja.hidden = true;
+  cont.appendChild(caja);
+  return caja;
+}
+const listas = [];
+function ocultar(){ listas.forEach(l => { l.caja.hidden = true; l.items = []; l.sel = -1; }); }
+
+function conectar(input, porId){
+  const l = { caja: crearLista(input), items: [], sel: -1 };
+  listas.push(l);
+  function mostrar(){
+    l.items = buscar(input.value, porId); l.sel = -1;
+    if(!l.items.length){ l.caja.hidden = true; return; }
+    l.caja.innerHTML = l.items.map((p, i) => '<button type="button" data-i="' + i + '">' + esc(p.nombre || '—')
+      + '<small>' + esc([(p.tipo ? p.tipo + ' ' : '') + (p.id || 'sin documento'), p.eps, p.cie, p.est].filter(Boolean).join(' · '))
+      + (p.alias && p.alias.length ? '<br>También escrito: ' + esc(p.alias.join(' / ')) : '') + '</small></button>').join('');
+    l.caja.hidden = false;
+  }
+  input.addEventListener('input', e=>{
+    if(!e.isTrusted) return; // ignora lo que llena el propio autocompletado
+    if(!indice.length) return;
+    mostrar();
+    // número de documento exacto y único: se llena sin tener que elegir
+    if(porId && l.items.length === 1 && normId(l.items[0].id) === normId(input.value)) llenar(l.items[0]);
+  });
+  input.addEventListener('keydown', e=>{
+    if(l.caja.hidden || !l.items.length) return;
+    if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault();
+      l.sel = (l.sel + (e.key === 'ArrowDown' ? 1 : -1) + l.items.length) % l.items.length;
+      l.caja.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === l.sel));
+    } else if(e.key === 'Enter'){
+      e.preventDefault(); llenar(l.items[l.sel >= 0 ? l.sel : 0]);
+    } else if(e.key === 'Escape') ocultar();
+  });
+  l.caja.addEventListener('mousedown', e=>{
+    const b = e.target.closest('button[data-i]'); if(!b) return;
+    e.preventDefault(); llenar(l.items[Number(b.dataset.i)]);
+  });
+  input.addEventListener('blur', ()=> setTimeout(()=>{ l.caja.hidden = true; }, 150));
+}
+conectar(campoNombre, false);
+conectar(campoId, true);
+// Para otros bloques (ej. "Cargar plan anterior" del Plan terapéutico): buscar por documento exacto y llenar la Portada.
+window.CISADDE_BASE = {
+  lista: () => indice.length > 0,
+  porDocumento: id => { const q = normId(id); const x = q && indice.find(x => x.id === q); return x ? x.p : null; },
+  llenar: p => llenar(p),
+  // para "Tus pacientes": buscar por nombre, leer otro Excel y detectar sus encabezados
+  buscar: (texto, porId) => buscar(texto, porId),
+  leerArchivo: async f => /\.csv$/i.test(f.name) ? leerCsv(await f.arrayBuffer()) : await leerXlsx(await f.arrayBuffer()),
+  detectar: filas => detectar(filas),
+  normId: s => normId(s), norm: s => norm(s), aISO: v => aISO(v), separarDx: (c, d) => separarDx(c, d),
+  listo: null // promesa: se cumple cuando la base guardada ya se leyó
+};
+
+/* ---------- Fecha de ingreso (campo de la Portada) ---------- */
+const campoIngreso = document.getElementById('fechaIngreso');
+if(campoIngreso && typeof state !== 'undefined'){
+  if(!campoIngreso.value && state.fechaIngreso) campoIngreso.value = state.fechaIngreso;
+  campoIngreso.addEventListener('change', e=>{ state.fechaIngreso = e.target.value; });
+}
+
+window.CISADDE_BASE.listo = leerBase().then(b=>{
+  if(b && Array.isArray(b.filas)){ base = b; prepararIndice(); pintarEstado(); }
+  return b;
+});
+window.CISADDE_BASE.listo.then(async ()=>{
+  // carpeta conectada: revisar si el Excel cambió (también al volver a esta pestaña)
+  if(!HAY_CARPETAS) return;
+  const revisar = async ()=>{ const c = await leerClave(CARPETA_KEY); if(c) desdeCarpeta(c); };
+  revisar();
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') revisar(); });
+});
+})();
+</script>
+<!-- BASE PACIENTES:FIN -->
+<!-- DICTADO:INICIO -->
+<script>
+/* =====================================================================
+   DICTADO POR VOZ
+   Pone un botón "🎤 Dictar" en los cuadros de texto largos: motivo de
+   consulta, antecedentes prenatales/perinatales/posnatales, historia
+   familiar (Psicología), historia escolar, examen miofuncional (Fonoaudiología), las
+   Observaciones de cada componente y los cuadros del Plan terapéutico
+   (hallazgos, objetivos e indicadores).
+   Al pulsarlo se escucha el micrófono y se va escribiendo lo que se dice
+   donde está el cursor. Se vuelve a pulsar ("⏹ Detener") para terminar.
+   Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari);
+   necesita internet y que la página se abra por https (GitHub Pages).
+   Comandos dichos en voz alta: "coma", "punto", "punto y seguido",
+   "punto y aparte" / "nuevo párrafo", "dos puntos", "punto y coma",
+   "abrir paréntesis", "cerrar paréntesis".
+   Fuente: herramientas/dictado.js — se inserta con
+   node herramientas/insertar-dictado.js
+   ===================================================================== */
+(function(){
+const CAMPOS = ['motivoTxt', 'antecedentesTxt', 'historiaFamiliarTxt', 'historiaEscolarTxt', 'miofuncionalTxt',
+  'planHallazgos', 'planObjGeneral', 'planObjEspecificos', 'planIndicadores'];
+const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+const css = document.createElement('style');
+css.textContent = ''
+  + '.dic-btn{margin-left:auto;padding:6px 12px;font-size:12.5px}'
+  + '.dic-fila{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}'
+  + '.dic-fila .dic-btn{padding:4px 10px;font-size:12px;flex:none}'
+  + '.dic-btn.on{background:#e5484d;border-color:#e5484d;color:#fff;animation:dicPulso 1.4s infinite}'
+  + '@keyframes dicPulso{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,.45)}50%{box-shadow:0 0 0 6px rgba(229,72,77,0)}}'
+  + '.dic-vivo{margin-top:6px;font-size:12.5px;color:var(--text-faint);font-style:italic;min-height:0}'
+  + '.dic-vivo:empty{display:none}'
+  + '@media print{.dic-btn,.dic-vivo{display:none!important}}';
+document.head.appendChild(css);
+
+/* Comandos de puntuación (se aplican sobre el texto reconocido) */
+const COMANDOS = [
+  [/\s*\b(punto y aparte|nuevo p[aá]rrafo|nueva l[ií]nea)\b\s*/gi, '.\n'],
+  [/\s*\bpunto y coma\b\s*/gi, '; '],
+  [/\s*\bpunto y seguido\b\s*/gi, '. '],
+  [/\s*\bdos puntos\b\s*/gi, ': '],
+  [/\s*\babrir par[eé]ntesis\b\s*/gi, ' ('],
+  [/\s*\bcerrar par[eé]ntesis\b\s*/gi, ') '],
+  [/\s*\bcoma\b\s*/gi, ', '],
+  [/\s*\bpunto\s*$/gi, '. '],
+  [/\s*\bpunto\b(?!\s+de\b)\s*/gi, '. ']
+];
+function puntuar(t){
+  COMANDOS.forEach(([re, r]) => { t = t.replace(re, r); });
+  return t.replace(/\.\s*\.\n/g, '.\n').replace(/[ \t]+/g, ' ').replace(/ ([,.;:)])/g, '$1');
+}
+function mayuscula(texto, antes){
+  const previo = antes.replace(/\s+$/, '');
+  const inicio = !previo || /[.!?:\n]$/.test(antes.replace(/[ \t]+$/, '')) || /[.!?]$/.test(previo);
+  let t = inicio ? texto.replace(/^\s*([a-záéíóúñü])/i, (m, c) => m.replace(c, c.toUpperCase())) : texto;
+  return t.replace(/([.!?]\s+|\n)([a-záéíóúñü])/g, (m, p, c) => p + c.toUpperCase());
+}
+
+let activo = null; // { campo, btn, vivo, rec, parar }
+
+function insertar(campo, texto){
+  if(!texto) return;
+  const ini = campo.selectionStart ?? campo.value.length, fin = campo.selectionEnd ?? ini;
+  const antes = campo.value.slice(0, ini), despues = campo.value.slice(fin);
+  let t = mayuscula(puntuar(texto.trim()), antes);
+  if(antes && !/[\s(]$/.test(antes) && !/^[,.;:)]/.test(t)) t = ' ' + t;
+  if(despues && !/^\s/.test(despues) && !/\s$/.test(t)) t = t + ' ';
+  campo.value = antes + t + despues;
+  const pos = (antes + t).length;
+  campo.setSelectionRange(pos, pos);
+  campo.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function detener(){
+  if(!activo) return;
+  const a = activo; activo = null;
+  a.parar = true;
+  try{ a.rec.stop(); }catch(e){}
+  a.btn.classList.remove('on');
+  a.btn.textContent = '🎤 Dictar';
+  a.vivo.textContent = '';
+}
+
+function empezar(campo, btn, vivo){
+  if(!Reconocedor){
+    alert('Este navegador no permite el dictado por voz.\nÁbralo en Google Chrome o Microsoft Edge.\n\nEn Windows también puede dictar en cualquier cuadro con la tecla Windows + H.');
+    return;
+  }
+  if(location.protocol === 'file:'){
+    if(!confirm('El dictado funciona mejor abriendo el formato desde el enlace de GitHub Pages (https).\nDesde el archivo del computador el navegador puede bloquear el micrófono.\n\n¿Intentar de todos modos?')) return;
+  }
+  detener();
+  const rec = new Reconocedor();
+  rec.lang = 'es-CO'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  const a = { campo, btn, vivo, rec, parar: false };
+  activo = a;
+  btn.classList.add('on'); btn.textContent = '⏹ Detener';
+  vivo.textContent = 'Escuchando… hable con normalidad.';
+  campo.focus();
+  if(campo.selectionStart == null || document.activeElement !== campo){ const n = campo.value.length; campo.setSelectionRange(n, n); }
+
+  rec.onresult = ev => {
+    let provisional = '';
+    for(let i = ev.resultIndex; i < ev.results.length; i++){
+      const r = ev.results[i];
+      if(r.isFinal) insertar(campo, r[0].transcript);
+      else provisional += r[0].transcript;
+    }
+    vivo.textContent = provisional ? '… ' + provisional : 'Escuchando…';
+  };
+  rec.onerror = ev => {
+    if(ev.error === 'no-speech' || ev.error === 'aborted') return;
+    const msg = {
+      'not-allowed': 'El navegador no dio permiso para usar el micrófono. Permítalo en el candado de la barra de direcciones.',
+      'service-not-allowed': 'El navegador no permite el dictado en esta página. Ábrala desde el enlace de GitHub Pages en Chrome o Edge.',
+      'audio-capture': 'No se encontró un micrófono conectado.',
+      'network': 'El dictado necesita conexión a internet.'
+    }[ev.error] || ('Error del dictado: ' + ev.error);
+    a.parar = true;
+    detener();
+    alert(msg);
+  };
+  // Chrome corta solo tras un silencio: se reanuda mientras el botón siga activo
+  rec.onend = () => {
+    if(activo === a && !a.parar){ try{ rec.start(); }catch(e){ detener(); } }
+  };
+  try{ rec.start(); }catch(e){ detener(); alert('No se pudo iniciar el dictado: ' + e.message); }
+}
+
+let consecutivo = 0;
+function preparar(campo){
+  if(!campo || campo.dataset.dictado) return;
+  campo.dataset.dictado = '1';
+  if(!campo.id) campo.id = 'dicCampo' + (++consecutivo);
+  const tarjeta = campo.closest('.card');
+  const cabeza = tarjeta && tarjeta.querySelector('.card-head');
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'btn ghost dic-btn';
+  btn.textContent = '🎤 Dictar';
+  btn.title = 'Dictar con el micrófono: lo que diga se va escribiendo en el cuadro';
+  const vivo = document.createElement('div');
+  vivo.className = 'dic-vivo';
+  // Cuadro con su propio título (span.lbl): el botón va al lado del título.
+  // Si no, va en la cabecera de la tarjeta.
+  const etiqueta = campo.closest('label');
+  const titulo = etiqueta && etiqueta.querySelector(':scope > .lbl');
+  if(titulo){
+    etiqueta.htmlFor = campo.id; // así el clic en el título no activa el botón
+    const fila = document.createElement('div');
+    fila.className = 'dic-fila';
+    titulo.parentNode.insertBefore(fila, titulo);
+    fila.appendChild(titulo); fila.appendChild(btn);
+  }
+  else if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(btn); }
+  else campo.parentNode.insertBefore(btn, campo);
+  campo.insertAdjacentElement('afterend', vivo);
+  btn.addEventListener('mousedown', e => e.preventDefault()); // no quitar el cursor del cuadro
+  btn.addEventListener('click', () => { if(activo && activo.campo === campo) detener(); else empezar(campo, btn, vivo); });
+}
+CAMPOS.forEach(id => preparar(document.getElementById(id)));
+
+// Observaciones de cada componente: se crean y se vuelven a crear al cambiar
+// de hoja o rango de edad, así que se vigila la página para ponerles el botón.
+const OBSERVACIONES = '.comp-notes textarea';
+document.querySelectorAll(OBSERVACIONES).forEach(preparar);
+new MutationObserver(() => {
+  document.querySelectorAll(OBSERVACIONES + ':not([data-dictado])').forEach(preparar);
+  if(activo && !activo.campo.isConnected) detener(); // el cuadro se redibujó
+}).observe(document.body, { childList:true, subtree:true });
+document.addEventListener('visibilitychange', () => { if(document.hidden) detener(); });
+})();
+</script>
+<!-- DICTADO:FIN -->
 <!-- INFORME WORD:INICIO -->
 <script>
 /* =====================================================================
@@ -3068,8 +4756,7 @@ document.getElementById('planWordBtn').addEventListener('click', ()=>{
 (function(){
 const btn = document.getElementById('wordBtn');
 const hoja = document.getElementById('informeSheet');
-if(btn) btn.remove(); // sin descarga en Word: solo PDF e imprimir
-if(!hoja) return;
+if(!btn || !hoja) return;
 
 const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
 const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -3197,8 +4884,786 @@ document.addEventListener('click', async e => {
   formatoElegido = true;
   try{ b.click(); } finally { formatoElegido = false; }
 }, true);
+let saltar = new Set();
+const EMOJI = /(\p{Extended_Pictographic}[️‍\p{Extended_Pictographic}]*)/u;
+
+function x(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,''); }
+function hex(c){
+  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/.exec(c || '');
+  if(!m || (m[4] !== undefined && +m[4] === 0)) return null;
+  return [m[1], m[2], m[3]].map(n => (+n).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+const est = el => getComputedStyle(el);
+function oculto(el){
+  if(el.nodeType !== 1) return false;
+  if(el.classList.contains('no-print') || el.classList.contains('tag-note')) return true;
+  const s = est(el);
+  return s.display === 'none' || s.visibility === 'hidden';
+}
+function esMedio(el){ return el.nodeType === 1 && MEDIOS.includes(el.tagName.toUpperCase()); }
+function esEnLinea(n){
+  if(n.nodeType === 3) return true;
+  if(n.nodeType !== 1 || esMedio(n)) return false;
+  if(n.tagName === 'BR') return true;
+  if(/^H[1-6]$/.test(n.tagName)) return false;
+  const d = est(n).display;
+  return d.startsWith('inline') || d === 'contents';
+}
+function hijosVisibles(el){ return Array.from(el.childNodes).filter(n => n.nodeType === 3 ? n.nodeValue.trim() : (n.nodeType === 1 && !oculto(n))); }
+
+/* ---------- texto: runs con negrita, cursiva, color y tamaño de la pantalla ---------- */
+function runsDe(nodos){
+  const partes = [];
+  const recorrer = n => {
+    if(n.nodeType === 3){
+      const p = n.parentElement, s = est(p);
+      const pre = /pre/.test(s.whiteSpace);
+      let t = pre ? n.nodeValue : n.nodeValue.replace(/\s+/g, ' ');
+      if(!t) return;
+      partes.push({ t, b: (parseInt(s.fontWeight, 10) || 400) >= 600, i: s.fontStyle === 'italic', color: hex(s.color), px: parseFloat(s.fontSize) || 13 });
+      return;
+    }
+    if(n.nodeType !== 1 || oculto(n)) return;
+    if(n.tagName === 'BR'){ partes.push({ t:'\n' }); return; }
+    if(/^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName)){
+      const v = n.tagName === 'SELECT' ? (n.options[n.selectedIndex] || {}).text || '' : n.value;
+      if(v) partes.push({ t:v, px: parseFloat(est(n).fontSize) || 13 });
+      return;
+    }
+    n.childNodes.forEach(recorrer);
+  };
+  nodos.forEach(recorrer);
+  // quitar espacios sobrantes al inicio y al final del párrafo
+  while(partes.length && !partes[0].t.replace(/^[ \t]+/, '')){ partes.shift(); }
+  if(partes.length) partes[0].t = partes[0].t.replace(/^[ \t]+/, '');
+  while(partes.length && !partes[partes.length-1].t.replace(/[ \t]+$/, '')){ partes.pop(); }
+  if(partes.length) partes[partes.length-1].t = partes[partes.length-1].t.replace(/[ \t]+$/, '');
+  return partes;
+}
+function run(p){
+  let pr = (p.b ? '<w:b/><w:bCs/>' : '') + (p.i ? '<w:i/><w:iCs/>' : '')
+    + (p.color && p.color !== '000000' ? '<w:color w:val="' + p.color + '"/>' : '');
+  if(p.px){ const sz = Math.max(14, Math.round(p.px * 1.5 * 1.1)); pr += '<w:sz w:val="' + sz + '"/><w:szCs w:val="' + sz + '"/>'; }
+  pr = pr ? '<w:rPr>' + pr + '</w:rPr>' : '';
+  // Los emojis (🔴🟡🟢…) van con la fuente de emojis para que Word los muestre
+  const fe = '<w:rFonts w:ascii="Segoe UI Emoji" w:hAnsi="Segoe UI Emoji" w:cs="Segoe UI Emoji"/>';
+  const emo = pr ? pr.replace('<w:rPr>', '<w:rPr>' + fe) : '<w:rPr>' + fe + '</w:rPr>';
+  const trozo = s => s.split(EMOJI).map((u, j) => u ? '<w:r>' + (j % 2 ? emo : pr) + '<w:t xml:space="preserve">' + x(u) + '</w:t></w:r>' : '').join('');
+  return p.t.split('\n').map((s, i) => (i ? '<w:r>' + pr + '<w:br/></w:r>' : '') + trozo(s)).join('');
+}
+function alineacion(el){
+  const s = est(el), ta = s.textAlign;
+  if(ta === 'center') return 'center';
+  if(ta === 'right' || ta === 'end') return 'right';
+  if(ta === 'justify') return 'both';
+  if(/flex/.test(s.display) && s.justifyContent === 'center') return 'center';
+  return null;
+}
+function propsParrafo(el, o){
+  o = o || {};
+  const s = est(el);
+  const tw = v => Math.min(480, Math.max(0, Math.round((parseFloat(v) || 0) * 15)));
+  let pr = (o.junto || /^H[1-6]$/.test(el.tagName) ? '<w:keepNext/>' : '');
+  let antes = o.antes !== undefined ? o.antes : tw(s.marginTop) + tw(s.paddingTop);
+  if(/^H[3-6]$/.test(el.tagName)) antes = Math.max(antes, 240);
+  const despues = o.despues !== undefined ? o.despues : Math.max(60, tw(s.marginBottom) + tw(s.paddingBottom));
+  pr += '<w:spacing w:before="' + antes + '" w:after="' + despues + '"/>';
+  const jc = o.jc || alineacion(el);
+  if(jc) pr += '<w:jc w:val="' + jc + '"/>';
+  return '<w:pPr>' + pr + '</w:pPr>';
+}
+
+/* ---------- imágenes: img, canvas y gráficas SVG pasan a PNG ---------- */
+let medios = [], escala = 1;
+function aPngDesde(src, w, h){
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      try{
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(w)); cv.height = Math.max(1, Math.round(h));
+        const g = cv.getContext('2d'); g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, cv.width, cv.height);
+        g.drawImage(im, 0, 0, cv.width, cv.height);
+        res(cv.toDataURL('image/png'));
+      }catch(e){ res(null); }
+    };
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+}
+const PROPS_SVG = ['fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','opacity','font-size','font-family','font-weight','text-anchor','dominant-baseline'];
+function svgAUrl(svg, w, h){
+  const copia = svg.cloneNode(true);
+  const orig = [svg].concat(Array.from(svg.querySelectorAll('*'))), dest = [copia].concat(Array.from(copia.querySelectorAll('*')));
+  orig.forEach((el, i) => {
+    const s = est(el), d = dest[i];
+    PROPS_SVG.forEach(p => { const v = s.getPropertyValue(p); if(v) d.setAttribute(p, v); });
+    d.removeAttribute('class'); d.removeAttribute('style');
+    if(s.display === 'none') d.setAttribute('display', 'none');
+  });
+  copia.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  copia.setAttribute('width', w); copia.setAttribute('height', h);
+  if(!copia.getAttribute('viewBox')) copia.setAttribute('viewBox', '0 0 ' + (svg.getBoundingClientRect().width || w) + ' ' + (svg.getBoundingClientRect().height || h));
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(copia));
+}
+async function medio(el, maxTw){
+  const r = el.getBoundingClientRect();
+  let w = r.width, h = r.height;
+  if(!(w > 0 && h > 0)) return null;
+  const k = 3; // resolución
+  let url = null;
+  const tag = el.tagName.toUpperCase();
+  if(tag === 'IMG'){ if(!el.complete || !el.naturalWidth) return null; url = await aPngDesde(el.src, w*k, h*k); }
+  else if(tag === 'CANVAS'){ try{ url = el.toDataURL('image/png'); }catch(e){ url = null; } }
+  else url = await aPngDesde(svgAUrl(el, w*k, h*k), w*k, h*k);
+  if(!url) return null;
+  let twW = w * 15 * escala, twH = h * 15 * escala;
+  const lim = maxTw || ANCHO;
+  if(twW > lim){ twH *= lim / twW; twW = lim; }
+  const bin = atob(url.split(',')[1]), data = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+  const n = medios.length + 1;
+  medios.push({ rid:'rIdImg' + n, name:'imagen' + n + '.png', data });
+  const cx = Math.round(twW * EMU_TWIP), cy = Math.round(twH * EMU_TWIP);
+  return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+    + '<wp:docPr id="' + n + '" name="Imagen ' + n + '"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    + '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="' + n + '" name="imagen' + n + '.png"/><pic:cNvPicPr/></pic:nvPicPr>'
+    + '<pic:blipFill><a:blip r:embed="rIdImg' + n + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+}
+
+/* ---------- recorrido de la hoja ---------- */
+async function bloques(el, maxTw){
+  maxTw = maxTw || ANCHO;
+  if(el.nodeType !== 1 || oculto(el) || saltar.has(el)) return '';
+  const tag = el.tagName.toUpperCase();
+  if(esMedio(el)){
+    const img = await medio(el, maxTw);
+    return img ? '<w:p>' + propsParrafo(el.parentElement, { jc: alineacion(el.parentElement) || 'center', sinBorde:1, antes:60, despues:60 }) + img + '</w:p>' : '';
+  }
+  if(tag === 'TABLE') return await tablaHtml(el, maxTw);
+  const hijos = hijosVisibles(el);
+  const elementos = hijos.filter(n => n.nodeType === 1);
+  // Varias imágenes juntas (gráficas): un solo párrafo, una al lado de la otra
+  if(elementos.length > 1 && elementos.every(esMedio) && hijos.length === elementos.length){
+    const ancho = Math.floor(maxTw / elementos.length) - 120;
+    let runs = '';
+    for(const m of elementos){ const im = await medio(m, ancho); if(im) runs += (runs ? '<w:r><w:t xml:space="preserve">  </w:t></w:r>' : '') + im; }
+    return runs ? '<w:p>' + propsParrafo(el, { jc:'center', sinBorde:1, junto:0 }) + runs + '</w:p>' : '';
+  }
+  // Fila flexible con varios bloques (firmas de los familiares): tabla sin bordes
+  const s = est(el);
+  if(/flex/.test(s.display) && !/column/.test(s.flexDirection) && elementos.length > 1 && hijos.every(n => n.nodeType === 1 && !esEnLinea(n))){
+    const porFila = Math.min(3, elementos.length), w = Math.floor(maxTw / porFila);
+    let filas = '';
+    for(let i = 0; i < elementos.length; i += porFila){
+      let celdas = '';
+      for(let j = 0; j < porFila; j++){
+        const hijo = elementos[i + j];
+        const cont = hijo ? await bloques(hijo, w - 200) : '';
+        celdas += '<w:tc><w:tcPr><w:tcW w:w="' + w + '" w:type="dxa"/><w:vAlign w:val="bottom"/></w:tcPr>' + (cont || '<w:p/>') + '</w:tc>';
+      }
+      filas += '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + celdas + '</w:tr>';
+    }
+    return tablaXml(Array(porFila).fill(w), filas, true);
+  }
+  // Bloque solo con texto: un párrafo
+  if(hijos.every(esEnLinea)){
+    const partes = runsDe(hijos);
+    if(!partes.some(p => p.t.trim())){
+      // Línea de firma: div vacío con borde superior
+      const bt = parseFloat(s.borderTopWidth) || 0;
+      if(bt > 0 && s.borderTopStyle !== 'none'){
+        const largo = Math.max(10, Math.round(el.getBoundingClientRect().width / 7));
+        return '<w:p>' + propsParrafo(el.parentElement, { jc:'center', sinBorde:1, antes: Math.min(480, Math.round((parseFloat(s.marginTop) || 0) * 10)), despues:40 }) + '<w:r><w:t>' + '_'.repeat(largo) + '</w:t></w:r></w:p>';
+      }
+      return '';
+    }
+    return '<w:p>' + propsParrafo(el) + partes.map(run).join('') + '</w:p>';
+  }
+  // Mezcla: los trozos de texto seguidos forman párrafos, los bloques se recorren
+  let out = '', grupo = [];
+  const soltar = () => {
+    const partes = runsDe(grupo); grupo = [];
+    if(partes.some(p => p.t.trim())) out += '<w:p>' + propsParrafo(el, { sinBorde:1, antes:0 }) + partes.map(run).join('') + '</w:p>';
+  };
+  for(const n of hijos){
+    if(esEnLinea(n)) grupo.push(n);
+    else { soltar(); out += await bloques(n, maxTw); }
+  }
+  soltar();
+  return out;
+}
+function tablaXml(cols, filas, sinBordes, color){
+  const bordes = ['top','left','bottom','right','insideH','insideV'].map(l => sinBordes ? '<w:' + l + ' w:val="nil"/>' : '<w:' + l + ' w:val="single" w:sz="4" w:space="0" w:color="' + (color || 'BFCAD3') + '"/>').join('');
+  return '<w:tbl><w:tblPr><w:tblW w:w="' + cols.reduce((a, b) => a + b, 0) + '" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders>' + bordes + '</w:tblBorders><w:tblLayout w:type="fixed"/>'
+    + '<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr>'
+    + '<w:tblGrid>' + cols.map(c => '<w:gridCol w:w="' + c + '"/>').join('') + '</w:tblGrid>' + filas + '</w:tbl><w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>';
+}
+async function tablaHtml(t, maxTw){
+  const trs = Array.from(t.rows).filter(r => !oculto(r));
+  const n = Math.max(1, ...trs.map(r => Array.from(r.cells).reduce((a, c) => a + (c.colSpan || 1), 0)));
+  const w = Math.floor(maxTw / n);
+  let filas = '';
+  for(const tr of trs){
+    let celdas = '';
+    for(const c of Array.from(tr.cells)){
+      const span = c.colSpan || 1, fondo = hex(est(c).backgroundColor);
+      const cont = await bloques(c, w * span - 180);
+      celdas += '<w:tc><w:tcPr><w:tcW w:w="' + (w * span) + '" w:type="dxa"/>' + (span > 1 ? '<w:gridSpan w:val="' + span + '"/>' : '')
+        + (fondo && fondo !== 'FFFFFF' ? '<w:shd w:val="clear" w:color="auto" w:fill="' + fondo + '"/>' : '') + '</w:tcPr>' + (cont || '<w:p/>') + '</w:tc>';
+    }
+    filas += '<w:tr><w:trPr><w:cantSplit/>' + (tr.parentElement.tagName === 'THEAD' ? '<w:tblHeader/>' : '') + '</w:trPr>' + celdas + '</w:tr>';
+  }
+  return tablaXml(Array(n).fill(w), filas, false);
+}
+
+/* ---------- zip sin compresión ---------- */
+const CRC = (() => { const t = new Uint32Array(256); for(let n = 0; n < 256; n++){ let c = n; for(let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(d){ let c = 0xFFFFFFFF; for(let i = 0; i < d.length; i++) c = CRC[(c ^ d[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zip(archivos){
+  const enc = new TextEncoder(), partes = [], central = [];
+  const t = new Date(), hora = (t.getHours()<<11)|(t.getMinutes()<<5)|(t.getSeconds()>>1), dia = ((t.getFullYear()-1980)<<9)|((t.getMonth()+1)<<5)|t.getDate();
+  let off = 0;
+  archivos.forEach(f => {
+    const nom = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+    const l = new DataView(new ArrayBuffer(30));
+    l.setUint32(0,0x04034b50,true); l.setUint16(4,20,true); l.setUint16(6,0x0800,true); l.setUint16(8,0,true); l.setUint16(10,hora,true); l.setUint16(12,dia,true);
+    l.setUint32(14,crc,true); l.setUint32(18,data.length,true); l.setUint32(22,data.length,true); l.setUint16(26,nom.length,true); l.setUint16(28,0,true);
+    partes.push(new Uint8Array(l.buffer), nom, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint16(10,0,true); c.setUint16(12,hora,true); c.setUint16(14,dia,true);
+    c.setUint32(16,crc,true); c.setUint32(20,data.length,true); c.setUint32(24,data.length,true); c.setUint16(28,nom.length,true); c.setUint32(42,off,true);
+    central.push(new Uint8Array(c.buffer), nom);
+    off += 30 + nom.length + data.length;
+  });
+  const tam = central.reduce((s, a) => s + a.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true); e.setUint16(8,archivos.length,true); e.setUint16(10,archivos.length,true); e.setUint32(12,tam,true); e.setUint32(16,off,true);
+  return new Blob(partes.concat(central, [new Uint8Array(e.buffer)]), { type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+function slug(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60); }
+
+async function crearDocx(){
+  medios = [];
+  const r = hoja.getBoundingClientRect(), s = est(hoja);
+  const util = r.width - (parseFloat(s.paddingLeft) || 0) - (parseFloat(s.paddingRight) || 0);
+  escala = util > 0 ? Math.min(1, ANCHO / (util * 15)) : 1;
+
+  // Encabezado institucional en todas las páginas: logo | INFORME DE CASO + área | código.
+  // El encabezado y el control de versiones de la hoja no se repiten en el cuerpo:
+  // se arman aquí con las medidas del formato.
+  // Formato anterior (elegido al descargar): logo | título + subtítulo, sin código ni control de versiones.
+  const anterior = hoja.classList.contains('inf-anterior');
+  const encHtml = hoja.querySelector(".inf-enc"), verHtml = hoja.querySelector(".inf-versiones");
+  const logoViejo = hoja.querySelector('img[data-logo]:not(.inf-logo)'), subViejo = hoja.querySelector('.informe-sub');
+  saltar = new Set((anterior ? [logoViejo && logoViejo.parentElement !== hoja ? logoViejo.parentElement : logoViejo, h2Hoja, subViejo] : [encHtml, verHtml]).filter(Boolean));
+  const logoEl = anterior ? logoViejo : ((encHtml && encHtml.querySelector("img")) || hoja.querySelector("img[data-logo]"));
+  const n0 = medios.length;
+  const logoRun = logoEl ? await medio(logoEl, 1300) : "";
+  const relsEnc = medios.slice(n0);
+  const verdana = r => r.replace(/<w:rPr>/g, "<w:rPr><w:rFonts w:ascii=\"Verdana\" w:hAnsi=\"Verdana\" w:cs=\"Verdana\"/>");
+  const gris = (t, o) => verdana(run(Object.assign({ t, b:1, color:"7F7F7F", px:12 }, o || {})));
+  const centro = (runs) => "<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/><w:jc w:val=\"center\"/></w:pPr>" + runs + "</w:p>";
+  const cel = (w, cont) => "<w:tc><w:tcPr><w:tcW w:w=\"" + w + "\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/></w:tcPr>" + cont + "</w:tc>";
+  const conCodigo = !anterior && !!CODIGO_INFORME;
+  let encabezado;
+  if(anterior){
+    const cols = [1700, 7938];
+    const titulo = centro(run({ t: ((h2Hoja && h2Hoja.textContent) || 'Informe de valoración').trim().toUpperCase(), b:1, color:'154D77', px:14 }))
+      + (subViejo && subViejo.textContent.trim() ? centro(run({ t: subViejo.textContent.trim(), color:'7F7F7F', px:11 })) : '');
+    encabezado = tablaXml(cols, "<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val=\"1000\"/></w:trPr>" + cel(cols[0], centro(logoRun || gris("CISADDE"))) + cel(cols[1], titulo) + "</w:tr>", false, "A6A6A6");
+  } else {
+    const cols = [2100, 5338, 2200];
+    const celdas = [cel(cols[0], centro(logoRun || gris("CISADDE"))), cel(cols[1], centro(gris("INFORME DE CASO\n" + AREA, { px:13 }))),
+      cel(cols[2], centro(gris("CÓDIGO:\n" + CODIGO_INFORME + "\nVigente desde:\n" + VIGENTE_INFORME, { px:12 })))];
+    encabezado = tablaXml(cols, "<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val=\"1250\"/></w:trPr>" + celdas.join("") + "</w:tr>", false, "A6A6A6");
+  }
+
+  // Control de versiones del documento (al final, completo en una sola página)
+  const colsV = [1550, 1850, 2500, 3738];
+  const celV = (w, t, o) => "<w:tc><w:tcPr><w:tcW w:w=\"" + w + "\" w:type=\"dxa\"/>" + (o.span ? "<w:gridSpan w:val=\"" + o.span + "\"/>" : "")
+    + (o.fill ? "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"" + o.fill + "\"/>" : "") + "<w:vAlign w:val=\"center\"/></w:tcPr>"
+    + "<w:p><w:pPr><w:keepNext/><w:spacing w:before=\"" + (o.alto || 20) + "\" w:after=\"" + (o.alto || 20) + "\"/><w:jc w:val=\"" + (o.jc || "center") + "\"/></w:pPr>"
+    + verdana(run({ t, b:o.b, color:o.color, px:o.px || 11.5 })) + "</w:p></w:tc>";
+  const filaV = c => "<w:tr><w:trPr><w:cantSplit/></w:trPr>" + c + "</w:tr>";
+  const versiones = "<w:p><w:pPr><w:keepNext/><w:spacing w:before=\"480\" w:after=\"0\"/></w:pPr></w:p>" + tablaXml(colsV,
+    filaV(celV(ANCHO, "CONTROL DE VERSIONES DEL DOCUMENTO", { span:4, b:1, px:13, alto:90 }))
+    + filaV(["VERSIÓN", "FECHA", "RESPONSABLE", "MODIFICACIÓN"].map((t, i) => celV(colsV[i], t, { b:1, color:"FFFFFF", fill:"002060", px:12.5, alto:50 })).join(""))
+    + VERSIONES.map(v => filaV([v.version, v.fecha, v.responsable, v.modificacion].map((t, i) => celV(colsV[i], t, { jc: i === 3 ? "left" : "center" })).join(""))).join(""),
+    false, "000000");
+  const campoW = c => '<w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:instrText xml:space="preserve"> ' + c + ' </w:instrText></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:t>1</w:t></w:r><w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>';
+  const txtPie = t => '<w:r><w:rPr><w:color w:val="7F7F7F"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + x(t) + '</w:t></w:r>';
+  const pie = '<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="BFBFBF"/></w:pBdr><w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr>'
+    + txtPie('CISADDE · Centro de Desarrollo Infantil' + (conCodigo ? ' · ' + CODIGO_INFORME : '') + ' · Página ') + campoW('PAGE') + txtPie(' de ') + campoW('NUMPAGES') + '</w:p>';
+
+  const cuerpo = (await bloques(hoja)) + (anterior ? '' : versiones);
+  const doc = XML + '<w:document ' + NS + '><w:body>' + cuerpo
+    + '<w:sectPr><w:headerReference w:type="default" r:id="rIdEnc"/><w:footerReference w:type="default" r:id="rIdPie"/>'
+    + '<w:pgSz w:w="' + PAGINA_W + '" w:h="' + PAGINA_H + '"/><w:pgMar w:top="2100" w:right="' + MARGEN + '" w:bottom="1300" w:left="' + MARGEN + '" w:header="450" w:footer="450" w:gutter="0"/></w:sectPr></w:body></w:document>';
+  const rel = (id, tipo, destino) => '<Relationship Id="' + id + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/' + tipo + '" Target="' + destino + '"/>';
+  const rels = items => XML + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + items + '</Relationships>';
+  const W = 'application/vnd.openxmlformats-officedocument.wordprocessingml.';
+  const archivos = [
+    { name:'[Content_Types].xml', data: XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'
+      + '<Override PartName="/word/document.xml" ContentType="' + W + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + W + 'styles+xml"/>'
+      + '<Override PartName="/word/header1.xml" ContentType="' + W + 'header+xml"/><Override PartName="/word/footer1.xml" ContentType="' + W + 'footer+xml"/></Types>' },
+    { name:'_rels/.rels', data: rels(rel('rId1', 'officeDocument', 'word/document.xml')) },
+    { name:'word/document.xml', data: doc },
+    { name:'word/_rels/document.xml.rels', data: rels(rel('rIdEstilos', 'styles', 'styles.xml') + rel('rIdEnc', 'header', 'header1.xml') + rel('rIdPie', 'footer', 'footer1.xml')
+      + medios.filter(m => !relsEnc.includes(m)).map(m => rel(m.rid, 'image', 'media/' + m.name)).join('')) },
+    { name:'word/header1.xml', data: XML + '<w:hdr ' + NS + '>' + encabezado + '</w:hdr>' },
+    { name:'word/_rels/header1.xml.rels', data: rels(relsEnc.map(m => rel(m.rid, 'image', 'media/' + m.name)).join('')) },
+    { name:'word/footer1.xml', data: XML + '<w:ftr ' + NS + '>' + pie + '</w:ftr>' },
+    { name:'word/styles.xml', data: XML + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="es-CO"/></w:rPr></w:rPrDefault>'
+      + '<w:pPrDefault><w:pPr><w:spacing w:after="60" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+      + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+      + '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>' }
+  ].concat(medios.map(m => ({ name:'word/media/' + m.name, data:m.data })));
+  return zip(archivos);
+}
+
+btn.addEventListener('click', async () => {
+  if(typeof revisarAntesDeImprimir === 'function' && !revisarAntesDeImprimir()) return;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Generando Word…';
+  try{
+    const blob = await crearDocx();
+    const titulo = (hoja.querySelector('h2') || {}).textContent || 'Informe';
+    const nombre = (typeof state !== 'undefined' && state.childName) || '';
+    const fecha = (typeof state !== 'undefined' && state.evalDate) || new Date().toISOString().slice(0, 10);
+    const archivo = [slug(titulo), slug(nombre) || 'sin_nombre', fecha].join('_') + '.docx';
+    // Dentro de Claude (enlace claude.ai) la descarga pasa por el permiso "downloads".
+    let hecho = false;
+    try{
+      const dl = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('downloads') : null;
+      if(dl){ hecho = true; await dl.save({ filename: archivo, data: blob }); }
+    }catch(e){ if(!(e && (e.code === 'declined' || e.code === 'rate_limited'))) hecho = false; }
+    if(!hecho){
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = archivo;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    }
+  }catch(err){
+    alert('No se pudo crear el archivo de Word: ' + (err && err.message || err));
+  }finally{
+    btn.disabled = false; btn.textContent = original;
+  }
+});
+window.CISADDE_INFORME_DOCX = crearDocx; // para pruebas
 })();
 </script>
 <!-- INFORME WORD:FIN -->
+<!-- MIS PACIENTES:INICIO -->
+<script>
+/* =====================================================================
+   TUS PACIENTES
+   Vista "Tus pacientes" (debajo de Plan terapéutico). Se carga un Excel con
+   los pacientes del terapeuta (basta el documento o el nombre); cada uno se
+   cruza con la base de pacientes para traer todos sus datos. La lista sale
+   numerada; al abrir un paciente se llenan la Portada y el Plan terapéutico,
+   y lo trabajado con cada niño/a queda guardado aparte (su "expediente"),
+   así se puede pasar de uno a otro sin perder nada. "✅ Realizado" lleva el
+   control de los planes terminados.
+   Todo queda solo en este navegador (localStorage), separado por formato.
+   Fuente: herramientas/mis-pacientes.js → node herramientas/insertar-mis-pacientes.js
+   ===================================================================== */
+(function(){
+// Dentro de Claude las ventanas de confirmación pueden estar bloqueadas (responden "no" al instante,
+// sin mostrarse): si la respuesta llega en menos de 40 ms nadie la vio, y se toma como "sí".
+function confirmar(m){ const t = Date.now(); let r = false; try{ r = window.confirm(m); }catch(e){ return true; } return r || Date.now() - t < 40; }
+if(typeof state === 'undefined' || typeof FORM_ID === 'undefined' || typeof DRAFT_KEY === 'undefined') return;
+const KEY_LISTA = 'cisadde.mispacientes.' + FORM_ID;
+const PRE_EXP = 'cisadde.expediente.' + FORM_ID + '.';
+const KEY_IR = 'cisadde.irA.' + FORM_ID;
+const B = () => window.CISADDE_BASE || null;
+const normId = s => String(s == null ? '' : s).replace(/\.0+$/, '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const hoyISO = () => { const t = new Date(); return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); };
+const fmt = iso => iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : '';
+const ESTADOS = { pendiente:['Pendiente', 'gray'], proceso:['En proceso', 'amber'], realizado:['Realizado', 'green'] };
+
+/* ---------- Guardado ---------- */
+let lista = leerLista(); // { archivo, cargado, filas:[{ id, nombre, b, extra, estado, fecha, varios }] }
+function leerLista(){ try{ const l = JSON.parse(localStorage.getItem(KEY_LISTA) || 'null'); return l && Array.isArray(l.filas) ? l : null; }catch(e){ return null; } }
+function guardarLista(){ try{ localStorage.setItem(KEY_LISTA, JSON.stringify(lista)); }catch(e){ alert('No se pudo guardar la lista en este navegador (sin espacio).'); } }
+const claveDe = (id, nombre) => id ? id : 'n_' + norm(nombre).replace(/ /g, '_');
+function claveActual(){ return claveDe(normId(state.numeroId), state.childName); }
+function filaActual(){
+  if(!lista) return null;
+  const id = normId(state.numeroId), n = norm(state.childName);
+  return lista.filas.find(f => (id && f.id === id) || (!id && n && norm(f.nombre) === n)) || null;
+}
+
+/* ---------- Leer el Excel del terapeuta ---------- */
+async function leerExcel(archivo){
+  const base = B();
+  if(!base || !base.leerArchivo) throw new Error('El lector de Excel no está disponible en esta página.');
+  if(/\.xls$/i.test(archivo.name)) throw new Error('Es un Excel antiguo (.xls). Ábrelo en Excel y usa "Guardar como" → Libro de Excel (.xlsx).');
+  const hojas = await base.leerArchivo(archivo);
+  // la hoja con más columnas reconocidas (y, si empatan, más filas)
+  let mejor = null;
+  hojas.forEach(h => { const d = base.detectar(h.filas); const p = d.puntos * 100000 + h.filas.length; if(!mejor || p > mejor.p) mejor = { h, d, p }; });
+  const { h, d } = mejor, m = Object.assign({}, d.mapa);
+  let desde = d.fila + 1, enc = h.filas[d.fila] || [];
+  if(!('id' in m) && !('n1' in m)){
+    // Sin encabezados reconocibles: documento = columna de números largos; nombre = columna con más letras
+    desde = 0; enc = [];
+    const datos = h.filas.slice(0, 200), nCols = Math.max(0, ...datos.map(f => f.length));
+    let idC = -1, idMax = .5, nC = -1, nMax = 0;
+    for(let c = 0; c < nCols; c++){
+      const vals = datos.map(f => String(f[c] == null ? '' : f[c]).trim()).filter(Boolean);
+      if(!vals.length) continue;
+      const nums = vals.filter(v => /^\d{6,12}$/.test(normId(v))).length / vals.length;
+      const letras = vals.filter(v => /[a-záéíóúñ]{3,}\s+[a-záéíóúñ]{3,}/i.test(v)).length / vals.length;
+      if(nums > idMax){ idMax = nums; idC = c; }
+      if(letras > nMax){ nMax = letras; nC = c; }
+    }
+    if(idC >= 0) m.id = idC;
+    if(nC >= 0) m.n1 = nC;
+    if(!('id' in m) && !('n1' in m)) throw new Error('No encontré en el Excel una columna de documento ni de nombre.');
+  }
+  const val = (f, k) => k in m ? String(f[m[k]] == null ? '' : f[m[k]]).trim() : '';
+  const filas = [], vistos = {};
+  h.filas.slice(desde).forEach(f => {
+    const id = normId(val(f, 'id')), nombre = [val(f, 'n1'), val(f, 'n2'), val(f, 'a1'), val(f, 'a2')].join(' ').replace(/\s+/g, ' ').trim();
+    if(!id && !nombre) return;
+    if(!/\d/.test(id) && !/[a-záéíóúñ]/i.test(nombre)) return;
+    const k = claveDe(id, nombre); if(vistos[k]) return; vistos[k] = 1;
+    // Todas las columnas del Excel del terapeuta, con su encabezado
+    const extra = {};
+    f.forEach((v, i) => {
+      if(v === '' || v == null) return;
+      const t = String(enc[i] == null ? '' : enc[i]).trim() || ('Columna ' + (i + 1));
+      extra[t] = typeof v === 'number' && /fecha|nac|ingreso|egreso/i.test(t) && base.aISO ? fmt(base.aISO(v)) || String(v) : String(v);
+    });
+    filas.push({ id, nombre, extra, estado:'pendiente', fecha:'' });
+  });
+  if(!filas.length) throw new Error('No encontré pacientes en el Excel.');
+  return { hoja: h.nombre, filas };
+}
+// Cruza cada paciente con la base: por documento exacto o, si no, por nombre (una sola coincidencia).
+function cruzar(){
+  const base = B(); if(!lista || !base || !base.lista || !base.lista()) return 0;
+  let n = 0;
+  lista.filas.forEach(f => { if(cruzarFila(f)) n++; });
+  guardarLista();
+  return n;
+}
+function cruzarFila(f){
+  const base = B(); if(!base || !base.lista || !base.lista()) return false;
+  let p = f.id ? base.porDocumento(f.id) : null;
+  delete f.varios;
+  if(!p && f.nombre){
+    const r = base.buscar(f.nombre, false);
+    if(r.length === 1) p = r[0]; else if(r.length > 1) f.varios = r.length;
+  }
+  if(!p){ f.b = null; return false; }
+  f.b = { nombre: p.nombre, id: p.id, tipo: p.tipo, nac: p.nac, ing: p.ing, eps: p.eps, cie: p.cie, dx: p.dx, est: p.est };
+  if(!f.id) f.id = normId(p.id);
+  if(!f.nombre) f.nombre = p.nombre;
+  return true;
+}
+
+/* ---------- Renovar varios planes a la vez ----------
+   Se eligen varios planes anteriores (.doc o .docx). Cada uno se une con su paciente por la
+   historia clínica (o el nombre); si no está en la lista, se agrega. Se parafrasea, se completa
+   con la base de pacientes, se guarda en el expediente del niño/a y se descargan todos los Word
+   renovados juntos en un .zip (o el Word solo, si es uno). */
+const slugT = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+async function renovarLote(archivos){
+  const P = window.CISADDE_PLAN;
+  if(!P){ alert('El módulo del plan terapéutico no está disponible en esta página.'); return; }
+  const base = B(); if(base && base.listo) await base.listo;
+  if(!lista) lista = { archivo: '(planes cargados)', cargado: Date.now(), filas: [] };
+  const comunes = P.comunes(), hoy = hoyISO(), res = [], docs = [], nombres = {};
+  for(let k = 0; k < archivos.length; k++){
+    const a = archivos[k];
+    aviso('⏳ Renovando ' + (k + 1) + ' de ' + archivos.length + ': ' + a.name + '…');
+    try{
+      const o = await P.leer(a);
+      if(!P.mismaArea(o)) throw new Error('es del área "' + o.area + '", no de ' + FORM_TITLE);
+      const id = normId(o.hc);
+      let f = lista.filas.find(x => id && x.id === id) || (o.nombre && lista.filas.find(x => norm(x.nombre) === norm(o.nombre) || (x.b && norm(x.b.nombre) === norm(o.nombre))));
+      const nueva = !f;
+      if(nueva){ f = { id, nombre: o.nombre, extra: {}, estado: 'pendiente', fecha: '' }; lista.filas.push(f); }
+      cruzarFila(f);
+      const b = f.b || {};
+      const plan = P.plan(o, a.name);
+      // Encabezado del Word: datos actuales de la base (o los del Word si no está en la base)
+      const nac = b.nac && b.nac <= hoy ? b.nac : '';
+      const d = Object.assign({}, comunes, {
+        nombre: b.nombre || f.nombre || o.nombre, hc: b.id || f.id || id,
+        edad: nac && typeof monthsBetween === 'function' ? ageLabel(monthsBetween(nac, null)) : '',
+        diag: b.dx || o.diag, cie: b.cie || o.cie, ingreso: fmt(b.ing) || o.ingreso
+      });
+      // Guardar el plan en el expediente del niño/a (o en pantalla, si es el que está abierto)
+      if(filaActual() === f){ Object.assign(state.plan, plan); try{ saveDraft(); }catch(e){} }
+      else {
+        const clave = claveDe(f.id, f.nombre);
+        const exp = leerExpediente(clave) || JSON.parse(JSON.stringify(STATE_DEFAULTS));
+        delete exp.evaluator; datosNino(exp, f); exp.plan = plan;
+        if(!f.b){ // sin base: lo que trae el Word
+          if(o.cie && !exp.cie10Code) exp.cie10Code = String(o.cie).toUpperCase().replace(/^([A-Z]\d{2})(\d)$/, '$1.$2');
+          if(o.diag && !exp.cie10Diag) exp.cie10Diag = o.diag;
+          const m = String(o.ingreso || '').match(/(\d{1,2})\D+(\d{1,2})\D+(\d{4})/);
+          if(m && !exp.fechaIngreso) exp.fechaIngreso = m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+        }
+        try{ localStorage.setItem(PRE_EXP + clave, JSON.stringify({ guardado: new Date().toISOString(), state: exp })); }catch(e){}
+      }
+      if(f.estado === 'pendiente') f.estado = 'proceso';
+      f.renovado = hoy;
+      let nombre = [P.codigo, 'Plan', slugT(comunes.area), slugT(d.nombre) || 'sin_nombre'].join('_');
+      if(nombres[nombre]) nombre += '_' + (++nombres[nombre]); else nombres[nombre] = 1;
+      docs.push({ name: nombre + '.docx', data: new Uint8Array(await (await P.word(d, plan)).arrayBuffer()) });
+      res.push({ ok: true, archivo: a.name, nombre: d.nombre, nueva, enBase: !!f.b, edad: !!d.edad, nEsp: o.especificos.length });
+    }catch(e){ res.push({ ok: false, archivo: a.name, error: (e && e.message) || String(e) }); }
+  }
+  guardarLista(); pintar(); pintarBotonPlan();
+  mostrarResultado(res);
+  if(docs.length === 1) await P.guardar(new Blob([docs[0].data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), docs[0].name);
+  else if(docs.length) await P.guardar(P.zip(docs), 'Planes_renovados_' + slugT(FORM_TITLE) + '_' + hoy + '.zip');
+}
+function mostrarResultado(res){
+  const ok = res.filter(r => r.ok), mal = res.filter(r => !r.ok);
+  aviso('📑 ' + ok.length + ' de ' + res.length + ' planes renovados' + (ok.length > 1 ? ' (se descargan juntos en un .zip)' : '') + (mal.length ? '; ' + mal.length + ' con problema (ver abajo).' : '.'));
+  const caja = document.getElementById('tpLote');
+  caja.hidden = false;
+  caja.innerHTML = '<div class="card-head"><h3>📑 Resultado de la renovación</h3><button type="button" class="btn ghost" id="tpLoteCerrar" style="padding:5px 10px;font-size:12px;">Cerrar</button></div>'
+    + '<div class="tp-tabla-wrap"><table class="tp-tabla" style="min-width:560px"><thead><tr><th>Archivo</th><th>Paciente</th><th>Resultado</th></tr></thead><tbody>'
+    + res.map(r => '<tr><td>' + esc(r.archivo) + '</td><td>' + esc(r.nombre || '—') + '</td><td>'
+      + (r.ok ? '<span class="tp-badge green">✓ Renovado</span> <small>' + r.nEsp + ' objetivos específicos'
+          + (r.nueva ? ' · agregado a tu lista' : '') + (r.enBase ? '' : ' · ⚠ no está en la base: datos del Word') + (r.edad ? '' : ' · ⚠ sin fecha de nacimiento: la edad queda vacía') + '</small>'
+        : '<span class="tp-badge red">⚠ No se pudo</span> <small>' + esc(r.error) + '</small>') + '</td></tr>').join('')
+    + '</tbody></table></div><p class="tag-note" style="margin-top:10px;">Cada plan quedó guardado en el expediente de su paciente: ábrelo en la lista ("📂 Abrir") para revisarlo, cambiar la redacción o mejorarlo con IA, y márcalo como realizado.</p>';
+  document.getElementById('tpLoteCerrar').onclick = () => { caja.hidden = true; };
+}
+
+/* ---------- Abrir un paciente: guardar el expediente del actual y cargar el suyo ---------- */
+function copiaSinEvaluador(){ const s = JSON.parse(JSON.stringify(state)); delete s.evaluator; return s; }
+function guardarExpediente(){
+  if(!state.childName && !state.numeroId) return true;
+  try{ localStorage.setItem(PRE_EXP + claveActual(), JSON.stringify({ guardado: new Date().toISOString(), state: copiaSinEvaluador() })); return true; }
+  catch(e){ return confirmar('No hay espacio en este navegador para guardar aparte el trabajo de ' + (state.childName || 'este niño/a') + ' (las firmas pesan mucho).\nExpórtalo con "Exportar valoración" antes de seguir.\n\n¿Cambiar de paciente de todas formas?'); }
+}
+function leerExpediente(clave){ try{ const e = JSON.parse(localStorage.getItem(PRE_EXP + clave) || 'null'); return e && e.state ? e.state : null; }catch(e){ return null; } }
+function datosNino(s, f){
+  const b = f.b || {}, hoy = hoyISO(), hace30 = (Number(hoy.slice(0, 4)) - 30) + hoy.slice(4);
+  s.childName = b.nombre || f.nombre || s.childName || '';
+  s.numeroId = b.id || f.id || s.numeroId || '';
+  if(b.tipo) s.tipoId = b.tipo;
+  if(b.nac && b.nac <= hoy && b.nac > hace30 && (!b.ing || b.nac <= b.ing)) s.birthDate = b.nac; // fechas del Excel con errores de digitación no se usan
+  if(b.ing && b.ing <= hoy) s.fechaIngreso = b.ing;
+  if(b.eps) s.eps = b.eps;
+  if(b.cie) s.cie10Code = b.cie;
+  if(b.dx) s.cie10Diag = b.dx;
+}
+function abrir(f){
+  if(filaActual() === f){ irA('plan'); return; }
+  const actual = (state.childName || '').trim();
+  if(actual && !confirmar('Vas a pasar de ' + actual + ' a ' + (f.nombre || f.id) + '.\nLo que llevas de ' + actual + ' queda guardado en su expediente y lo recuperas al volver a abrirlo.\n\n¿Continuar?')) return;
+  if(!guardarExpediente()) return;
+  const guardado = leerExpediente(claveDe(f.id, f.nombre));
+  const nuevo = guardado || JSON.parse(JSON.stringify(STATE_DEFAULTS));
+  datosNino(nuevo, f); // los datos de la base se actualizan (EPS, diagnóstico…)
+  nuevo.evaluator = state.evaluator; // el profesional, su sello y firma siguen iguales
+  if(f.estado === 'pendiente'){ f.estado = 'proceso'; guardarLista(); }
+  try{
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ formato: FORM_ID, titulo: FORM_TITLE, version: 1, guardado: new Date().toISOString(), state: nuevo }));
+  }catch(e){ alert('No se pudo abrir el paciente: el navegador no tiene espacio. Exporta y usa "Borrar datos de este equipo".'); return; }
+  try{ lastSaved = JSON.stringify(state); clearTimeout(saveTimer); }catch(e){}
+  try{ window.removeEventListener('pagehide', saveDraft); }catch(e){}
+  try{ sessionStorage.setItem(KEY_IR, 'plan'); }catch(e){}
+  location.reload();
+}
+function irA(v){ const n = document.querySelector('.nav-item[data-view="' + v + '"]'); if(n) n.click(); }
+function marcar(f, realizado){
+  f.estado = realizado ? 'realizado' : (filaActual() === f ? 'proceso' : 'pendiente');
+  f.fecha = realizado ? hoyISO() : '';
+  if(realizado && filaActual() === f){ try{ saveDraft(); }catch(e){} guardarExpediente(); }
+  guardarLista(); pintar(); pintarBotonPlan();
+}
+
+/* ---------- Estilos ---------- */
+const css = document.createElement('style');
+css.textContent = ''
+  + '.tp-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}'
+  + '.tp-stat{background:var(--surface-alt);border:1px solid var(--border);border-radius:12px;padding:10px 12px}.tp-stat b{display:block;font-size:22px;font-family:var(--font-display)}.tp-stat span{font-size:11.5px;color:var(--text-dim);font-weight:700}'
+  + '.tp-bar{height:8px;border-radius:99px;background:var(--gray-bg,#EEF1F3);overflow:hidden;margin:4px 0 14px}.tp-bar i{display:block;height:100%;background:var(--green,#1EA672);border-radius:99px;transition:width .3s}'
+  + '.tp-filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.tp-filtros .input{max-width:280px}'
+  + '.tp-chip{padding:6px 12px;border-radius:99px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-dim);font-weight:700;font-size:12px;cursor:pointer}.tp-chip.on{background:var(--cyan-500,#17A2D6);border-color:var(--cyan-500,#17A2D6);color:#fff}'
+  + '.tp-tabla-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px}'
+  + '.tp-tabla{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px}.tp-tabla th{background:var(--navy-800,#154D77);color:#fff;text-align:left;padding:8px 10px;font-size:11px;white-space:nowrap}'
+  + '.tp-tabla td{padding:8px 10px;border-top:1px solid var(--border);vertical-align:top}.tp-tabla tr.tp-actual td{background:var(--blue-bg,#EAF1FC)}.tp-tabla tr.tp-hecho td{opacity:.78}'
+  + '.tp-tabla small{display:block;color:var(--text-faint);font-size:11px}.tp-num{font-weight:800;color:var(--text-dim);width:36px}'
+  + '.tp-acc{display:flex;gap:6px;flex-wrap:wrap}.tp-acc .btn{padding:5px 10px;font-size:12px}'
+  + '.tp-tabla details summary{cursor:pointer;color:var(--cyan-600,#0E8FC4);font-size:11.5px;margin-top:3px}.tp-tabla details div{font-size:11.5px;color:var(--text-dim);margin-top:4px;line-height:1.5}'
+  + '.tp-badge{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:99px;white-space:nowrap}'
+  + '.tp-badge.gray{background:var(--gray-bg,#EEF1F3);color:var(--text-dim)}.tp-badge.amber{background:var(--amber-bg,#FDF3DF);color:var(--amber,#E8A317)}.tp-badge.green{background:var(--green-bg,#E5F7EF);color:var(--green,#1EA672)}.tp-badge.red{background:var(--red-bg,#FCEAE9);color:var(--red,#E4544B)}'
+  + '.tp-vacio{padding:30px 16px;text-align:center;color:var(--text-dim);font-size:13.5px;line-height:1.6}'
+  + '@media (max-width:640px){.tp-stats{grid-template-columns:1fr 1fr}}'
+  + '@media print{#view-pacientes .no-print{display:none!important}}';
+document.head.appendChild(css);
+
+/* ---------- Vista ---------- */
+const nav = document.createElement('a');
+nav.className = 'nav-item'; nav.dataset.view = 'pacientes';
+nav.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.7.8 2.8 2.6 3 5.2"/></svg> Tus pacientes <span class="nav-badge" id="tpNavBadge" hidden></span>';
+const despuesDe = document.querySelector('.nav-item[data-view="plan"]') || document.querySelector('.nav-item[data-view="informe"]');
+if(!despuesDe) return;
+despuesDe.after(nav);
+views.push('pacientes');
+titles.pacientes = ['Tus pacientes', '· Lista para llevar el control de los planes'];
+
+const sec = document.createElement('section');
+sec.className = 'view'; sec.id = 'view-pacientes'; sec.hidden = true;
+sec.innerHTML = '<div class="page-head"><div><h2>Tus pacientes</h2><p>Carga tu lista en Excel: cada paciente se completa con la base de pacientes. Ábrelo para trabajar su valoración y su plan, y márcalo como realizado.</p></div>'
+  + '<div class="btn-row no-print"><button class="btn ghost" type="button" id="tpCruzarBtn">🔄 Cruzar con la base</button><button class="btn ghost" type="button" id="tpQuitarBtn">🗑️ Quitar lista</button>'
+  + '<button class="btn dark" type="button" id="tpLoteBtn" title="Elige varios planes anteriores (.doc o .docx): se renuevan todos y se descargan juntos">📑 Renovar varios planes (Word)</button>'
+  + '<button class="btn primary" type="button" id="tpCargarBtn">📂 Cargar mi lista (Excel)</button></div></div>'
+  + '<p class="tag-note" id="tpAviso" style="margin-bottom:14px;"></p>'
+  + '<div class="card no-print" id="tpLote" hidden></div>'
+  + '<div class="card" id="tpCard"></div>';
+document.getElementById(despuesDe.dataset.view === 'plan' ? 'view-plan' : 'view-informe').after(sec);
+const inputLista = document.createElement('input');
+inputLista.type = 'file'; inputLista.accept = '.xlsx,.xlsm,.csv'; inputLista.hidden = true;
+sec.appendChild(inputLista);
+
+let filtro = 'todos', busqueda = '';
+function aviso(t){ document.getElementById('tpAviso').textContent = t || ''; document.getElementById('tpAviso').style.display = t ? '' : 'none'; }
+function edadDe(f){ const nac = f.b && f.b.nac; if(!nac || typeof monthsBetween !== 'function') return ''; const m = monthsBetween(nac, null); return m == null ? '' : (typeof ageLabel === 'function' ? ageLabel(m) : Math.floor(m / 12) + ' años'); }
+function pintarNav(){
+  const b = document.getElementById('tpNavBadge');
+  if(!lista || !lista.filas.length){ b.hidden = true; return; }
+  b.hidden = false; b.textContent = lista.filas.filter(f => f.estado === 'realizado').length + '/' + lista.filas.length;
+}
+function pintar(){
+  pintarNav();
+  const card = document.getElementById('tpCard');
+  document.getElementById('tpCruzarBtn').hidden = document.getElementById('tpQuitarBtn').hidden = !lista;
+  if(!lista || !lista.filas.length){
+    card.innerHTML = '<div class="tp-vacio">📋 Aún no has cargado tu lista.<br>Pulsa <b>"📂 Cargar mi lista (Excel)"</b> y elige un Excel (.xlsx) o CSV con tus pacientes.<br>Basta una columna con el <b>documento</b> o el <b>nombre</b>; lo demás se trae de la base de pacientes.</div>';
+    return;
+  }
+  const total = lista.filas.length, hechos = lista.filas.filter(f => f.estado === 'realizado').length;
+  const proceso = lista.filas.filter(f => f.estado === 'proceso').length, actual = filaActual();
+  const q = norm(busqueda), qid = normId(busqueda);
+  const ver = lista.filas.map((f, i) => [f, i]).filter(([f]) => (filtro === 'todos' || f.estado === filtro)
+    && (!q || norm(f.nombre + ' ' + ((f.b && f.b.nombre) || '')).includes(q) || (qid && f.id.includes(qid))));
+  card.innerHTML = '<div class="tp-stats"><div class="tp-stat"><b>' + total + '</b><span>PACIENTES</span></div><div class="tp-stat"><b style="color:var(--green)">' + hechos + '</b><span>REALIZADOS</span></div>'
+    + '<div class="tp-stat"><b style="color:var(--amber)">' + proceso + '</b><span>EN PROCESO</span></div><div class="tp-stat"><b>' + (total - hechos - proceso) + '</b><span>PENDIENTES</span></div></div>'
+    + '<div class="tp-bar" title="' + Math.round(hechos / total * 100) + ' % realizado"><i style="width:' + (hechos / total * 100) + '%"></i></div>'
+    + '<div class="tp-filtros no-print">' + [['todos', 'Todos'], ['pendiente', 'Pendientes'], ['proceso', 'En proceso'], ['realizado', 'Realizados']].map(([k, t]) => '<button type="button" class="tp-chip' + (filtro === k ? ' on' : '') + '" data-f="' + k + '">' + t + '</button>').join('')
+    + '<input class="input" id="tpBuscar" placeholder="Buscar por nombre o documento…" value="' + esc(busqueda) + '"></div>'
+    + '<div class="tp-tabla-wrap"><table class="tp-tabla"><thead><tr><th>N°</th><th>Paciente</th><th>Edad</th><th>EPS</th><th>Diagnóstico</th><th>Ingreso</th><th>Estado</th><th class="no-print">Acciones</th></tr></thead><tbody>'
+    + (ver.length ? ver.map(([f, i]) => {
+        const b = f.b || {}, e = ESTADOS[f.estado] || ESTADOS.pendiente, extra = Object.entries(f.extra || {});
+        return '<tr class="' + (f === actual ? 'tp-actual' : '') + (f.estado === 'realizado' ? ' tp-hecho' : '') + '">'
+          + '<td class="tp-num">' + (i + 1) + '</td>'
+          + '<td><b>' + esc(b.nombre || f.nombre || '—') + '</b>' + (f === actual ? ' <span class="tp-badge amber">📍 Abierto</span>' : '')
+          + '<small>' + esc([(b.tipo ? b.tipo + ' ' : '') + (b.id || f.id || 'sin documento'), b.est].filter(Boolean).join(' · ')) + '</small>'
+          + (!f.b ? '<span class="tp-badge red">' + (f.varios ? '⚠ ' + f.varios + ' parecidos en la base' : '⚠ No está en la base') + '</span>' : '')
+          + (extra.length ? '<details><summary>Datos de tu Excel</summary><div>' + extra.map(([k, v]) => '<b>' + esc(k) + ':</b> ' + esc(v)).join('<br>') + '</div></details>' : '') + '</td>'
+          + '<td>' + esc(edadDe(f) || '—') + '</td><td>' + esc(b.eps || '—') + '</td>'
+          + '<td>' + esc(b.cie || '') + (b.dx ? '<small>' + esc(b.dx) + '</small>' : (b.cie ? '' : '—')) + '</td>'
+          + '<td>' + esc(fmt(b.ing) || '—') + '</td>'
+          + '<td><span class="tp-badge ' + e[1] + '">' + (f.estado === 'realizado' ? '✅ ' : '') + e[0] + '</span>' + (f.fecha ? '<small>' + fmt(f.fecha) + '</small>' : '') + (f.renovado ? '<small>📄 Plan renovado ' + fmt(f.renovado) + '</small>' : '') + '</td>'
+          + '<td class="no-print"><div class="tp-acc"><button class="btn primary" type="button" data-abrir="' + i + '">' + (f === actual ? '📋 Ir al plan' : '📂 Abrir') + '</button>'
+          + '<button class="btn ghost" type="button" data-hecho="' + i + '">' + (f.estado === 'realizado' ? '↩ Quitar realizado' : '✅ Realizado') + '</button></div></td></tr>';
+      }).join('') : '<tr><td colspan="8" class="tp-vacio">No hay pacientes con ese filtro.</td></tr>')
+    + '</tbody></table></div>'
+    + '<p class="tag-note" style="margin-top:10px;">Lista: <b>' + esc(lista.archivo) + '</b> · cargada el ' + new Date(lista.cargado).toLocaleString('es-CO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    + '. Al abrir un paciente se llenan la Portada y el Plan; lo que trabajes con cada uno queda guardado aparte en este navegador. 🔒 No se sube a internet.</p>';
+  card.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filtro = b.dataset.f; pintar(); });
+  const bus = card.querySelector('#tpBuscar');
+  bus.oninput = () => { busqueda = bus.value; const pos = bus.selectionStart; pintar(); const n = document.getElementById('tpBuscar'); n.focus(); n.setSelectionRange(pos, pos); };
+  card.querySelectorAll('[data-abrir]').forEach(b => b.onclick = () => abrir(lista.filas[Number(b.dataset.abrir)]));
+  card.querySelectorAll('[data-hecho]').forEach(b => b.onclick = () => { const f = lista.filas[Number(b.dataset.hecho)]; marcar(f, f.estado !== 'realizado'); });
+}
+
+document.getElementById('tpCargarBtn').addEventListener('click', () => { inputLista.value = ''; inputLista.click(); });
+const inputPlanes = document.createElement('input');
+inputPlanes.type = 'file'; inputPlanes.multiple = true; inputPlanes.hidden = true;
+inputPlanes.accept = '.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword';
+sec.appendChild(inputPlanes);
+document.getElementById('tpLoteBtn').addEventListener('click', () => { inputPlanes.value = ''; inputPlanes.click(); });
+inputPlanes.addEventListener('change', () => {
+  const archivos = Array.from(inputPlanes.files || []); if(!archivos.length) return;
+  const btn = document.getElementById('tpLoteBtn'); btn.disabled = true;
+  renovarLote(archivos).catch(e => aviso('⚠ No se pudieron renovar los planes: ' + ((e && e.message) || e))).finally(() => { btn.disabled = false; });
+});
+inputLista.addEventListener('change', async () => {
+  const archivo = inputLista.files && inputLista.files[0]; if(!archivo) return;
+  try{
+    const r = await leerExcel(archivo);
+    // Si ya había lista, se conserva el estado (realizado / en proceso) de quienes siguen en la nueva
+    if(lista && lista.filas.length){
+      if(!confirmar('¿Reemplazar tu lista actual (' + lista.filas.length + ' pacientes) por la de "' + archivo.name + '" (' + r.filas.length + ')?\nSe conserva el estado de los que estén en las dos.')) return;
+      const antes = {}; lista.filas.forEach(f => { antes[claveDe(f.id, f.nombre)] = f; });
+      r.filas.forEach(f => { const a = antes[claveDe(f.id, f.nombre)]; if(a){ f.estado = a.estado; f.fecha = a.fecha; } });
+    }
+    lista = { archivo: archivo.name, cargado: Date.now(), hoja: r.hoja, filas: r.filas };
+    const base = B(); if(base && base.listo) await base.listo;
+    const n = cruzar(); guardarLista(); pintar();
+    const hayBase = B() && B().lista && B().lista();
+    aviso('✓ Lista cargada: ' + lista.filas.length + ' pacientes. ' + (hayBase ? n + ' encontrados en la base de pacientes' + (n < lista.filas.length ? '; los que dicen "No está en la base" se abren con lo que trae tu Excel.' : '.')
+      : '⚠ No hay base de pacientes cargada: cárgala en la Portada ("📊 Base de pacientes") y luego pulsa "🔄 Cruzar con la base".'));
+  }catch(e){ alert('No se pudo leer tu lista:\n\n' + (e && e.message || e)); }
+});
+document.getElementById('tpCruzarBtn').addEventListener('click', () => {
+  if(!B() || !B().lista()){ alert('No hay base de pacientes cargada. Cárgala en la Portada con "📊 Base de pacientes (Excel)".'); return; }
+  const n = cruzar(); pintar(); aviso('✓ ' + n + ' de ' + lista.filas.length + ' pacientes encontrados en la base.');
+});
+document.getElementById('tpQuitarBtn').addEventListener('click', () => {
+  if(!confirmar('¿Quitar tu lista de pacientes de este formato?\nLos expedientes guardados de cada niño/a no se borran.')) return;
+  lista = null; try{ localStorage.removeItem(KEY_LISTA); }catch(e){} pintar(); aviso('');
+});
+nav.addEventListener('click', () => { goto('pacientes'); pintar(); });
+
+/* ---------- En el Plan terapéutico: "✅ Marcar realizado" ---------- */
+const btnPlan = document.createElement('button');
+btnPlan.type = 'button'; btnPlan.className = 'btn ghost'; btnPlan.id = 'tpPlanHecho'; btnPlan.hidden = true;
+const filaBotones = document.querySelector('#view-plan .page-head .btn-row');
+if(filaBotones) filaBotones.insertBefore(btnPlan, filaBotones.firstChild);
+function pintarBotonPlan(){
+  const f = filaActual();
+  btnPlan.hidden = !f;
+  if(!f) return;
+  btnPlan.textContent = f.estado === 'realizado' ? '✅ Realizado · ' + fmt(f.fecha) : '✅ Marcar realizado';
+  btnPlan.className = 'btn ' + (f.estado === 'realizado' ? 'ghost' : 'dark');
+  btnPlan.title = f.estado === 'realizado' ? 'Clic para quitar la marca de realizado' : 'Marca este paciente como realizado en "Tus pacientes"';
+}
+btnPlan.addEventListener('click', () => {
+  const f = filaActual(); if(!f) return;
+  if(f.estado === 'realizado'){ if(confirmar('¿Quitar la marca de realizado de ' + f.nombre + '?')) marcar(f, false); }
+  else { marcar(f, true); aviso('✅ ' + (f.nombre || f.id) + ' quedó como realizado.'); }
+});
+const navPlan = document.querySelector('.nav-item[data-view="plan"]');
+if(navPlan) navPlan.addEventListener('click', pintarBotonPlan);
+document.getElementById('numeroId') && document.getElementById('numeroId').addEventListener('change', pintarBotonPlan);
+
+/* ---------- "Borrar datos de este equipo" también borra la lista y los expedientes ---------- */
+const wipe = document.getElementById('fileWipeBtn');
+if(wipe) wipe.addEventListener('click', () => setTimeout(() => {
+  const body = document.getElementById('czBody');
+  if(body && !body.querySelector('.tp-wipe')){ const p = document.createElement('p'); p.className = 'tp-wipe'; p.textContent = 'También se borran tu lista de pacientes y los expedientes guardados de cada niño/a de este formato.'; body.appendChild(p); }
+}, 0));
+document.addEventListener('click', e => {
+  if(!e.target.closest || !e.target.closest('#czActions .cz-danger')) return;
+  const todo = document.getElementById('czTodo') && document.getElementById('czTodo').checked;
+  try{ Object.keys(localStorage).forEach(k => { if(k === KEY_LISTA || k.startsWith(PRE_EXP) || (todo && /^cisadde\.(mispacientes|expediente)\./.test(k))) localStorage.removeItem(k); }); }catch(err){}
+}, true);
+
+/* ---------- Al cargar ---------- */
+aviso(''); pintarNav(); pintarBotonPlan();
+// la base puede terminar de leerse después: se vuelve a cruzar a quienes no se habían encontrado
+if(lista && B() && B().listo) B().listo.then(() => { if(lista.filas.some(f => !f.b)){ cruzar(); pintarNav(); } });
+let ir = ''; try{ ir = sessionStorage.getItem(KEY_IR) || ''; sessionStorage.removeItem(KEY_IR); }catch(e){}
+if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
+})();
+</script>
+<!-- MIS PACIENTES:FIN -->
 </body>
 </html>
