@@ -18,6 +18,15 @@
   try { enApp = sessionStorage.getItem(MARCA) === '1' && window.parent !== window; } catch (e) {}
   if (!enApp || window.claude) return;
 
+  // Respaldo elegido en "☁️ Respaldos en Drive": se pone como borrador ANTES de que el formato lo lea.
+  try {
+    var pendiente = JSON.parse(sessionStorage.getItem('cisadde.restaurar') || 'null');
+    sessionStorage.removeItem('cisadde.restaurar');
+    if (pendiente && /^cisadde\.borrador\.[a-z]+$/.test(pendiente.clave) && pendiente.contenido) {
+      localStorage.setItem(pendiente.clave, pendiente.contenido);
+    }
+  } catch (e) {}
+
   var padre = window.parent, origenPadre = null, pendientes = {}, n = 0, listo;
   var conectado = new Promise(function (ok) { listo = ok; });
   // Si la app no contesta (p. ej. la página quedó en otro marco), se sigue sin puente.
@@ -28,7 +37,7 @@
     if (ev.source !== padre || !m || m.cisadde !== 1) return;
     // Solo se habla con la app de Google (Apps Script se sirve desde googleusercontent.com).
     if (!/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/.test(ev.origin)) return;
-    if (m.hola) { if (!origenPadre) { origenPadre = ev.origin; listo({ ia: !!m.ia }); } return; }
+    if (m.hola) { if (!origenPadre) { origenPadre = ev.origin; listo({ ia: !!m.ia, drive: !!m.drive }); } return; }
     var p = m.id && pendientes[m.id];
     if (!p) return;
     delete pendientes[m.id];
@@ -75,10 +84,24 @@
       var nombre = String(o.filename || 'archivo');
       descargarAqui(blob, nombre);
       return enBase64(blob).then(function (b64) {
-        return pedir('guardar', { nombre: nombre, mime: blob.type || 'application/octet-stream', base64: b64 });
+        return pedir('guardar', { nombre: nombre, mime: blob.type || 'application/octet-stream', base64: b64, meta: datosPaciente() });
       });
     }
   };
+
+  /* Datos del niño y del formato abierto (para la carpeta del paciente y el registro). */
+  function esFormato() { return typeof FORM_ID !== 'undefined' && typeof DRAFT_KEY !== 'undefined'; }
+  function datosPaciente() {
+    if (!esFormato()) return null;
+    var s = typeof state !== 'undefined' && state ? state : {};
+    return {
+      formato: FORM_ID,
+      titulo: typeof FORM_TITLE !== 'undefined' ? FORM_TITLE : FORM_ID,
+      paciente: String(s.childName || '').trim(),
+      documento: String(s.numeroId || '').trim(),
+      terapeuta: s.evaluator && s.evaluator.name ? String(s.evaluator.name).trim() : ''
+    };
+  }
 
   window.claude = {
     use: function (que) {
@@ -87,6 +110,112 @@
       return Promise.resolve(null);
     }
   };
+
+  /* ================= Respaldo automático del borrador en Drive ================= */
+  var CADA = 2 * 60 * 1000;          // cada 2 minutos, solo si el borrador cambió
+  var ultimoEnviado = '', enviando = false, etiqueta = null, ultimaHora = '';
+
+  function ponerEstado(texto, error) {
+    if (!etiqueta) return;
+    etiqueta.textContent = texto;
+    etiqueta.style.color = error ? '#F3A6A6' : '';
+  }
+  function respaldar() {
+    if (enviando || !esFormato()) return;
+    var contenido = '';
+    try { contenido = localStorage.getItem(DRAFT_KEY) || ''; } catch (e) {}
+    var d = datosPaciente();
+    if (!contenido || !d || !d.paciente || contenido === ultimoEnviado) return;
+    enviando = true;
+    ponerEstado('☁️ Respaldando en Drive…');
+    d.contenido = contenido;
+    pedir('respaldo', d).then(function () {
+      ultimoEnviado = contenido;
+      ultimaHora = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+      ponerEstado('☁️ Respaldo en Drive · ' + ultimaHora);
+    }, function (err) {
+      ponerEstado('⚠ No se pudo respaldar en Drive' + (err && err.message ? ': ' + err.message : ''), true);
+    }).then(function () { enviando = false; });
+  }
+
+  function textoFecha(iso) {
+    try { return new Date(iso).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }); } catch (e) { return iso; }
+  }
+  function abrirRespaldos() {
+    var fondo = document.createElement('div');
+    fondo.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(6,20,33,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    var caja = document.createElement('div');
+    caja.style.cssText = 'width:100%;max-width:560px;max-height:calc(100% - 32px);overflow:auto;box-sizing:border-box;background:#fff;color:#12314A;' +
+      'border-radius:16px;padding:20px;font:14px/1.45 Inter,system-ui,sans-serif;box-shadow:0 20px 50px -10px rgba(0,0,0,.5)';
+    caja.innerHTML = '<h2 style="margin:0 0 4px;font-size:18px">☁️ Respaldos en Drive</h2>' +
+      '<p style="margin:0 0 12px;color:#5B7891;font-size:13px">Borradores de "' + String(FORM_TITLE).replace(/[<>&]/g, '') +
+      '" guardados automáticamente. Abre uno para seguir trabajando en este equipo.</p><div data-lista>Cargando…</div>' +
+      '<div style="text-align:right;margin-top:14px"><button type="button" data-cerrar style="border:1px solid #D5E3EE;background:none;border-radius:10px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer">Cerrar</button></div>';
+    fondo.appendChild(caja);
+    document.body.appendChild(fondo);
+    function cerrar() { fondo.remove(); }
+    caja.querySelector('[data-cerrar]').onclick = cerrar;
+    fondo.addEventListener('click', function (e) { if (e.target === fondo) cerrar(); });
+    var lista = caja.querySelector('[data-lista]');
+
+    pedir('listarRespaldos', { formato: FORM_ID, titulo: FORM_TITLE }).then(function (items) {
+      lista.textContent = '';
+      if (!items || !items.length) { lista.textContent = 'Todavía no hay respaldos de este formato.'; return; }
+      items.forEach(function (it) {
+        var fila = document.createElement('button');
+        fila.type = 'button';
+        fila.style.cssText = 'display:block;width:100%;text-align:left;border:1px solid #D5E3EE;background:none;color:inherit;border-radius:10px;' +
+          'padding:10px 12px;margin:0 0 8px;font:inherit;cursor:pointer';
+        var b = document.createElement('b'); b.textContent = it.paciente + (it.documento ? ' (' + it.documento + ')' : '');
+        var s = document.createElement('small');
+        s.style.cssText = 'display:block;color:#5B7891;margin-top:2px';
+        s.textContent = (it.terapeuta ? it.terapeuta + ' · ' : '') + 'Respaldado: ' + textoFecha(it.fecha);
+        fila.appendChild(b); fila.appendChild(s);
+        fila.onclick = function () {
+          var actual = (datosPaciente() || {}).paciente;
+          if (!confirm('¿Abrir el respaldo de ' + it.paciente + '?\n' +
+            (actual ? 'Lo que hay ahora en pantalla (' + actual + ') se reemplazará. Si lo necesitas, expórtalo primero.' : ''))) return;
+          fila.disabled = true; s.textContent = 'Abriendo…';
+          pedir('leerRespaldo', { id: it.id }).then(function (contenido) {
+            var datos = JSON.parse(contenido);
+            if (!datos || datos.formato !== FORM_ID || !datos.state) throw new Error('El respaldo no es de este formato.');
+            sessionStorage.setItem('cisadde.restaurar', JSON.stringify({ clave: DRAFT_KEY, contenido: contenido }));
+            location.reload();
+          }).catch(function (err) {
+            fila.disabled = false;
+            s.textContent = '⚠ ' + ((err && err.message) || 'No se pudo abrir el respaldo.');
+          });
+        };
+        lista.appendChild(fila);
+      });
+    }, function (err) { lista.textContent = '⚠ ' + ((err && err.message) || 'No se pudieron cargar los respaldos.'); });
+  }
+
+  function iniciarRespaldo() {
+    if (!esFormato()) return;
+    conectado.then(function (e) {
+      if (!e.drive) return; // la app de Google todavía no tiene esta función
+      var wipe = document.getElementById('fileWipeBtn');
+      if (wipe) {
+        var btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'nav-item'; btn.id = 'cz-respaldos-btn';
+        btn.style.cssText = 'width:100%; text-align:left;';
+        btn.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8a4 4 0 0 1 0 8"/><path d="M12 12v8M9 17l3 3 3-3"/></svg> Respaldos en Drive';
+        btn.onclick = abrirRespaldos;
+        wipe.parentNode.insertBefore(btn, wipe);
+        etiqueta = document.createElement('div');
+        etiqueta.style.cssText = 'padding:2px 12px 0; font-size:11px; color:#8FB4CE; line-height:1.5;';
+        etiqueta.textContent = '☁️ Respaldo en Drive activado';
+        var tag = document.getElementById('autosaveTag');
+        (tag || wipe).parentNode.insertBefore(etiqueta, tag ? tag.nextSibling : wipe.nextSibling);
+      }
+      setTimeout(respaldar, 20000);
+      setInterval(respaldar, CADA);
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') respaldar(); });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciarRespaldo);
+  else iniciarRespaldo();
 })();
 </script>
 <!-- PUENTE-APP:FIN -->
