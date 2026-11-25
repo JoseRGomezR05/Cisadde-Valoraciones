@@ -5824,5 +5824,201 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
 })();
 </script>
 <!-- MIS PACIENTES:FIN -->
+<!-- RESUMEN-EDITABLE:INICIO -->
+<script>
+/* =====================================================================
+   RESUMEN CUALITATIVO DEL DESARROLLO — editable y con IA (Informe)
+   · Se edita haciendo clic en el texto del Informe. Lo editado se guarda
+     con la valoración (borrador, exportar, respaldo) por rango de edad.
+   · "✨ Lenguaje técnico con IA" lo reescribe con terminología clínica.
+   · "↺ Texto automático" vuelve al resumen que arma el formato.
+   · Los botones no salen en el PDF, el Word ni al imprimir.
+   Fuente: herramientas/resumen-editable.js → node herramientas/insertar-resumen-editable.js
+   ===================================================================== */
+(function () {
+  if (typeof renderQual !== 'function' || typeof state === 'undefined') return;
+  const box = document.getElementById('il-qual');
+  if (!box) return;
+
+  /* La edición se guarda en state.qualEdit = { <rango>: { texto, base, fecha } }.
+     El formato solo recupera del borrador las claves que conoce, así que se lee aparte. */
+  try { if (typeof STATE_DEFAULTS !== 'undefined' && !('qualEdit' in STATE_DEFAULTS)) STATE_DEFAULTS.qualEdit = {}; } catch (e) {}
+  try {
+    const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (raw && raw.state && raw.state.qualEdit && typeof raw.state.qualEdit === 'object') state.qualEdit = raw.state.qualEdit;
+  } catch (e) {}
+  if (!state.qualEdit || typeof state.qualEdit !== 'object' || Array.isArray(state.qualEdit)) state.qualEdit = {};
+
+  const original = renderQual;
+  // Rango(s) de edad del Informe: según el formato es reportSheet(), activeSheet() o varios (sheetsForReport).
+  const hoja = () => {
+    try { if (typeof reportSheet === 'function') return reportSheet(); } catch (e) {}
+    try { if (typeof activeSheet === 'function') return activeSheet(); } catch (e) {}
+    return null;
+  };
+  let ultimosArgs = [];
+  const hojasInforme = () => Array.isArray(ultimosArgs[0]) && ultimosArgs[0].length ? ultimosArgs[0] : [hoja()].filter(Boolean);
+  const clave = () => hojasInforme().map(h => h.key).join('+') || 'general';
+  const textoCaja = () => box.innerText != null ? box.innerText : Array.from(box.children).map(d => d.textContent).join(String.fromCharCode(10));
+  const firma = (t) => { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return String(h); };
+  const limpiarLineas = (t) => String(t || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+
+  /* Texto automático del formato (sin tocar el Informe). */
+  function textoAuto() {
+    const tmp = document.createElement('div');
+    tmp.id = 'cz-qual-tmp'; tmp.hidden = true;
+    document.body.appendChild(tmp);
+    try { original.apply(null, ['cz-qual-tmp'].concat(ultimosArgs)); return Array.from(tmp.children).map(r => r.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n'); }
+    finally { tmp.remove(); }
+  }
+
+  /* ---------- Barra (no sale en PDF, Word ni impresión) ---------- */
+  const estilo = document.createElement('style');
+  estilo.textContent =
+    '.cz-qual-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 8px;font:12.5px/1.4 Inter,system-ui,sans-serif;color:#5B7891}' +
+    '.cz-qual-bar button{border:1px solid #C9DCEB;background:#fff;color:#0B5F85;border-radius:8px;padding:5px 10px;font:inherit;font-weight:700;cursor:pointer}' +
+    '.cz-qual-bar button.pri{background:#0E8FC4;border-color:#0E8FC4;color:#fff}' +
+    '.cz-qual-bar button:disabled{opacity:.6;cursor:default}' +
+    '.cz-qual-bar .aviso{color:#9C5B00;flex-basis:100%}' +
+    '#il-qual[contenteditable="true"]{outline:none;border:1px dashed transparent;border-radius:6px;padding:2px;cursor:text}' +
+    '#il-qual[contenteditable="true"]:hover{border-color:#C9DCEB}' +
+    '#il-qual[contenteditable="true"]:focus{border-color:#0E8FC4;background:rgba(14,143,196,.04)}' +
+    '@media print{.cz-qual-bar{display:none!important}#il-qual{border:0!important;background:none!important}}';
+  document.head.appendChild(estilo);
+
+  const barra = document.createElement('div');
+  barra.className = 'cz-qual-bar no-print';
+  barra.setAttribute('data-html2canvas-ignore', 'true');
+  barra.innerHTML =
+    '<span>✏️ Haz clic en el texto para editarlo.</span>' +
+    '<button type="button" class="pri" data-ia>✨ Lenguaje técnico con IA</button>' +
+    '<button type="button" data-auto hidden>↺ Texto automático</button>' +
+    '<span data-estado></span>' +
+    '<span class="aviso" data-cambio hidden>⚠ La valoración cambió después de editar este resumen. Revísalo o vuelve al texto automático.</span>';
+  box.parentNode.insertBefore(barra, box);
+  const $ia = barra.querySelector('[data-ia]'), $auto = barra.querySelector('[data-auto]');
+  const $estado = barra.querySelector('[data-estado]'), $cambio = barra.querySelector('[data-cambio]');
+  const estado = (t, error) => { $estado.textContent = t || ''; $estado.style.color = error ? '#B42318' : ''; };
+
+  /* ---------- Pintar el resumen (editado o automático) ---------- */
+  function pintarTexto(texto) {
+    box.innerHTML = '';
+    texto.split('\n').forEach(linea => {
+      const d = document.createElement('div');
+      d.className = 'informe-line';
+      const m = linea.match(/^([^:]{2,70}):\s*(.*)$/);
+      if (m) {
+        const b = document.createElement('b'); b.textContent = m[1] + ':';
+        d.appendChild(b); d.appendChild(document.createTextNode(' ' + m[2]));
+      } else d.textContent = linea;
+      box.appendChild(d);
+    });
+  }
+  let autoActual = '';
+  function actualizarBarra() {
+    const ed = state.qualEdit[clave()];
+    $auto.hidden = !ed;
+    $cambio.hidden = !(ed && ed.base && ed.base !== firma(autoActual));
+  }
+
+  renderQual = function (id) {
+    if (id !== 'il-qual') return original.apply(this, arguments);
+    if (document.activeElement === box) return; // no borrar lo que se está escribiendo
+    let extra = Array.prototype.slice.call(arguments, 1);
+    if (!extra.length && typeof sheetsForReport === 'function') { try { extra = [sheetsForReport()]; } catch (e) {} }
+    ultimosArgs = extra;
+    original.apply(this, ['il-qual'].concat(extra));
+    autoActual = textoAuto();
+    const ed = state.qualEdit[clave()];
+    if (ed && ed.texto) pintarTexto(ed.texto);
+    box.contentEditable = 'true';
+    box.spellcheck = true;
+    actualizarBarra();
+  };
+
+  function guardarEdicion(texto) {
+    const k = clave();
+    texto = limpiarLineas(texto);
+    if (!texto || texto === limpiarLineas(autoActual)) delete state.qualEdit[k];
+    else state.qualEdit[k] = { texto: texto, base: firma(autoActual), fecha: new Date().toISOString() };
+    if (typeof queueSave === 'function') queueSave();
+    actualizarBarra();
+  }
+
+  box.addEventListener('focus', () => { autoActual = textoAuto(); });
+  box.addEventListener('input', () => guardarEdicion(textoCaja()));
+  box.addEventListener('blur', () => { renderQual('il-qual'); });
+  box.addEventListener('paste', (e) => { // pegar solo texto, sin formatos raros
+    const t = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (t == null) return;
+    e.preventDefault();
+    document.execCommand('insertText', false, t);
+  });
+
+  $auto.onclick = () => {
+    if (!confirm('¿Volver al resumen automático? Se perderá lo que editaste en este rango de edad.')) return;
+    delete state.qualEdit[clave()];
+    if (typeof queueSave === 'function') queueSave();
+    renderQual('il-qual');
+    estado('Se restauró el texto automático.');
+  };
+
+  /* ---------- IA: lenguaje técnico ---------- */
+  function promptTecnico(actual) {
+    const area = typeof FORM_TITLE !== 'undefined' ? FORM_TITLE : 'valoración del desarrollo';
+    let rango = '';
+    try { rango = hojasInforme().map(h => h.label).filter(Boolean).join(', '); } catch (e) {}
+    return 'Eres un(a) profesional de ' + area + ' que redacta informes de valoración infantil en Colombia.\n' +
+      'Reescribe el siguiente "Resumen cualitativo del desarrollo" con lenguaje técnico y clínico, propio de un informe profesional de ' + area + '.\n\n' +
+      'Reglas:\n' +
+      '- Una línea por componente, en el mismo orden, empezando con el nombre del componente y dos puntos (por ejemplo "Motricidad gruesa: …").\n' +
+      '- No inventes datos, puntajes, edades, diagnósticos ni conductas que no estén en el texto. Puedes precisar la redacción, usar terminología técnica del área y describir el nivel de desempeño.\n' +
+      '- Conserva lo que sí logra y las observaciones, redactados de forma técnica.\n' +
+      '- Tercera persona, tono objetivo y respetuoso, sin juicios de valor. Español de Colombia.\n' +
+      '- Sin viñetas, títulos, markdown ni negritas. Responde solo con las líneas del resumen.\n\n' +
+      (rango ? 'Rango de edad evaluado: ' + rango + '\n\n' : '') +
+      'Resumen actual:\n' + actual;
+  }
+  function limpiarRespuesta(t) {
+    return limpiarLineas(String(t || '')
+      .replace(/\*\*|__/g, '')
+      .split('\n').map(l => l.replace(/^\s*(?:[-*•·]|\d+[.)])\s+/, '').replace(/^#+\s*/, '')).join('\n'))
+      .split('\n').filter(l => !/^resumen cualitativo/i.test(l)).join('\n');
+  }
+
+  $ia.onclick = async () => {
+    const actual = limpiarLineas(textoCaja());
+    if (!actual) { estado('No hay texto para mejorar todavía.', true); return; }
+    let sample = null;
+    $ia.disabled = true; const txt = $ia.textContent; $ia.textContent = '⏳ Conectando…';
+    try { if (window.claude && typeof window.claude.use === 'function') sample = await window.claude.use('sample'); } catch (e) { sample = null; }
+    if (!sample) {
+      $ia.disabled = false; $ia.textContent = txt;
+      estado('La IA no está disponible aquí. Ábrelo desde la app CISADDE para usar Gemini.', true);
+      return;
+    }
+    $ia.textContent = '⏳ Redactando…'; estado('');
+    try {
+      const r = await sample(promptTecnico(actual), { modelTier: 'default' });
+      const nuevo = limpiarRespuesta(r && r.text);
+      if (!nuevo) throw new Error('vacío');
+      autoActual = textoAuto();
+      const k = clave();
+      state.qualEdit[k] = { texto: nuevo, base: firma(autoActual), fecha: new Date().toISOString(), ia: true };
+      if (typeof queueSave === 'function') queueSave();
+      pintarTexto(nuevo);
+      actualizarBarra();
+      estado('✅ Redactado con IA. Revísalo y corrígelo si hace falta.');
+    } catch (err) {
+      estado(err && err.code === 'rate_limited' ? 'La IA está ocupada: intenta de nuevo en un momento.' : 'No se pudo redactar con IA. Intenta de nuevo.', true);
+    } finally {
+      $ia.disabled = false; $ia.textContent = txt;
+    }
+  };
+
+  renderQual('il-qual');
+})();
+</script>
+<!-- RESUMEN-EDITABLE:FIN -->
 </body>
 </html>
