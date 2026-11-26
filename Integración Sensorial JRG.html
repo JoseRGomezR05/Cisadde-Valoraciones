@@ -5815,5 +5815,223 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
 })();
 </script>
 <!-- RESUMEN-EDITABLE:FIN -->
+<!-- EVOLUCIONES:INICIO -->
+<script>
+/* =====================================================================
+   EVOLUCIONES — 10 casillas numeradas + generar con IA
+   Las 10 primeras evoluciones son de ADAPTACIÓN. Cada una empieza con
+   Técnica a usarse, Actividad que se usa, Reforzadores y Tipos de apoyo,
+   y termina con "Se finaliza sesión sin novedad."
+   La IA usa la información de la valoración (resumen cualitativo, plan
+   terapéutico, edad y diagnóstico) sin el nombre ni el documento del niño/a.
+   Se guarda con la valoración (borrador, exportar, respaldo en Drive).
+   Fuente: herramientas/evoluciones.js → node herramientas/insertar-evoluciones.js
+   ===================================================================== */
+(function () {
+  if (typeof state === 'undefined' || typeof views === 'undefined' || typeof titles === 'undefined' || typeof goto !== 'function') return;
+  if (document.getElementById('view-evol')) return;
+
+  const TOTAL = 10;
+  const CIERRE = 'Se finaliza sesión sin novedad.';
+  const AREAS = { psi: 'Psicología', to: 'Terapia Ocupacional', is: 'Integración Sensorial', fono: 'Fonoaudiología', fisio: 'Fisioterapia', taller: 'Taller de independencia y funcionalidad' };
+  const vacio = () => ({ items: Array(TOTAL).fill(''), fecha: '', ia: false });
+
+  /* ---------- Estado (se recupera del borrador: el formato solo copia las claves que conoce) ---------- */
+  try { if (typeof STATE_DEFAULTS !== 'undefined' && !('evol' in STATE_DEFAULTS)) STATE_DEFAULTS.evol = vacio(); } catch (e) {}
+  state.evol = vacio();
+  try {
+    const d = typeof readDraft === 'function' ? readDraft() : JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (d && d.state && d.state.evol && Array.isArray(d.state.evol.items)) Object.assign(state.evol, d.state.evol);
+  } catch (e) {}
+  while (state.evol.items.length < TOTAL) state.evol.items.push('');
+  const guardar = () => { if (typeof queueSave === 'function') queueSave(); };
+
+  /* ---------- Estilos ---------- */
+  const css = document.createElement('style');
+  css.textContent =
+    '.evol-grid{display:grid;gap:14px}' +
+    '.evol-card{border:1px solid var(--border,#D5E3EE);border-radius:14px;padding:14px;background:var(--card,#fff)}' +
+    '.evol-card .evol-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}' +
+    '.evol-num{flex:0 0 auto;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;background:#0E8FC4;color:#fff}' +
+    '.evol-card h4{margin:0;font-size:14.5px;flex:1}' +
+    '.evol-card textarea{width:100%;min-height:190px;box-sizing:border-box;line-height:1.55;resize:vertical}' +
+    '.evol-card .evol-copiar{font-size:12.5px}' +
+    '#evolEstado:empty{display:none}';
+  document.head.appendChild(css);
+
+  /* ---------- Menú ---------- */
+  const nav = document.createElement('a');
+  nav.className = 'nav-item'; nav.dataset.view = 'evol';
+  nav.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M4 15l4-4 4 3 7-8"/><path d="M15 6h4v4"/></svg> Evoluciones';
+  const despues = document.querySelector('.nav-item[data-view="plan"]') || document.querySelector('.nav-item[data-view="informe"]');
+  if (despues) despues.after(nav);
+  nav.addEventListener('click', () => goto('evol'));
+  views.push('evol');
+  titles.evol = ['Evoluciones', '· Primeras 10 sesiones de adaptación'];
+
+  /* ---------- Vista ---------- */
+  const sec = document.createElement('section');
+  sec.className = 'view'; sec.id = 'view-evol'; sec.hidden = true;
+  let casillas = '';
+  for (let i = 0; i < TOTAL; i++) {
+    casillas += '<div class="evol-card"><div class="evol-head"><span class="evol-num">' + (i + 1) + '</span><h4>Evolución ' + (i + 1) + ' · Adaptación</h4>' +
+      '<button class="btn ghost evol-copiar" type="button" data-copiar="' + i + '">📋 Copiar</button></div>' +
+      '<textarea class="input" id="evol' + i + '" placeholder="Técnica a usarse: …&#10;Actividad que se usa: …&#10;Reforzadores: …&#10;Tipos de apoyo: …&#10;…&#10;' + CIERRE + '"></textarea></div>';
+  }
+  sec.innerHTML =
+    '<div class="page-head"><div><h2>Evoluciones</h2><p>Las 10 primeras evoluciones son de adaptación. Cada una empieza con la técnica, la actividad, los reforzadores y los tipos de apoyo, y termina con "' + CIERRE + '"</p></div>' +
+    '<div class="btn-row no-print"><button class="btn primary" type="button" id="evolIaBtn">✨ Generar las 10 primeras evoluciones con IA</button>' +
+    '<button class="btn ghost" type="button" id="evolCopiarTodo">📋 Copiar todas</button>' +
+    '<button class="btn ghost" type="button" id="evolBorrar">🗑 Vaciar</button></div></div>' +
+    '<p class="tag-note" id="evolEstado" style="margin-bottom:14px;"></p>' +
+    '<div class="card no-print"><details><summary style="cursor:pointer;font-weight:800;font-size:14px;">¿No funciona el botón de IA? Hazlo con otra IA</summary>' +
+    '<p class="tag-note" style="margin:10px 0;">Al texto para la IA <b>no se le pone el nombre ni el documento</b> del niño/a. Cópialo, pégalo en Gemini, ChatGPT o Claude, y pega aquí lo que te responda.</p>' +
+    '<div class="btn-row"><button class="btn dark" type="button" id="evolIaCopiar">📋 Copiar texto para la IA</button></div>' +
+    '<label class="field" style="margin-top:12px;"><span class="lbl">Respuesta de la IA</span><textarea class="input" id="evolIaResp" style="min-height:110px;" placeholder="EVOLUCIÓN 1: … EVOLUCIÓN 2: …"></textarea></label>' +
+    '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost" type="button" id="evolIaAplicar">⬇ Pasar la respuesta a las casillas</button></div></details></div>' +
+    '<div class="evol-grid">' + casillas + '</div>';
+  const vistaAnterior = document.getElementById('view-plan') || document.getElementById('view-informe');
+  vistaAnterior.after(sec);
+
+  const $ = (id) => document.getElementById(id);
+  const estado = (t, error) => { const e = $('evolEstado'); e.textContent = t || ''; e.style.color = error ? '#B42318' : ''; };
+
+  function pintar() {
+    for (let i = 0; i < TOTAL; i++) {
+      const ta = $('evol' + i);
+      if (document.activeElement !== ta) ta.value = state.evol.items[i] || '';
+    }
+  }
+  for (let i = 0; i < TOTAL; i++) {
+    $('evol' + i).addEventListener('input', (e) => { state.evol.items[i] = e.target.value; guardar(); });
+  }
+
+  /* ---------- Copiar ---------- */
+  async function copiar(texto, boton) {
+    const antes = boton.textContent;
+    try { await navigator.clipboard.writeText(texto); }
+    catch (e) {
+      const ta = document.createElement('textarea'); ta.value = texto; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e2) {} ta.remove();
+    }
+    boton.textContent = '✅ Copiado'; setTimeout(() => { boton.textContent = antes; }, 1500);
+  }
+  sec.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-copiar]');
+    if (b) copiar(state.evol.items[+b.dataset.copiar] || '', b);
+  });
+  $('evolCopiarTodo').onclick = (e) => copiar(state.evol.items.map((t, i) => t ? 'EVOLUCIÓN ' + (i + 1) + '\n' + t : '').filter(Boolean).join('\n\n'), e.currentTarget);
+  $('evolBorrar').onclick = () => {
+    if (!confirm('¿Vaciar las 10 evoluciones?')) return;
+    state.evol = vacio(); guardar(); pintar(); estado('');
+  };
+
+  /* ---------- Información de la valoración para la IA (sin nombre ni documento) ---------- */
+  const lineas = (t) => String(t || '').split('\n').map(l => l.trim()).filter(Boolean);
+  function resumenValoracion() {
+    try { if (typeof renderQual === 'function') renderQual('il-qual'); } catch (e) {}
+    const box = $('il-qual');
+    return box ? Array.from(box.children).map(d => d.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n') : '';
+  }
+  function datosClinicos() {
+    let edad = '';
+    try { if (state.birthDate && typeof ageLabel === 'function' && typeof monthsBetween === 'function') edad = ageLabel(monthsBetween(state.birthDate, null)); } catch (e) {}
+    const p = state.plan || {};
+    return {
+      area: (p.area && String(p.area).trim()) || AREAS[typeof FORM_ID !== 'undefined' ? FORM_ID : ''] || (typeof FORM_TITLE !== 'undefined' ? FORM_TITLE : 'terapia'),
+      edad: edad,
+      diag: String(state.cie10Diag || '').trim(),
+      resumen: resumenValoracion(),
+      hallazgos: lineas(p.hallazgos),
+      objGeneral: String(p.objGeneral || '').trim(),
+      objetivos: lineas(p.objEspecificos)
+    };
+  }
+  function promptEvoluciones() {
+    const d = datosClinicos();
+    const lista = (arr) => arr.length ? arr.map(l => '- ' + l.replace(/^[•\-*]\s*|^\d+[.)]\s*/, '')).join('\n') : '(no registrado)';
+    return 'Eres profesional de ' + d.area + ' en un centro de rehabilitación infantil en Colombia. ' +
+      'Redacta las 10 PRIMERAS EVOLUCIONES de sesión de un niño/a' + (d.edad ? ' de ' + d.edad : '') + (d.diag ? ' con diagnóstico ' + d.diag : '') + '. ' +
+      'Son sesiones de ADAPTACIÓN al proceso terapéutico: vínculo con el terapeuta, reconocimiento del espacio y de los materiales, ' +
+      'aceptación de la separación del cuidador, seguimiento de rutinas e instrucciones sencillas y acercamiento gradual a las actividades relacionadas con los objetivos del plan. ' +
+      'Deben avanzar de forma progresiva de la sesión 1 a la 10 (de menor a mayor exigencia y de mayor a menor apoyo).\n\n' +
+      'FORMATO OBLIGATORIO de cada evolución (en este orden, cada campo en su propia línea):\n' +
+      'Técnica a usarse: (técnica terapéutica del área, p. ej. modelado, moldeamiento, encadenamiento, juego dirigido, integración sensorial, refuerzo diferencial…)\n' +
+      'Actividad que se usa: (actividad concreta y adecuada a la edad)\n' +
+      'Reforzadores: (sociales, tangibles, de actividad o sensoriales que se usan)\n' +
+      'Tipos de apoyo: (físico total o parcial, gestual, verbal, visual, modelado; indica el nivel)\n' +
+      'Luego un párrafo de 3 a 5 oraciones que describa objetivamente el desarrollo de la sesión y la respuesta del niño/a, en tercera persona y lenguaje técnico.\n' +
+      'Última línea, exactamente: ' + CIERRE + '\n\n' +
+      'REGLAS:\n' +
+      '- No inventes diagnósticos, resultados de pruebas ni datos que no estén abajo; las conductas descritas deben ser coherentes con la valoración.\n' +
+      '- No escribas el nombre del niño/a. Español de Colombia, sin markdown, viñetas ni negritas.\n' +
+      '- Responde SOLO con las 10 evoluciones, cada una precedida de su título en una línea aparte: "EVOLUCIÓN 1:", "EVOLUCIÓN 2:"… hasta "EVOLUCIÓN 10:".\n\n' +
+      'INFORMACIÓN DE LA VALORACIÓN\n' +
+      'Resumen cualitativo del desarrollo:\n' + (d.resumen || '(no registrado)') + '\n\n' +
+      'Hallazgos del plan terapéutico:\n' + lista(d.hallazgos) + '\n\n' +
+      'Objetivo general: ' + (d.objGeneral || '(no registrado)') + '\n' +
+      'Objetivos específicos:\n' + lista(d.objetivos);
+  }
+
+  /* ---------- Leer la respuesta de la IA ---------- */
+  function leerRespuesta(txt) {
+    const limpio = String(txt || '').replace(/\r/g, '').replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '');
+    // Acepta "EVOLUCIÓN 1:" solo en su línea o seguido del texto, con o sin negritas.
+    const partes = limpio.split(/^[ \t]*EVOLUCI[ÓO]N[ \t]*(?:N[°º.]?[ \t]*)?(\d{1,2})[ \t]*[:.\-–]?[ \t]*/gim);
+    const items = Array(TOTAL).fill('');
+    for (let i = 1; i < partes.length; i += 2) {
+      const n = parseInt(partes[i], 10);
+      if (n < 1 || n > TOTAL) continue;
+      let t = lineas(partes[i + 1]).map(l => l.replace(/^[-*•·]\s+/, '')).join('\n');
+      t = t.replace(/\n?se finaliza (la )?sesi[óo]n sin novedad\.?\s*$/i, '').trim();
+      if (t) items[n - 1] = t + '\n' + CIERRE;
+    }
+    return items.some(Boolean) ? items : null;
+  }
+  function aplicar(items, conIA) {
+    const llenas = state.evol.items.filter(t => String(t).trim()).length;
+    if (llenas && !confirm('Ya hay ' + llenas + ' evolución(es) escritas. ¿Reemplazarlas con las nuevas?')) return false;
+    state.evol.items = items.map((t, i) => t || state.evol.items[i] || '');
+    state.evol.fecha = new Date().toISOString(); state.evol.ia = !!conIA;
+    guardar(); pintar();
+    const n = items.filter(Boolean).length;
+    estado('✅ ' + n + ' evoluciones listas. Revísalas y ajústalas a lo que pasó en cada sesión.' + (n < TOTAL ? ' Faltaron ' + (TOTAL - n) + ': vuelve a generar o escríbelas a mano.' : ''));
+    return true;
+  }
+
+  $('evolIaBtn').onclick = async () => {
+    const btn = $('evolIaBtn'), txt = btn.textContent;
+    let sample = null;
+    btn.disabled = true; btn.textContent = '⏳ Conectando…';
+    try { if (window.claude && typeof window.claude.use === 'function') sample = await window.claude.use('sample'); } catch (e) { sample = null; }
+    if (!sample) {
+      btn.disabled = false; btn.textContent = txt;
+      estado('La IA no está disponible aquí. Ábrelo desde la app CISADDE, o usa "Hazlo con otra IA" más abajo.', true);
+      return;
+    }
+    btn.textContent = '⏳ Redactando las 10 evoluciones…';
+    estado('✨ La IA está redactando las evoluciones con la información de la valoración. Puede tardar un minuto.');
+    try {
+      const r = await sample(promptEvoluciones(), { modelTier: 'default' });
+      const items = leerRespuesta(r && r.text);
+      if (!items) { $('evolIaResp').value = (r && r.text) || ''; throw new Error('formato'); }
+      aplicar(items, true);
+    } catch (err) {
+      estado(err && err.code === 'rate_limited' ? 'La IA está ocupada: intenta de nuevo en un momento.'
+        : err && err.message === 'formato' ? 'La IA respondió en otro formato. La respuesta quedó en "Hazlo con otra IA": revísala o vuelve a generar.'
+        : 'No se pudieron generar las evoluciones. Intenta de nuevo.', true);
+    } finally { btn.disabled = false; btn.textContent = txt; }
+  };
+  $('evolIaCopiar').onclick = (e) => copiar(promptEvoluciones(), e.currentTarget);
+  $('evolIaAplicar').onclick = () => {
+    const items = leerRespuesta($('evolIaResp').value);
+    if (!items) { estado('No encontré "EVOLUCIÓN 1:", "EVOLUCIÓN 2:"… en la respuesta pegada.', true); return; }
+    if (aplicar(items, false)) $('evolIaResp').value = '';
+  };
+
+  pintar();
+})();
+</script>
+<!-- EVOLUCIONES:FIN -->
 </body>
 </html>
