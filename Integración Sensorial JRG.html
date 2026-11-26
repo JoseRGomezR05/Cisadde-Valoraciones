@@ -5715,6 +5715,22 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
     const ed = state.qualEdit[clave()];
     $auto.hidden = !ed;
     $cambio.hidden = !(ed && ed.base && ed.base !== firma(autoActual));
+    // El texto de "📋 Copiar texto para la IA" también debe llevar el resumen editado.
+    const caja = document.getElementById('iaPrompt');
+    if (caja && typeof buildIaPrompt === 'function') { try { caja.textContent = buildIaPrompt(); } catch (e) {} }
+  }
+
+  /* ---------- La Interpretación clínica y conclusión (IA) usa el resumen editado ---------- */
+  if (typeof buildIaPrompt === 'function') {
+    const promptOriginal = buildIaPrompt;
+    buildIaPrompt = function () {
+      const base = promptOriginal.apply(this, arguments);
+      const ed = state.qualEdit[clave()];
+      if (!ed || !ed.texto) return base;
+      return base + '\n\nRESUMEN CUALITATIVO DEL DESARROLLO REVISADO POR EL PROFESIONAL ' +
+        '(es el que aparece en el informe: úsalo como base principal de la interpretación clínica y la conclusión, ' +
+        'y si difiere de los resultados por área de arriba, prevalece este texto; no lo copies tal cual):\n' + ed.texto;
+    };
   }
 
   renderQual = function (id) {
