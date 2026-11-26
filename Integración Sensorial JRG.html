@@ -4530,10 +4530,17 @@ window.CISADDE_BASE.listo.then(async ()=>{
    familiar (Psicología), historia escolar, examen miofuncional (Fonoaudiología), las
    Observaciones de cada componente y los cuadros del Plan terapéutico
    (hallazgos, objetivos e indicadores).
-   Al pulsarlo se escucha el micrófono y se va escribiendo lo que se dice
-   donde está el cursor. Se vuelve a pulsar ("⏹ Detener") para terminar.
-   Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari);
-   necesita internet y que la página se abra por https (GitHub Pages).
+   · El texto aparece EN VIVO en el cuadro mientras se habla (no hay que
+     esperar a que termine la frase).
+   · Es continuo: cuando el navegador corta el micrófono tras un silencio,
+     se guarda lo que iba y se reanuda solo, sin perder palabras. Sirve para
+     dejar el micrófono a la mamá o al familiar mientras cuenta la historia.
+   · Mientras graba, abajo queda una barra roja con el tiempo y "Detener",
+     y la pantalla no se apaga.
+   · Al terminar aparece "✨ Ordenar con IA" (si hay IA): pone puntuación y
+     corrige palabras mal reconocidas sin cambiar lo dicho. "↶ Deshacer" lo revierte.
+   Usa el reconocimiento de voz del navegador (Chrome o Edge); necesita
+   internet y que la página se abra por https (GitHub Pages).
    Comandos dichos en voz alta: "coma", "punto", "punto y seguido",
    "punto y aparte" / "nuevo párrafo", "dos puntos", "punto y coma",
    "abrir paréntesis", "cerrar paréntesis".
@@ -4544,17 +4551,26 @@ window.CISADDE_BASE.listo.then(async ()=>{
 const CAMPOS = ['motivoTxt', 'antecedentesTxt', 'historiaFamiliarTxt', 'historiaEscolarTxt', 'miofuncionalTxt',
   'planHallazgos', 'planObjGeneral', 'planObjEspecificos', 'planIndicadores'];
 const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+const enApp = (() => { try { return sessionStorage.getItem('cisadde.app') === '1' && window.parent !== window; } catch (e) { return false; } })();
 
 const css = document.createElement('style');
 css.textContent = ''
   + '.dic-btn{margin-left:auto;padding:6px 12px;font-size:12.5px}'
   + '.dic-fila{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}'
-  + '.dic-fila .dic-btn{padding:4px 10px;font-size:12px;flex:none}'
+  + '.dic-fila .dic-btn,.dic-fila .dic-ia{padding:4px 10px;font-size:12px;flex:none}'
+  + '.dic-ia{padding:6px 12px;font-size:12.5px}'
   + '.dic-btn.on{background:#e5484d;border-color:#e5484d;color:#fff;animation:dicPulso 1.4s infinite}'
   + '@keyframes dicPulso{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,.45)}50%{box-shadow:0 0 0 6px rgba(229,72,77,0)}}'
   + '.dic-vivo{margin-top:6px;font-size:12.5px;color:var(--text-faint);font-style:italic;min-height:0}'
   + '.dic-vivo:empty{display:none}'
-  + '@media print{.dic-btn,.dic-vivo{display:none!important}}';
+  + 'textarea.dic-grabando{outline:2px solid #e5484d;outline-offset:1px}'
+  + '#dicBarra{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:99990;display:flex;align-items:center;gap:12px;'
+  + 'max-width:calc(100% - 32px);box-sizing:border-box;background:#9C2149;color:#fff;border-radius:999px;padding:8px 8px 8px 16px;'
+  + 'box-shadow:0 10px 30px -8px rgba(0,0,0,.45);font:600 14px/1.3 Inter,system-ui,sans-serif}'
+  + '#dicBarra .punto{width:10px;height:10px;border-radius:50%;background:#ff6b6b;animation:dicPulso 1.4s infinite;flex:none}'
+  + '#dicBarra .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw;font-weight:400;opacity:.9}'
+  + '#dicBarra button{border:0;border-radius:999px;background:#fff;color:#9C2149;font:inherit;font-weight:800;padding:8px 14px;cursor:pointer;flex:none}'
+  + '@media print{.dic-btn,.dic-ia,.dic-vivo,#dicBarra{display:none!important}}';
 document.head.appendChild(css);
 
 /* Comandos de puntuación (se aplican sobre el texto reconocido) */
@@ -4579,33 +4595,130 @@ function mayuscula(texto, antes){
   let t = inicio ? texto.replace(/^\s*([a-záéíóúñü])/i, (m, c) => m.replace(c, c.toUpperCase())) : texto;
   return t.replace(/([.!?]\s+|\n)([a-záéíóúñü])/g, (m, p, c) => p + c.toUpperCase());
 }
+const unir = (a, b) => (a && b) ? a.replace(/\s+$/, '') + ' ' + b.replace(/^\s+/, '') : (a || b || '');
 
-let activo = null; // { campo, btn, vivo, rec, parar }
+/* ---------- Estado de la grabación ---------- */
+let activo = null;
+/* activo = { campo, btn, vivo, rec, parar, antes, despues, previo, sesionFinal, sesionProv, pintado, etiqueta, inicio, reintentos } */
 
-function insertar(campo, texto){
-  if(!texto) return;
-  const ini = campo.selectionStart ?? campo.value.length, fin = campo.selectionEnd ?? ini;
-  const antes = campo.value.slice(0, ini), despues = campo.value.slice(fin);
-  let t = mayuscula(puntuar(texto.trim()), antes);
-  if(antes && !/[\s(]$/.test(antes) && !/^[,.;:)]/.test(t)) t = ' ' + t;
-  if(despues && !/^\s/.test(despues) && !/\s$/.test(t)) t = t + ' ';
-  campo.value = antes + t + despues;
-  const pos = (antes + t).length;
-  campo.setSelectionRange(pos, pos);
-  campo.dispatchEvent(new Event('input', { bubbles: true }));
+// Fija el punto donde se escribe: lo que hay antes y después del cursor.
+function anclar(a){
+  const c = a.campo, v = c.value;
+  const ini = c.selectionStart ?? v.length, fin = c.selectionEnd ?? ini;
+  a.antes = v.slice(0, ini); a.despues = v.slice(fin);
+  a.previo = ''; a.sesionFinal = ''; a.sesionProv = '';
+  a.desde = a.ultimoN || 0; // lo ya reconocido en esta sesión ya está escrito en el cuadro
+  a.pintado = v;
+}
+// Escribe en el cuadro lo confirmado + lo que se está diciendo (en vivo).
+function pintar(a, avisar){
+  const c = a.campo;
+  if(!c.isConnected) return;
+  if(c.value !== a.pintado){ // se escribió a mano o se movió algo: se sigue desde el cursor
+    a.previo = ''; a.sesionFinal = ''; a.sesionProv = ''; anclar(a);
+  }
+  const dicho = unir(unir(a.previo, a.sesionFinal), a.sesionProv).trim();
+  let t = dicho ? mayuscula(puntuar(dicho), a.antes) : '';
+  if(t && a.antes && !/[\s(]$/.test(a.antes) && !/^[,.;:)]/.test(t)) t = ' ' + t;
+  if(t && a.despues && !/^\s/.test(a.despues) && !/\s$/.test(t)) t = t + ' ';
+  c.value = a.antes + t + a.despues;
+  a.pintado = c.value;
+  const pos = (a.antes + t).length;
+  try{ if(document.activeElement === c) c.setSelectionRange(pos, pos); }catch(e){}
+  if(avisar) c.dispatchEvent(new Event('input', { bubbles: true })); // guarda en la valoración
+}
+
+/* ---------- Barra roja con el tiempo ---------- */
+let barra = null, reloj = null, wake = null;
+function mostrarBarra(a){
+  if(!barra){
+    barra = document.createElement('div'); barra.id = 'dicBarra'; barra.setAttribute('role', 'status');
+    barra.innerHTML = '<span class="punto"></span><span data-t>Grabando 0:00</span><span class="txt" data-v></span><button type="button">⏹ Detener</button>';
+    barra.querySelector('button').onclick = () => detener();
+    document.body.appendChild(barra);
+  }
+  barra.hidden = false;
+  clearInterval(reloj);
+  const tick = () => {
+    const s = Math.floor((Date.now() - a.inicio) / 1000);
+    barra.querySelector('[data-t]').textContent = '🎤 Grabando ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  };
+  tick(); reloj = setInterval(tick, 1000);
+  try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(w => { wake = w; }).catch(() => {}); }catch(e){}
+}
+function ocultarBarra(){
+  clearInterval(reloj);
+  if(barra) barra.hidden = true;
+  try{ if(wake) wake.release(); }catch(e){} wake = null;
 }
 
 function detener(){
   if(!activo) return;
   const a = activo; activo = null;
   a.parar = true;
+  // Lo que iba diciendo también se queda (no se pierde la última frase).
+  a.previo = unir(unir(a.previo, a.sesionFinal), a.sesionProv); a.sesionFinal = ''; a.sesionProv = '';
+  pintar(a, true);
   try{ a.rec.stop(); }catch(e){}
   a.btn.classList.remove('on');
   a.btn.textContent = '🎤 Dictar';
   a.vivo.textContent = '';
+  a.campo.classList.remove('dic-grabando');
+  ocultarBarra();
+  if(a.ia) a.ia.hidden = !(a.campo.value.trim() && iaPosible());
 }
 
-function empezar(campo, btn, vivo){
+function nuevoReconocedor(a){
+  const rec = new Reconocedor();
+  rec.lang = 'es-CO'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  rec.onresult = ev => {
+    a.reintentos = 0;
+    let fin = '', prov = '';
+    // ¿Se escribió a mano desde la última vez? Se sigue desde el cursor sin repetir lo ya escrito.
+    if(a.campo.isConnected && a.campo.value !== a.pintado) anclar(a);
+    a.ultimoN = ev.results.length;
+    for(let i = a.desde || 0; i < ev.results.length; i++){ // lo de esta sesión del navegador que falta escribir
+      const r = ev.results[i];
+      if(r.isFinal) fin = unir(fin, r[0].transcript); else prov = unir(prov, r[0].transcript);
+    }
+    const cambioFinal = fin !== a.sesionFinal;
+    a.sesionFinal = fin; a.sesionProv = prov;
+    pintar(a, cambioFinal);
+    a.vivo.textContent = prov ? '… ' + prov : 'Escuchando…';
+    if(barra) barra.querySelector('[data-v]').textContent = prov || '';
+  };
+  rec.onerror = ev => {
+    if(ev.error === 'no-speech' || ev.error === 'aborted') return;
+    if(ev.error === 'network' && a.reintentos < 5) return; // se reintenta en onend
+    const msg = {
+      'not-allowed': 'El navegador no dio permiso para usar el micrófono. Permítalo en el candado de la barra de direcciones.' +
+        (enApp ? '\n\nDentro de la app de Google el micrófono puede estar bloqueado: use el botón "Abrir en pestaña nueva ↗" para dictar.' : ''),
+      'service-not-allowed': 'El navegador no permite el dictado en esta página. Ábrala desde el enlace de GitHub Pages en Chrome o Edge.' +
+        (enApp ? '\n\nDentro de la app use "Abrir en pestaña nueva ↗".' : ''),
+      'audio-capture': 'No se encontró un micrófono conectado.',
+      'network': 'El dictado necesita conexión a internet.'
+    }[ev.error] || ('Error del dictado: ' + ev.error);
+    detener();
+    alert(msg);
+  };
+  // El navegador corta solo tras un silencio (o cada minuto): se guarda lo que iba y se reanuda.
+  rec.onend = () => {
+    if(activo !== a || a.parar) return;
+    a.previo = unir(unir(a.previo, a.sesionFinal), a.sesionProv); a.sesionFinal = ''; a.sesionProv = '';
+    pintar(a, true);
+    a.desde = 0; a.ultimoN = 0; // la sesión nueva del navegador empieza desde cero
+    a.reintentos = (a.reintentos || 0) + 1;
+    const reanudar = (intento) => {
+      if(activo !== a || a.parar) return;
+      try{ a.rec = nuevoReconocedor(a); a.rec.start(); }
+      catch(e){ if(intento < 6) setTimeout(() => reanudar(intento + 1), 250 * (intento + 1)); else detener(); }
+    };
+    setTimeout(() => reanudar(0), a.reintentos > 2 ? 400 : 60);
+  };
+  return rec;
+}
+
+function empezar(campo, btn, vivo, ia){
   if(!Reconocedor){
     alert('Este navegador no permite el dictado por voz.\nÁbralo en Google Chrome o Microsoft Edge.\n\nEn Windows también puede dictar en cualquier cuadro con la tecla Windows + H.');
     return;
@@ -4614,41 +4727,54 @@ function empezar(campo, btn, vivo){
     if(!confirm('El dictado funciona mejor abriendo el formato desde el enlace de GitHub Pages (https).\nDesde el archivo del computador el navegador puede bloquear el micrófono.\n\n¿Intentar de todos modos?')) return;
   }
   detener();
-  const rec = new Reconocedor();
-  rec.lang = 'es-CO'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
-  const a = { campo, btn, vivo, rec, parar: false };
-  activo = a;
-  btn.classList.add('on'); btn.textContent = '⏹ Detener';
-  vivo.textContent = 'Escuchando… hable con normalidad.';
   campo.focus();
   if(campo.selectionStart == null || document.activeElement !== campo){ const n = campo.value.length; campo.setSelectionRange(n, n); }
+  const etiqueta = campo.closest('label');
+  const a = { campo, btn, vivo, ia, parar: false, reintentos: 0, inicio: Date.now(),
+    etiqueta: etiqueta && etiqueta.querySelector('.lbl') ? etiqueta.querySelector('.lbl').textContent.trim() : '' };
+  anclar(a);
+  a.rec = nuevoReconocedor(a);
+  activo = a;
+  btn.classList.add('on'); btn.textContent = '⏹ Detener';
+  campo.classList.add('dic-grabando');
+  if(ia) ia.hidden = true;
+  vivo.textContent = 'Escuchando… hable con normalidad, cerca del micrófono.';
+  mostrarBarra(a);
+  try{ a.rec.start(); }catch(e){ detener(); alert('No se pudo iniciar el dictado: ' + e.message); }
+}
 
-  rec.onresult = ev => {
-    let provisional = '';
-    for(let i = ev.resultIndex; i < ev.results.length; i++){
-      const r = ev.results[i];
-      if(r.isFinal) insertar(campo, r[0].transcript);
-      else provisional += r[0].transcript;
-    }
-    vivo.textContent = provisional ? '… ' + provisional : 'Escuchando…';
-  };
-  rec.onerror = ev => {
-    if(ev.error === 'no-speech' || ev.error === 'aborted') return;
-    const msg = {
-      'not-allowed': 'El navegador no dio permiso para usar el micrófono. Permítalo en el candado de la barra de direcciones.',
-      'service-not-allowed': 'El navegador no permite el dictado en esta página. Ábrala desde el enlace de GitHub Pages en Chrome o Edge.',
-      'audio-capture': 'No se encontró un micrófono conectado.',
-      'network': 'El dictado necesita conexión a internet.'
-    }[ev.error] || ('Error del dictado: ' + ev.error);
-    a.parar = true;
-    detener();
-    alert(msg);
-  };
-  // Chrome corta solo tras un silencio: se reanuda mientras el botón siga activo
-  rec.onend = () => {
-    if(activo === a && !a.parar){ try{ rec.start(); }catch(e){ detener(); } }
-  };
-  try{ rec.start(); }catch(e){ detener(); alert('No se pudo iniciar el dictado: ' + e.message); }
+/* ---------- ✨ Ordenar con IA (puntuación y palabras mal reconocidas) ---------- */
+function iaPosible(){ return !!(window.claude && typeof window.claude.use === 'function'); }
+async function ordenarConIA(campo, boton){
+  const texto = campo.value.trim();
+  if(!texto) return;
+  let sample = null;
+  const txt = boton.textContent;
+  boton.disabled = true; boton.textContent = '⏳ Ordenando…';
+  try{ sample = await window.claude.use('sample'); }catch(e){ sample = null; }
+  if(!sample){ boton.disabled = false; boton.textContent = txt; alert('La IA no está disponible aquí. Dentro de la app CISADDE se usa Gemini.'); return; }
+  const prompt = 'Este texto se escribió con dictado por voz durante una entrevista clínica infantil (lo cuenta la mamá o un familiar, o lo dicta el profesional). ' +
+    'Corrígelo SOLO en la forma: pon puntuación, mayúsculas y párrafos, y corrige palabras que el reconocimiento de voz escribió mal según el contexto. ' +
+    'NO cambies el contenido, no resumas, no agregues ni quites información, no interpretes y conserva las palabras de quien habla. ' +
+    'Español de Colombia. Responde SOLO con el texto corregido, sin comillas ni explicaciones.\n\nTEXTO:\n' + texto;
+  try{
+    const r = await sample(prompt, { modelTier: 'default' });
+    const nuevo = String((r && r.text) || '').replace(/\*\*|__/g, '').trim();
+    if(!nuevo) throw new Error('vacío');
+    campo.dataset.dicAntes = campo.value;
+    campo.value = nuevo;
+    campo.dispatchEvent(new Event('input', { bubbles: true }));
+    boton.textContent = '↶ Deshacer';
+    boton.disabled = false;
+    boton.onclick = () => {
+      campo.value = campo.dataset.dicAntes || campo.value;
+      campo.dispatchEvent(new Event('input', { bubbles: true }));
+      boton.textContent = txt; boton.onclick = () => ordenarConIA(campo, boton);
+    };
+  }catch(e){
+    boton.disabled = false; boton.textContent = txt;
+    alert(e && e.code === 'rate_limited' ? 'La IA está ocupada, intente de nuevo en un momento.' : 'No se pudo ordenar el texto con IA.');
+  }
 }
 
 let consecutivo = 0;
@@ -4661,11 +4787,15 @@ function preparar(campo){
   const btn = document.createElement('button');
   btn.type = 'button'; btn.className = 'btn ghost dic-btn';
   btn.textContent = '🎤 Dictar';
-  btn.title = 'Dictar con el micrófono: lo que diga se va escribiendo en el cuadro';
+  btn.title = 'Dictar con el micrófono: lo que se diga se va escribiendo en el cuadro, sin cortes, hasta pulsar Detener';
+  const ia = document.createElement('button');
+  ia.type = 'button'; ia.className = 'btn ghost dic-ia'; ia.hidden = true;
+  ia.textContent = '✨ Ordenar con IA';
+  ia.title = 'Pone puntuación y corrige palabras mal reconocidas, sin cambiar lo dicho';
   const vivo = document.createElement('div');
   vivo.className = 'dic-vivo';
-  // Cuadro con su propio título (span.lbl): el botón va al lado del título.
-  // Si no, va en la cabecera de la tarjeta.
+  // Cuadro con su propio título (span.lbl): los botones van al lado del título.
+  // Si no, van en la cabecera de la tarjeta.
   const etiqueta = campo.closest('label');
   const titulo = etiqueta && etiqueta.querySelector(':scope > .lbl');
   if(titulo){
@@ -4673,23 +4803,44 @@ function preparar(campo){
     const fila = document.createElement('div');
     fila.className = 'dic-fila';
     titulo.parentNode.insertBefore(fila, titulo);
-    fila.appendChild(titulo); fila.appendChild(btn);
+    fila.appendChild(titulo); fila.appendChild(ia); fila.appendChild(btn);
   }
-  else if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(btn); }
-  else campo.parentNode.insertBefore(btn, campo);
+  else if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; cabeza.style.flexWrap = 'wrap'; cabeza.style.gap = '8px'; cabeza.appendChild(ia); cabeza.appendChild(btn); }
+  else { campo.parentNode.insertBefore(btn, campo); campo.parentNode.insertBefore(ia, btn); }
   campo.insertAdjacentElement('afterend', vivo);
-  btn.addEventListener('mousedown', e => e.preventDefault()); // no quitar el cursor del cuadro
-  btn.addEventListener('click', () => { if(activo && activo.campo === campo) detener(); else empezar(campo, btn, vivo); });
+  [btn, ia].forEach(b => b.addEventListener('mousedown', e => e.preventDefault())); // no quitar el cursor del cuadro
+  btn.addEventListener('click', () => { if(activo && activo.campo === campo) detener(); else empezar(campo, btn, vivo, ia); });
+  ia.onclick = () => ordenarConIA(campo, ia);
+  return { btn, vivo, ia };
 }
 CAMPOS.forEach(id => preparar(document.getElementById(id)));
 
 // Observaciones de cada componente: se crean y se vuelven a crear al cambiar
 // de hoja o rango de edad, así que se vigila la página para ponerles el botón.
+// Si el cuadro que se está dictando se redibuja, el dictado sigue en el nuevo.
 const OBSERVACIONES = '.comp-notes textarea';
 document.querySelectorAll(OBSERVACIONES).forEach(preparar);
 new MutationObserver(() => {
   document.querySelectorAll(OBSERVACIONES + ':not([data-dictado])').forEach(preparar);
-  if(activo && !activo.campo.isConnected) detener(); // el cuadro se redibujó
+  if(activo && !activo.campo.isConnected){
+    const a = activo;
+    const nuevo = a.etiqueta && Array.from(document.querySelectorAll(OBSERVACIONES)).find(t => {
+      const l = t.closest('label'), s = l && l.querySelector('.lbl');
+      return s && s.textContent.trim() === a.etiqueta;
+    });
+    if(!nuevo){ detener(); return; }
+    // El cuadro nuevo ya trae lo guardado; se sigue escribiendo al final.
+    const ui = nuevo.closest('label');
+    a.campo = nuevo;
+    a.btn = (ui && ui.querySelector('.dic-btn')) || a.btn;
+    a.ia = (ui && ui.querySelector('.dic-ia')) || a.ia;
+    a.vivo = nuevo.nextElementSibling && nuevo.nextElementSibling.classList.contains('dic-vivo') ? nuevo.nextElementSibling : a.vivo;
+    a.btn.classList.add('on'); a.btn.textContent = '⏹ Detener';
+    nuevo.classList.add('dic-grabando');
+    const n = nuevo.value.length;
+    try{ nuevo.focus(); nuevo.setSelectionRange(n, n); }catch(e){}
+    a.previo = ''; a.sesionFinal = ''; a.sesionProv = ''; anclar(a);
+  }
 }).observe(document.body, { childList:true, subtree:true });
 document.addEventListener('visibilitychange', () => { if(document.hidden) detener(); });
 })();
