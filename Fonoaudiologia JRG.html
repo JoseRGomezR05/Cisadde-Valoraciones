@@ -4859,6 +4859,7 @@ function detener(){
   if(!activo) return;
   const a = activo; activo = null;
   a.parar = true;
+  if(a.vigia) clearInterval(a.vigia);
   // Lo que iba diciendo también se queda (no se pierde la última frase).
   a.previo = unir(unir(a.previo, a.sesionFinal), a.sesionProv); a.sesionFinal = ''; a.sesionProv = '';
   pintar(a, true);
@@ -4936,15 +4937,50 @@ function empezar(campo, btn, vivo, ia){
   const a = { campo, btn, vivo, ia, parar: false, reintentos: 0, inicio: Date.now(),
     etiqueta: etiqueta && etiqueta.querySelector('.lbl') ? etiqueta.querySelector('.lbl').textContent.trim() : '' };
   anclar(a);
-  a.rec = nuevoReconocedor(a);
+  // Dentro de la app de Google el micrófono está bloqueado en el marco: se dicta en una ventana propia.
+  if(enApp){ if(!empezarVentana(a)) return; }
+  else a.rec = nuevoReconocedor(a);
   activo = a;
   btn.classList.add('on'); btn.textContent = '⏹ Detener';
   campo.classList.add('dic-grabando');
   if(ia) ia.hidden = true;
-  vivo.textContent = 'Escuchando… hable con normalidad, cerca del micrófono.';
+  vivo.textContent = enApp ? 'Dictando en la ventana de dictado… el texto aparece aquí en vivo.' : 'Escuchando… hable con normalidad, cerca del micrófono.';
   mostrarBarra(a);
-  try{ a.rec.start(); }catch(e){ detener(); alert('No se pudo iniciar el dictado: ' + e.message); }
+  if(!enApp){ try{ a.rec.start(); }catch(e){ detener(); alert('No se pudo iniciar el dictado: ' + e.message); } }
 }
+
+/* ---------- Dictado en ventana (app de Google) ----------
+   La ventana dictado-ventana.html escucha el micrófono y manda el texto acumulado;
+   aquí se escribe en el cuadro igual que el dictado normal. */
+function empezarVentana(a){
+  let url;
+  try{ url = new URL('dictado-ventana.html', location.href); url.search = ''; url.searchParams.set('campo', a.etiqueta || 'cuadro de texto'); }
+  catch(e){ return false; }
+  const win = window.open(url.href, 'cisaddeDictado', 'popup,width=460,height=660');
+  if(!win){
+    alert('El navegador bloqueó la ventana del dictado.\nPermite las ventanas emergentes para esta página (icono en la barra de direcciones) y vuelve a pulsar 🎤 Dictar.\n\nTambién puedes usar "Abrir en pestaña nueva ↗".');
+    return false;
+  }
+  a.ventana = win; a.baseVentana = '';
+  a.rec = { stop(){ try{ win.postMessage({ cisaddeDictado: 1, tipo: 'detener' }, location.origin); }catch(e){} } };
+  a.vigia = setInterval(() => { if(win.closed && activo === a) detener(); }, 1000);
+  return true;
+}
+window.addEventListener('message', ev => {
+  const m = ev.data, a = activo;
+  if(!m || m.cisaddeDictado !== 1 || ev.origin !== location.origin || !a || !a.ventana || ev.source !== a.ventana) return;
+  if(m.tipo === 'texto'){
+    const final = String(m.final || '');
+    // ¿Se escribió a mano mientras tanto? Se sigue desde el cursor sin repetir lo ya escrito.
+    if(a.campo.isConnected && a.campo.value !== a.pintado){ anclar(a); a.baseVentana = final; }
+    const nuevo = final.indexOf(a.baseVentana) === 0 ? final.slice(a.baseVentana.length) : final;
+    const cambio = nuevo !== a.sesionFinal;
+    a.sesionFinal = nuevo; a.sesionProv = String(m.prov || '');
+    pintar(a, cambio);
+    if(barra) barra.querySelector('[data-v]').textContent = a.sesionProv || '';
+  } else if(m.tipo === 'cerrada'){ detener(); }
+  else if(m.tipo === 'error'){ detener(); }
+});
 
 /* ---------- ✨ Ordenar con IA (puntuación y palabras mal reconocidas) ---------- */
 function iaPosible(){ return !!(window.claude && typeof window.claude.use === 'function'); }
@@ -5047,7 +5083,8 @@ new MutationObserver(() => {
     a.previo = ''; a.sesionFinal = ''; a.sesionProv = ''; anclar(a);
   }
 }).observe(document.body, { childList:true, subtree:true });
-document.addEventListener('visibilitychange', () => { if(document.hidden) detener(); });
+// Al salir de la página se detiene, salvo con la ventana de dictado (en el celular abre otra pestaña).
+document.addEventListener('visibilitychange', () => { if(document.hidden && !(activo && activo.ventana)) detener(); });
 })();
 </script>
 <!-- DICTADO:FIN -->

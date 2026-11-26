@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dictado CISADDE</title>
+<link rel="icon" type="image/png" href="iconos/favicon.png">
+<style>
+  :root { --azul:#0E8FC4; --tinta:#12314A; --fondo:#EEF3F7; --tarjeta:#fff; --borde:#D5E3EE; --suave:#5B7891; --rojo:#D9487A; }
+  @media (prefers-color-scheme: dark) { :root { --tinta:#EAF3FA; --fondo:#0A1E30; --tarjeta:#12293F; --borde:#1E3A52; --suave:#8FB4CE; } }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--fondo); color:var(--tinta); font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { min-height:100%; display:flex; flex-direction:column; gap:14px; padding:18px 16px calc(18px + env(safe-area-inset-bottom)); max-width:560px; margin:0 auto; }
+  h1 { margin:0; font-size:18px; } .campo { margin:2px 0 0; color:var(--suave); font-size:13px; }
+  .estado { display:flex; align-items:center; gap:12px; background:var(--tarjeta); border:1px solid var(--borde); border-radius:16px; padding:14px 16px; }
+  .punto { width:18px; height:18px; border-radius:50%; background:#aaa; flex:none; }
+  .on .punto { background:#e5484d; animation:p 1.4s infinite; }
+  @keyframes p { 0%,100% { box-shadow:0 0 0 0 rgba(229,72,77,.5); } 50% { box-shadow:0 0 0 10px rgba(229,72,77,0); } }
+  .estado b { display:block; font-size:16px; } .estado small { color:var(--suave); }
+  .texto { flex:1; min-height:180px; background:var(--tarjeta); border:1px solid var(--borde); border-radius:16px; padding:14px 16px; white-space:pre-wrap; overflow:auto; font-size:16px; }
+  .texto i { color:var(--suave); }
+  .acc { display:flex; gap:10px; }
+  button { flex:1; min-height:52px; border:0; border-radius:14px; font:800 16px system-ui, sans-serif; cursor:pointer; }
+  .pausa { background:var(--tarjeta); color:var(--tinta); border:1px solid var(--borde); }
+  .fin { background:var(--azul); color:#fff; }
+  .error { background:#FCE9F0; color:#9C2149; border-radius:14px; padding:12px 14px; display:none; }
+  .nota { font-size:12.5px; color:var(--suave); margin:0; }
+</style>
+</head>
+<body>
+<main>
+  <div><h1>🎤 Dictado CISADDE</h1><p class="campo" id="campo"></p></div>
+  <div class="estado" id="estado"><span class="punto"></span><div><b id="titulo">Preparando el micrófono…</b><small id="tiempo">Permite el micrófono si el navegador lo pregunta.</small></div></div>
+  <div class="error" id="error"></div>
+  <div class="texto" id="texto"><i>Lo que se diga aparece aquí y en el cuadro de la valoración.</i></div>
+  <div class="acc"><button class="pausa" id="pausa" type="button">⏸ Pausar</button><button class="fin" id="fin" type="button">✓ Terminar</button></div>
+  <p class="nota">Deja esta ventana abierta mientras hablan. Al terminar se cierra sola y el texto queda en la valoración. Comandos: "coma", "punto", "punto y aparte".</p>
+</main>
+<script>
+/* Ventana de dictado para la app de Google: allí el micrófono está bloqueado dentro
+   del marco, así que se dicta en esta ventana propia y el texto se envía en vivo
+   al formato que la abrió (window.opener). */
+(function () {
+  var R = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var origen = location.origin, padre = window.opener;
+  var q = new URLSearchParams(location.search);
+  document.getElementById('campo').textContent = q.get('campo') ? 'Dictando en: ' + q.get('campo') : '';
+  var $t = document.getElementById('texto'), $est = document.getElementById('estado'), $tit = document.getElementById('titulo'), $tie = document.getElementById('tiempo');
+  var acumulado = '', sesionFin = '', sesionProv = '', activo = true, pausado = false, rec = null, inicio = Date.now(), wake = null, reintentos = 0;
+  var unir = function (a, b) { return (a && b) ? a.replace(/\s+$/, '') + ' ' + b.replace(/^\s+/, '') : (a || b || ''); };
+  function enviar(tipo, extra) {
+    if (!padre || padre.closed) return;
+    try { padre.postMessage(Object.assign({ cisaddeDictado: 1, tipo: tipo }, extra || {}), origen); } catch (e) {}
+  }
+  function mostrar() {
+    var final = unir(acumulado, sesionFin);
+    $t.textContent = final + (sesionProv ? ' ' + sesionProv : '');
+    if (!final && !sesionProv) $t.innerHTML = '<i>Escuchando… hable con normalidad, cerca del micrófono.</i>';
+    $t.scrollTop = $t.scrollHeight;
+    enviar('texto', { final: final, prov: sesionProv });
+  }
+  function error(msg) {
+    var e = document.getElementById('error'); e.textContent = msg; e.style.display = 'block';
+    $est.classList.remove('on'); $tit.textContent = 'El dictado se detuvo';
+    enviar('error', { mensaje: msg });
+  }
+  if (!padre) { error('Esta ventana se abre desde el botón 🎤 Dictar de una valoración.'); return; }
+  if (!R) { error('Este navegador no permite el dictado por voz. Usa Google Chrome o Microsoft Edge.'); return; }
+  setInterval(function () {
+    var s = Math.floor((Date.now() - inicio) / 1000);
+    if (activo && !pausado) $tie.textContent = 'Grabando ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    if (padre.closed) cerrar();
+  }, 1000);
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wake = w; }).catch(function () {}); } catch (e) {}
+
+  function empezar() {
+    rec = new R();
+    rec.lang = 'es-CO'; rec.continuous = true; rec.interimResults = true;
+    rec.onstart = function () { $est.classList.add('on'); $tit.textContent = '🎤 Escuchando'; };
+    rec.onresult = function (ev) {
+      reintentos = 0;
+      var fin = '', prov = '';
+      for (var i = 0; i < ev.results.length; i++) { var r = ev.results[i]; if (r.isFinal) fin = unir(fin, r[0].transcript); else prov = unir(prov, r[0].transcript); }
+      sesionFin = fin; sesionProv = prov; mostrar();
+    };
+    rec.onerror = function (ev) {
+      if (ev.error === 'no-speech' || ev.error === 'aborted') return;
+      if (ev.error === 'network' && reintentos < 5) return;
+      activo = false;
+      error({ 'not-allowed': 'El navegador no dio permiso para usar el micrófono. Toca el candado junto a la dirección, permite el micrófono y vuelve a pulsar 🎤 Dictar.',
+        'service-not-allowed': 'El navegador no permite el dictado aquí. Usa Google Chrome o Microsoft Edge.',
+        'audio-capture': 'No se encontró un micrófono conectado.', 'network': 'El dictado necesita conexión a internet.' }[ev.error] || ('Error del dictado: ' + ev.error));
+    };
+    // Tras un silencio el navegador corta: se guarda lo que iba y se sigue escuchando.
+    rec.onend = function () {
+      acumulado = unir(unir(acumulado, sesionFin), sesionProv); sesionFin = ''; sesionProv = '';
+      mostrar();
+      if (!activo || pausado) return;
+      reintentos++;
+      setTimeout(function () { if (activo && !pausado) try { empezar(); } catch (e) { setTimeout(empezar, 400); } }, reintentos > 2 ? 400 : 60);
+    };
+    rec.start();
+  }
+  document.getElementById('pausa').onclick = function () {
+    if (!pausado) { pausado = true; try { rec.stop(); } catch (e) {} $est.classList.remove('on'); $tit.textContent = '⏸ En pausa'; this.textContent = '▶ Seguir'; }
+    else { pausado = false; this.textContent = '⏸ Pausar'; empezar(); }
+  };
+  function cerrar() {
+    if (!activo && !window.closed) { try { window.close(); } catch (e) {} return; }
+    activo = false;
+    try { rec && rec.stop(); } catch (e) {}
+    acumulado = unir(unir(acumulado, sesionFin), sesionProv); sesionFin = ''; sesionProv = '';
+    enviar('texto', { final: acumulado, prov: '' });
+    enviar('cerrada');
+    try { if (wake) wake.release(); } catch (e) {}
+    setTimeout(function () { try { window.close(); } catch (e) {} }, 150);
+  }
+  document.getElementById('fin').onclick = cerrar;
+  window.addEventListener('message', function (ev) { if (ev.origin === origen && ev.data && ev.data.cisaddeDictado === 1 && ev.data.tipo === 'detener') cerrar(); });
+  window.addEventListener('pagehide', function () { if (activo) { acumulado = unir(unir(acumulado, sesionFin), sesionProv); enviar('texto', { final: acumulado, prov: '' }); enviar('cerrada'); activo = false; } });
+  try { empezar(); } catch (e) { error('No se pudo iniciar el dictado: ' + e.message); }
+})();
+</script>
+</body>
+</html>
