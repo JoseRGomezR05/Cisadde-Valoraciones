@@ -3273,6 +3273,7 @@ async function leerDocx(archivo){
   }
   throw new Error('No encontré el contenido del documento dentro del Word.');
 }
+window.CISADDE_LEER_WORD = leerDocx; // lo usa el Informe mensual para subir un plan o informe en Word
 const aISO = s => { const m = String(s||'').match(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4})/); return m ? m[3] + '-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0') : ''; };
 function ponerCampo(id, valor){
   const el = document.getElementById(id); if(!el || !valor) return;
@@ -6005,7 +6006,10 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
   const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
   const CAMPO = /^(t[ée]cnica a usarse|actividad que se usa|reforzadores|tipos? de apoyo)\s*:\s*/i;
 
-  async function crearWordEvoluciones() {
+  /* Documento Word con el formato CISADDE: encabezado (logo, título, fecha), datos del niño/a,
+     el cuerpo que se le pase (XML de párrafos) y la firma del profesional. */
+  async function crearDocCisadde(titulo, cuerpo, opciones) {
+    opciones = opciones || {};
     const d = datosClinicos(), ev = state.evaluator || {};
     const logo = await aPng(typeof LOGO_SRC !== 'undefined' ? LOGO_SRC : '', 1000000, 560000);
     const sello = await aPng(ev.sealImg || '', 1150000, 750000);
@@ -6014,10 +6018,10 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
 
     const encabezado = tabla([2400, 4838, 2400], [fila([
       celda(2400, par(logo ? imagen('rIdLogo', logo, 1, 'Logo') : gris('CISADDE'), { jc: 'center' }), { v: 'center' }),
-      celda(4838, par(gris('EVOLUCIONES\n' + d.area.toUpperCase()), { jc: 'center' }), { v: 'center' }),
+      celda(4838, par(gris(titulo + '\n' + d.area.toUpperCase()), { jc: 'center' }), { v: 'center' }),
       celda(2400, par(gris('Generado:\n' + fecha(new Date().toISOString().slice(0, 10)), { sz: 18 }), { jc: 'center' }), { v: 'center' })
     ], { alto: 1000 })]) + fin;
-    const pie = par(gris('CISADDE · Evoluciones de ' + d.area, { sz: 16 }), { jc: 'center' });
+    const pie = par(gris('CISADDE · ' + (opciones.pie || titulo) + ' · ' + d.area, { sz: 16 }), { jc: 'center' });
 
     const dato = (lbl, val) => par(run(lbl + ': ', { b: 1 }) + run(val || '', { color: AZUL }), { after: 20 });
     const mitad = ANCHO / 2;
@@ -6026,8 +6030,10 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
       fila([celda(mitad, dato('Edad', d.edad)), celda(mitad, dato('Fecha de valoración', state.evalDate ? fecha(state.evalDate) : ''))]),
       fila([celda(mitad, dato('Diagnóstico', d.diag)), celda(mitad, dato('CIE', state.cie10Code))]),
       fila([celda(mitad, dato('Área', d.area)), celda(mitad, dato('Profesional', ev.name))])
-    ], { sinBordes: 1 });
-
+    ].concat(opciones.filaExtra ? [fila([celda(ANCHO, dato(opciones.filaExtra[0], opciones.filaExtra[1]), { span: 2 })])] : []), { sinBordes: 1 });
+    return armarDocx(datosT, cuerpo, logo, sello, encabezado, pie, ev, d);
+  }
+  async function crearWordEvoluciones() {
     let cuerpo = '';
     state.evol.items.forEach((t, i) => {
       t = String(t || '').trim();
@@ -6041,6 +6047,9 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
       });
     });
 
+    return crearDocCisadde('EVOLUCIONES', cuerpo);
+  }
+  function armarDocx(datosT, cuerpo, logo, sello, encabezado, pie, ev, d) {
     const firma = par('', { before: 480 }) + (sello ? par(imagen('rIdSello', sello, 2, 'Sello'), { jc: 'center', after: 60 }) : '') +
       par(run('______________________________'), { jc: 'center' }) +
       par(run(ev.name || 'Profesional', { b: 1 }), { jc: 'center' }) +
@@ -6098,10 +6107,302 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
     } finally { btn.disabled = false; btn.textContent = txt; }
   };
   window.CISADDE_EVOL_DOCX = crearWordEvoluciones; // para pruebas
+  // Lo usa el Informe mensual (herramientas/informe-mensual.js) para su Word.
+  window.CISADDE_DOC = { crear: crearDocCisadde, guardar: guardarArchivo, run: run, par: par, datos: datosClinicos, slug: slug, AZUL: AZUL };
 
   pintar();
 })();
 </script>
 <!-- EVOLUCIONES:FIN -->
+<!-- INFORME-MENSUAL:INICIO -->
+<script>
+/* =====================================================================
+   INFORME MENSUAL
+   1. Texto base: se sube un plan o informe en Word (.docx/.doc), se pega
+      el escrito o se trae el Plan terapéutico de este niño/a.
+   2. "✨ Redactar informe con IA": parafrasea y enriquece en lenguaje
+      técnico, como escrito en párrafos, e incluye las técnicas usadas.
+   3. "✨ Generar recomendaciones con IA" con base en ese informe.
+   Todo se edita, se copia y se descarga en Word. Se guarda con la valoración.
+   A la IA no se le envían el nombre ni el documento del niño/a.
+   Requiere herramientas/evoluciones.js (Word) y plan-terapeutico.js (leer Word).
+   Fuente: herramientas/informe-mensual.js → node herramientas/insertar-informe-mensual.js
+   ===================================================================== */
+(function () {
+  if (typeof state === 'undefined' || typeof views === 'undefined' || typeof titles === 'undefined' || typeof goto !== 'function') return;
+  if (document.getElementById('view-mensual')) return;
+
+  const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const mesActual = () => { const d = new Date(); return MESES[d.getMonth()].replace(/^./, c => c.toUpperCase()) + ' ' + d.getFullYear(); };
+  const vacio = () => ({ base: '', periodo: '', informe: '', recs: '', fecha: '' });
+
+  /* ---------- Estado (se recupera del borrador) ---------- */
+  try { if (typeof STATE_DEFAULTS !== 'undefined' && !('mensual' in STATE_DEFAULTS)) STATE_DEFAULTS.mensual = vacio(); } catch (e) {}
+  state.mensual = vacio();
+  try {
+    const d = typeof readDraft === 'function' ? readDraft() : JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (d && d.state && d.state.mensual && typeof d.state.mensual === 'object') Object.assign(state.mensual, d.state.mensual);
+  } catch (e) {}
+  if (!state.mensual.periodo) state.mensual.periodo = mesActual();
+  const guardar = () => { if (typeof queueSave === 'function') queueSave(); };
+
+  /* ---------- Menú y vista ---------- */
+  const nav = document.createElement('a');
+  nav.className = 'nav-item'; nav.dataset.view = 'mensual';
+  nav.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h8M8 17h5"/></svg> Informe mensual';
+  const despues = document.querySelector('.nav-item[data-view="evol"]') || document.querySelector('.nav-item[data-view="plan"]') || document.querySelector('.nav-item[data-view="informe"]');
+  if (despues) despues.after(nav);
+  nav.addEventListener('click', () => goto('mensual'));
+  views.push('mensual');
+  titles.mensual = ['Informe mensual', '· Evolución del periodo y recomendaciones'];
+
+  const area = (id, alto, ph) => '<textarea class="input" id="' + id + '" style="min-height:' + alto + 'px;line-height:1.6;" placeholder="' + ph + '"></textarea>';
+  const sec = document.createElement('section');
+  sec.className = 'view'; sec.id = 'view-mensual'; sec.hidden = true;
+  sec.innerHTML =
+    '<div class="page-head"><div><h2>Informe mensual</h2><p>Sube o pega el plan o el escrito, y la IA lo redacta como informe técnico con las técnicas usadas y las recomendaciones.</p></div>' +
+    '<div class="btn-row no-print"><button class="btn ghost" type="button" id="mesSubirBtn">📂 Subir plan o informe (Word)</button>' +
+    '<button class="btn ghost" type="button" id="mesCopiarTodo">📋 Copiar todo</button>' +
+    '<button class="btn dark" type="button" id="mesWordBtn">⬇️ Descargar Word</button>' +
+    '<button class="btn ghost" type="button" id="mesVaciar">🗑 Vaciar</button></div></div>' +
+    '<p class="tag-note" id="mesEstado" style="margin-bottom:14px;"></p>' +
+
+    '<div class="card"><div class="card-head"><h3>1. Texto base</h3><span class="sub">Plan terapéutico, informe anterior o tus notas del mes</span></div>' +
+    '<label class="field"><span class="lbl">Periodo del informe</span><input class="input" id="mesPeriodo" placeholder="Ej.: Noviembre 2026"></label>' +
+    '<label class="field" style="margin-top:12px;"><span class="lbl">Escrito base (pega aquí el texto o súbelo en Word)</span>' + area('mesBase', 170, 'Pega aquí el plan terapéutico o lo que trabajaste este mes…') + '</label>' +
+    '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost" type="button" id="mesUsarPlan">📋 Usar el Plan terapéutico de este niño/a</button></div></div>' +
+
+    '<div class="card"><div class="card-head"><h3>2. Informe mensual</h3><span class="sub">Lenguaje técnico, en párrafos, con las técnicas utilizadas</span></div>' +
+    '<div class="btn-row no-print" style="margin-bottom:10px;"><button class="btn primary" type="button" id="mesIaInforme">✨ Redactar informe con IA (parafrasear y enriquecer)</button>' +
+    '<button class="btn ghost" type="button" data-copiar="informe">📋 Copiar informe</button></div>' +
+    area('mesInforme', 280, 'Aquí queda el informe mensual. Puedes escribirlo o corregirlo a mano.') + '</div>' +
+
+    '<div class="card"><div class="card-head"><h3>3. Recomendaciones</h3><span class="sub">Con base en el informe mensual</span></div>' +
+    '<div class="btn-row no-print" style="margin-bottom:10px;"><button class="btn primary" type="button" id="mesIaRecs">✨ Generar recomendaciones con IA</button>' +
+    '<button class="btn ghost" type="button" data-copiar="recs">📋 Copiar recomendaciones</button></div>' +
+    area('mesRecs', 170, 'Una recomendación por línea.') + '</div>' +
+
+    '<p class="tag-note no-print">A la IA <b>no se le envían el nombre ni el documento</b> del niño/a. Si el botón de IA no está disponible, se copia el texto para que lo pegues en Gemini, ChatGPT o Claude y pegues su respuesta en el cuadro.</p>';
+  const anterior = document.getElementById('view-evol') || document.getElementById('view-plan') || document.getElementById('view-informe');
+  anterior.after(sec);
+
+  const $ = (id) => document.getElementById(id);
+  const estado = (t, error) => { const e = $('mesEstado'); e.textContent = t || ''; e.style.display = t ? '' : 'none'; e.style.color = error ? '#B42318' : ''; };
+  estado('');
+  const CAMPOS = { mesPeriodo: 'periodo', mesBase: 'base', mesInforme: 'informe', mesRecs: 'recs' };
+  function pintar() {
+    Object.keys(CAMPOS).forEach(id => { if (document.activeElement !== $(id)) $(id).value = state.mensual[CAMPOS[id]] || ''; });
+  }
+  Object.keys(CAMPOS).forEach(id => $(id).addEventListener('input', (e) => { state.mensual[CAMPOS[id]] = e.target.value; guardar(); }));
+
+  /* ---------- Utilidades ---------- */
+  const lineas = (t) => String(t || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
+  async function copiar(texto, boton) {
+    const antes = boton ? boton.textContent : '';
+    let ok = true;
+    try { await navigator.clipboard.writeText(texto); }
+    catch (e) {
+      const ta = document.createElement('textarea'); ta.value = texto; document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; } ta.remove();
+    }
+    if (boton) { boton.textContent = ok ? '✅ Copiado' : '⚠ No se pudo copiar'; setTimeout(() => { boton.textContent = antes; }, 1500); }
+    return ok;
+  }
+  sec.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-copiar]');
+    if (b) copiar(state.mensual[b.dataset.copiar] || '', b);
+  });
+  const textoCompleto = () => {
+    const m = state.mensual;
+    return ['INFORME MENSUAL' + (m.periodo ? ' · ' + m.periodo : ''), m.informe.trim(), m.recs.trim() ? 'RECOMENDACIONES\n' + m.recs.trim() : '']
+      .filter(Boolean).join('\n\n');
+  };
+  $('mesCopiarTodo').onclick = (e) => copiar(textoCompleto(), e.currentTarget);
+  $('mesVaciar').onclick = () => {
+    if (!confirm('¿Vaciar el informe mensual (texto base, informe y recomendaciones)?')) return;
+    state.mensual = vacio(); state.mensual.periodo = mesActual(); guardar(); pintar(); estado('');
+  };
+
+  /* ---------- Traer el Plan terapéutico ---------- */
+  function textoDelPlan() {
+    const p = state.plan || {};
+    const partes = [];
+    if (String(p.hallazgos || '').trim()) partes.push('HALLAZGOS:\n' + p.hallazgos.trim());
+    if (String(p.objGeneral || '').trim()) partes.push('OBJETIVO GENERAL:\n' + p.objGeneral.trim());
+    if (String(p.objEspecificos || '').trim()) partes.push('OBJETIVOS ESPECÍFICOS:\n' + p.objEspecificos.trim());
+    if (String(p.indicadores || '').trim()) partes.push('INDICADORES DE LOGRO:\n' + p.indicadores.trim());
+    return partes.join('\n\n');
+  }
+  $('mesUsarPlan').onclick = () => {
+    const t = textoDelPlan();
+    if (!t) { estado('El Plan terapéutico de este niño/a está vacío. Ve a "Plan terapéutico" o pega el texto.', true); return; }
+    if (state.mensual.base.trim() && !confirm('¿Reemplazar el texto base por el Plan terapéutico?')) return;
+    state.mensual.base = t; guardar(); pintar(); estado('📋 Se trajo el Plan terapéutico como texto base.');
+  };
+
+  /* ---------- Subir Word ---------- */
+  function xmlATexto(xml) {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    const salida = [];
+    Array.from(doc.getElementsByTagNameNS(W, 'p')).forEach(p => {
+      let t = '';
+      p.querySelectorAll('*').forEach(n => {
+        if (n.namespaceURI !== W) return;
+        if (n.localName === 't') t += n.textContent;
+        else if (n.localName === 'tab') t += ' ';
+        else if (n.localName === 'br') t += '\n';
+      });
+      t = t.replace(/[ \t]+/g, ' ').trim();
+      if (t) salida.push(t);
+    });
+    return salida.join('\n');
+  }
+  const input = document.createElement('input');
+  input.type = 'file'; input.hidden = true;
+  input.accept = '.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword';
+  sec.appendChild(input);
+  $('mesSubirBtn').onclick = () => { input.value = ''; input.click(); };
+  input.addEventListener('change', async () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    if (typeof window.CISADDE_LEER_WORD !== 'function') { estado('No se pudo cargar el lector de Word en este formato. Pega el texto directamente.', true); return; }
+    estado('📂 Leyendo "' + f.name + '"…');
+    try {
+      const texto = xmlATexto(await window.CISADDE_LEER_WORD(f));
+      if (!texto) throw new Error('El Word no tiene texto.');
+      if (state.mensual.base.trim() && !confirm('¿Reemplazar el texto base por el contenido de "' + f.name + '"?')) { estado(''); return; }
+      state.mensual.base = texto; guardar(); pintar();
+      estado('📂 Se cargó "' + f.name + '". Ahora pulsa "✨ Redactar informe con IA".');
+    } catch (err) {
+      estado('No se pudo leer el Word: ' + ((err && err.message) || err), true);
+    }
+  });
+
+  /* ---------- IA ---------- */
+  function datos() {
+    const D = window.CISADDE_DOC;
+    const d = D ? D.datos() : {};
+    return { area: d.area || (typeof FORM_TITLE !== 'undefined' ? FORM_TITLE : 'terapia'), edad: d.edad || '', diag: d.diag || '', resumen: d.resumen || '' };
+  }
+  // Quita del texto el nombre y el documento del niño/a antes de mandarlo a la IA.
+  function anonimizar(t) {
+    let s = String(t || '');
+    const quitar = (v, por) => {
+      v = String(v || '').trim();
+      if (v.length < 3) return;
+      s = s.split(v).join(por);
+      v.split(/\s+/).filter(p => p.length > 3).forEach(p => { s = s.replace(new RegExp('\\b' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), por); });
+    };
+    quitar(state.childName, 'el niño/a');
+    quitar(state.numeroId, '[documento]');
+    return s.split('\n').filter(l => !/^\s*(nombre|historia cl[íi]nica|documento|n[úu]mero de documento|identificaci[óo]n)\s*:/i.test(l)).join('\n')
+      .replace(/(el niño\/a\s*){2,}/g, 'el niño/a ');
+  }
+  function promptInforme() {
+    const d = datos(), m = state.mensual;
+    return 'Eres profesional de ' + d.area + ' en un centro de rehabilitación infantil en Colombia. ' +
+      'Redacta el INFORME MENSUAL de evolución' + (m.periodo ? ' del periodo ' + m.periodo : '') + ' de un niño/a' + (d.edad ? ' de ' + d.edad : '') + (d.diag ? ' con diagnóstico ' + d.diag : '') + ', ' +
+      'a partir del texto base de abajo (plan terapéutico, informe anterior o notas del profesional).\n\n' +
+      'CÓMO REDACTARLO:\n' +
+      '- Parafrasea y ENRIQUECE el contenido con lenguaje técnico y clínico propio de ' + d.area + '; no copies las frases tal cual.\n' +
+      '- Es un ESCRITO en prosa: 4 a 6 párrafos bien conectados, sin viñetas, listas, títulos ni markdown.\n' +
+      '- Describe los objetivos trabajados en el periodo, las TÉCNICAS y estrategias terapéuticas utilizadas (nómbralas: por ejemplo modelado, moldeamiento, encadenamiento, refuerzo positivo, economía de fichas, apoyos visuales, juego dirigido, integración sensorial, según el área), ' +
+      'la respuesta y el desempeño del niño/a durante las sesiones, los avances observados y los aspectos que aún requieren fortalecimiento.\n' +
+      '- Las técnicas deben ser coherentes con los objetivos del texto base.\n' +
+      '- No inventes resultados de pruebas, puntajes, porcentajes, diagnósticos ni datos que no se desprendan del texto base.\n' +
+      '- Tercera persona, tono objetivo y respetuoso. Español de Colombia. No escribas el nombre del niño/a.\n' +
+      '- No incluyas recomendaciones (van aparte). Responde SOLO con el informe.\n\n' +
+      (d.resumen ? 'RESUMEN DE LA VALORACIÓN (contexto):\n' + d.resumen + '\n\n' : '') +
+      'TEXTO BASE:\n' + anonimizar(m.base);
+  }
+  function promptRecs() {
+    const d = datos(), m = state.mensual;
+    return 'Eres profesional de ' + d.area + ' en un centro de rehabilitación infantil en Colombia. ' +
+      'Con base en el siguiente INFORME MENSUAL de un niño/a' + (d.edad ? ' de ' + d.edad : '') + (d.diag ? ' con diagnóstico ' + d.diag : '') + ', redacta de 5 a 8 RECOMENDACIONES técnicas y prácticas ' +
+      'para la familia o cuidadores, el entorno escolar y la continuidad del proceso terapéutico.\n\n' +
+      'REGLAS:\n' +
+      '- Cada recomendación en una línea, numerada (1., 2., …), clara y aplicable en casa o en el colegio.\n' +
+      '- Incluye estrategias concretas coherentes con las técnicas y los objetivos del informe (rutinas, apoyos visuales, refuerzo positivo, tiempos, actividades sugeridas).\n' +
+      '- Lenguaje técnico pero comprensible para la familia. Sin markdown, sin títulos ni saludos. No escribas el nombre del niño/a.\n' +
+      '- No inventes diagnósticos ni datos que no estén en el informe.\n\n' +
+      'INFORME MENSUAL:\n' + anonimizar(m.informe);
+  }
+  const limpiar = (t) => String(t || '').replace(/\r/g, '').replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').trim();
+  function limpiarInforme(t) {
+    return lineas(limpiar(t)).filter(l => !/^informe mensual\b/i.test(l)).map(l => l.replace(/^[-*•]\s+/, '')).join('\n\n');
+  }
+  function limpiarRecs(t) {
+    return lineas(limpiar(t)).filter(l => !/^recomendaciones\s*:?$/i.test(l))
+      .map((l, i) => (i + 1) + '. ' + l.replace(/^(?:[-*•·]|\d+[.)])\s*/, '')).join('\n');
+  }
+
+  async function conIA(boton, prompt, destino, limpiador, mensajeOk) {
+    const txt = boton.textContent;
+    let sample = null;
+    boton.disabled = true; boton.textContent = '⏳ Conectando…';
+    try { if (window.claude && typeof window.claude.use === 'function') sample = await window.claude.use('sample'); } catch (e) { sample = null; }
+    if (!sample) {
+      boton.disabled = false; boton.textContent = txt;
+      const ok = await copiar(prompt);
+      estado((ok ? '📋 La IA no está disponible aquí: copié el texto para la IA. ' : 'La IA no está disponible aquí. ') +
+        'Pégalo en Gemini, ChatGPT o Claude y pega su respuesta en el cuadro. Dentro de la app CISADDE se hace solo.', !ok);
+      return;
+    }
+    if (String(state.mensual[destino] || '').trim() && !confirm('Ya hay texto en este cuadro. ¿Reemplazarlo con lo que redacte la IA?')) {
+      boton.disabled = false; boton.textContent = txt; return;
+    }
+    boton.textContent = '⏳ Redactando…';
+    estado('✨ La IA está redactando. Puede tardar un momento.');
+    try {
+      const r = await sample(prompt, { modelTier: 'default' });
+      const texto = limpiador(r && r.text);
+      if (!texto) throw new Error('vacío');
+      state.mensual[destino] = texto; state.mensual.fecha = new Date().toISOString();
+      guardar(); pintar();
+      estado(mensajeOk);
+    } catch (err) {
+      estado(err && err.code === 'rate_limited' ? 'La IA está ocupada: intenta de nuevo en un momento.' : 'No se pudo redactar con IA. Intenta de nuevo.', true);
+    } finally { boton.disabled = false; boton.textContent = txt; }
+  }
+  $('mesIaInforme').onclick = (e) => {
+    if (!state.mensual.base.trim()) { estado('Primero sube un Word, pega el texto base o usa el Plan terapéutico.', true); return; }
+    conIA(e.currentTarget, promptInforme(), 'informe', limpiarInforme, '✅ Informe mensual redactado. Revísalo y luego genera las recomendaciones.');
+  };
+  $('mesIaRecs').onclick = (e) => {
+    if (!state.mensual.informe.trim()) { estado('Primero redacta o escribe el informe mensual (cuadro 2).', true); return; }
+    conIA(e.currentTarget, promptRecs(), 'recs', limpiarRecs, '✅ Recomendaciones listas. Revísalas antes de entregar.');
+  };
+
+  /* ---------- Word ---------- */
+  $('mesWordBtn').onclick = async () => {
+    const D = window.CISADDE_DOC, m = state.mensual;
+    if (!D) { estado('No se pudo cargar el generador de Word. Usa "Copiar todo".', true); return; }
+    if (!m.informe.trim()) { estado('Primero redacta o escribe el informe mensual.', true); return; }
+    if (!state.childName && !confirm('Falta el nombre del niño/a en la Portada. ¿Descargar de todas formas?')) return;
+    const btn = $('mesWordBtn'), txt = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ Creando Word…';
+    try {
+      const { run, par, AZUL } = D;
+      const titulo = (t) => par(run(t, { b: 1, color: AZUL, sz: 22 }), { before: 240, after: 100, junto: 1, borde: 1 });
+      let cuerpo = titulo('INFORME DE EVOLUCIÓN MENSUAL');
+      lineas(m.informe).forEach(l => { cuerpo += par(run(l), { after: 120, jc: 'both' }); });
+      if (m.recs.trim()) {
+        cuerpo += titulo('RECOMENDACIONES');
+        lineas(m.recs).forEach(l => { cuerpo += par(run(l), { after: 80, jc: 'both' }); });
+      }
+      const blob = await D.crear('INFORME MENSUAL', cuerpo, { filaExtra: ['Periodo', m.periodo], pie: 'Informe mensual' });
+      const nombre = ['Informe_mensual', D.slug(D.datos().area), D.slug(state.childName) || 'sin_nombre', D.slug(m.periodo) || new Date().toISOString().slice(0, 7)].join('_') + '.docx';
+      await D.guardar(blob, nombre);
+      estado('✅ Word del informe mensual listo.');
+    } catch (err) {
+      estado('No se pudo crear el Word: ' + ((err && err.message) || err), true);
+    } finally { btn.disabled = false; btn.textContent = txt; }
+  };
+
+  pintar();
+})();
+</script>
+<!-- INFORME-MENSUAL:FIN -->
 </body>
 </html>
