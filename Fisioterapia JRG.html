@@ -6591,5 +6591,114 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
 })();
 </script>
 <!-- INFORME-MENSUAL:FIN -->
+<!-- NAV-MOVIL:INICIO -->
+<script>
+/* =====================================================================
+   NAVEGACIÓN EN CELULAR Y TABLET
+   En pantallas pequeñas (o celular acostado) el menú de la izquierda se
+   esconde. Aquí se agrega, debajo de la barra azul, una fila de pestañas
+   con todas las secciones (Portada, Evaluación, Resumen, Informe, Plan,
+   Evoluciones, Informe mensual, Tus pacientes…) que se desliza con el dedo,
+   y "☰ Más" para abrir el menú (Exportar, Importar, Respaldos…).
+   No usa elementos flotantes, así que también funciona dentro de la app
+   de Google en el iPhone.
+   Fuente: herramientas/nav-movil.js → node herramientas/insertar-nav-movil.js
+   (debe ir al final: lee el menú cuando ya están todas las secciones)
+   ===================================================================== */
+(function () {
+  const sidebar = document.getElementById('sidebar');
+  const topbar = document.querySelector('.topbar');
+  if (!sidebar || !topbar || document.getElementById('cz-mnav')) return;
+
+  const MOVIL = '(max-width:880px), (pointer:coarse) and (max-height:540px)';
+  const css = document.createElement('style');
+  css.textContent =
+    '#cz-mnav{display:none;gap:8px;overflow-x:auto;overflow-y:hidden;padding:8px 10px;background:var(--surface,#fff);' +
+    'border-bottom:1px solid var(--border,#D5E3EE);position:sticky;z-index:4;-webkit-overflow-scrolling:touch;scrollbar-width:none;' +
+    'padding-left:calc(10px + env(safe-area-inset-left,0px));padding-right:calc(10px + env(safe-area-inset-right,0px))}' +
+    '#cz-mnav::-webkit-scrollbar{display:none}' +
+    '#cz-mnav button{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:38px;border:1px solid var(--border,#D5E3EE);' +
+    'background:var(--surface-alt,#F4F8FB);color:var(--text,#12314A);border-radius:999px;padding:7px 14px;font:600 13.5px/1 var(--font-body,system-ui);' +
+    'white-space:nowrap;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+    '#cz-mnav button.on{background:var(--cyan-600,#0E8FC4);border-color:var(--cyan-600,#0E8FC4);color:#fff}' +
+    '#cz-mnav button .ic{width:16px;height:16px}' +
+    '#cz-mnav .mas{background:var(--navy-900,#0B2A44);border-color:var(--navy-900,#0B2A44);color:#fff}' +
+    '.menu-btn .cz-menu-lbl{display:none}' +
+    // En los formatos, ".menu-btn{display:none}" quedó DESPUÉS de la regla para celular y la anulaba:
+    // por eso en el celular nunca aparecía el botón ☰. Aquí se fuerza a mostrarlo.
+    '@media ' + MOVIL + '{#cz-mnav{display:flex}' +
+    '.menu-btn{display:inline-flex!important;width:auto!important;padding:0 12px;gap:6px}.menu-btn .cz-menu-lbl{display:inline;font:700 13px var(--font-body,system-ui)}}' +
+    // Celular acostado: misma vista que el celular (antes se veía como computador sin espacio)
+    '@media (pointer:coarse) and (max-height:540px) and (min-width:881px){' +
+    '.sidebar{position:fixed;left:-260px;z-index:50;transition:left .2s ease;box-shadow:0 0 40px rgba(0,0,0,.3);height:100%}' +
+    '.sidebar.open{left:0}.menu-btn{display:inline-flex}}' +
+    '@media print{#cz-mnav{display:none!important}}';
+  document.head.appendChild(css);
+
+  // Botón ☰ con la palabra "Menú" para que se note
+  const menuBtn = document.getElementById('menuBtn');
+  if (menuBtn && !menuBtn.querySelector('.cz-menu-lbl')) {
+    const l = document.createElement('span'); l.className = 'cz-menu-lbl'; l.textContent = 'Menú';
+    menuBtn.appendChild(l);
+  }
+
+  const barra = document.createElement('nav');
+  barra.id = 'cz-mnav';
+  barra.setAttribute('aria-label', 'Secciones');
+  topbar.after(barra);
+
+  function construir() {
+    barra.innerHTML = '';
+    sidebar.querySelectorAll('.nav-item[data-view]').forEach(item => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.view = item.dataset.view;
+      const ic = item.querySelector('svg');
+      if (ic) b.appendChild(ic.cloneNode(true));
+      // Texto sin la insignia de porcentaje (p. ej. "Evaluación 0%")
+      const texto = Array.from(item.childNodes).filter(n => n.nodeType === 3 || (n.nodeType === 1 && !n.classList.contains('nav-badge') && n.tagName !== 'svg'))
+        .map(n => n.textContent).join(' ').replace(/\s+/g, ' ').trim();
+      b.appendChild(document.createTextNode(texto));
+      b.onclick = () => { item.click(); marcar(); };
+      barra.appendChild(b);
+    });
+    const mas = document.createElement('button');
+    mas.type = 'button'; mas.className = 'mas'; mas.textContent = '☰ Más';
+    mas.title = 'Inicio, Exportar, Importar, Respaldos en Drive y más';
+    mas.onclick = () => { if (menuBtn) menuBtn.click(); else sidebar.classList.add('open'); };
+    barra.appendChild(mas);
+    marcar();
+  }
+  function marcar() {
+    const activa = sidebar.querySelector('.nav-item.active[data-view]');
+    const v = activa ? activa.dataset.view : '';
+    barra.querySelectorAll('button[data-view]').forEach(b => {
+      const on = b.dataset.view === v;
+      b.classList.toggle('on', on);
+      if (on && barra.scrollWidth > barra.clientWidth) {
+        const izq = b.offsetLeft - (barra.clientWidth - b.offsetWidth) / 2;
+        try { barra.scrollTo({ left: Math.max(0, izq), behavior: 'smooth' }); } catch (e) { barra.scrollLeft = izq; }
+      }
+    });
+  }
+  // Pegada debajo de la barra azul
+  function ajustarAltura() { barra.style.top = (topbar.offsetHeight || 0) + 'px'; }
+
+  construir();
+  ajustarAltura();
+  window.addEventListener('resize', ajustarAltura);
+  // Si otra herramienta agrega o cambia secciones, se actualiza sola.
+  let pendiente = null;
+  new MutationObserver((muts) => {
+    const estructura = muts.some(m => m.type === 'childList');
+    clearTimeout(pendiente);
+    pendiente = setTimeout(() => { if (estructura) construir(); else marcar(); }, 30);
+  }).observe(sidebar, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+
+  // Al abrir el menú en el celular, que se vea desde arriba.
+  if (menuBtn) menuBtn.addEventListener('click', () => { try { sidebar.scrollTop = 0; } catch (e) {} });
+})();
+</script>
+<!-- NAV-MOVIL:FIN -->
 </body>
 </html>
