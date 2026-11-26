@@ -2,6 +2,56 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- PWA:INICIO -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0E8FC4">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CISADDE">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="iconos/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="iconos/favicon.png">
+<script>
+/* 📲 App instalable (PWA). Registra el trabajador sin conexión y, en Inicio,
+   muestra "Instalar CISADDE" (Android, PC) o cómo agregarla en el iPhone.
+   Fuente: herramientas/pwa.html → node herramientas/insertar-pwa.js */
+(function () {
+  var URL_APP = 'https://script.google.com/macros/s/AKfycbyoH75Kg0fzxvcD5QbDART7HcjPL0rfR0QFx8SAkKVKhtlrbtJ4l2bvN5_57VJ2888-oQ/exec';
+  var enMarco = window.top !== window; // dentro de la app de Google
+  if (!enMarco && 'serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+  var esInicio = /Inicio%20CISADDE|Inicio CISADDE|\/$/.test(location.pathname);
+  if (!esInicio) return;
+  var aviso = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); aviso = e; pintar(); });
+  window.addEventListener('appinstalled', function () { aviso = null; pintar(); });
+  var instalada = function () { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; };
+  var esIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function pintar() {
+    var cont = document.getElementById('czPwa');
+    if (!cont) {
+      cont = document.createElement('div'); cont.id = 'czPwa';
+      cont.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;margin:12px auto;max-width:900px;padding:0 16px;font:600 13px/1.4 Inter,system-ui,sans-serif';
+      var w = document.querySelector('.wrap') || document.body;
+      w.insertBefore(cont, w.firstChild);
+    }
+    var html = '';
+    var bt = 'border:0;border-radius:999px;padding:9px 16px;font:inherit;font-weight:800;cursor:pointer;';
+    if (!enMarco) html += '<a href="' + URL_APP + '" style="' + bt + 'background:linear-gradient(135deg,#0E8FC4,#0B5F85);color:#fff;text-decoration:none;">✨ Abrir la app con IA y Drive</a>';
+    if (!enMarco && !instalada()) {
+      if (aviso) html += '<button type="button" id="czInstalar" style="' + bt + 'background:#12314A;color:#fff;">📲 Instalar CISADDE</button>';
+      else if (esIOS) html += '<span style="color:#5B7891;">📲 Para instalarla en el iPhone: toca <b>Compartir</b> ⬆️ y luego <b>"Agregar a inicio"</b>.</span>';
+    }
+    cont.innerHTML = html;
+    cont.style.display = html ? 'flex' : 'none';
+    var b = document.getElementById('czInstalar');
+    if (b) b.onclick = function () { aviso.prompt(); aviso.userChoice.finally(function () { aviso = null; pintar(); }); };
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', pintar); else pintar();
+})();
+</script>
+<!-- PWA:FIN -->
 <!-- PUENTE-APP:INICIO -->
 <script>
 /* Puente con la app de Google (Apps Script).
@@ -102,6 +152,12 @@
       terapeuta: s.evaluator && s.evaluator.name ? String(s.evaluator.name).trim() : ''
     };
   }
+
+  // Para otras herramientas (buscador en Drive, etc.): hablar con la app de Google.
+  window.CISADDE_APP = {
+    listo: conectado.then(function (e) { return !e.sinApp && !!e.drive; }),
+    pedir: function (tipo, datos) { return pedir(tipo, datos); }
+  };
 
   window.claude = {
     use: function (que) {

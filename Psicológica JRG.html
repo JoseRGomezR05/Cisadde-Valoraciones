@@ -2,6 +2,56 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- PWA:INICIO -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0E8FC4">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CISADDE">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="iconos/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="iconos/favicon.png">
+<script>
+/* 📲 App instalable (PWA). Registra el trabajador sin conexión y, en Inicio,
+   muestra "Instalar CISADDE" (Android, PC) o cómo agregarla en el iPhone.
+   Fuente: herramientas/pwa.html → node herramientas/insertar-pwa.js */
+(function () {
+  var URL_APP = 'https://script.google.com/macros/s/AKfycbyoH75Kg0fzxvcD5QbDART7HcjPL0rfR0QFx8SAkKVKhtlrbtJ4l2bvN5_57VJ2888-oQ/exec';
+  var enMarco = window.top !== window; // dentro de la app de Google
+  if (!enMarco && 'serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+  var esInicio = /Inicio%20CISADDE|Inicio CISADDE|\/$/.test(location.pathname);
+  if (!esInicio) return;
+  var aviso = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); aviso = e; pintar(); });
+  window.addEventListener('appinstalled', function () { aviso = null; pintar(); });
+  var instalada = function () { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; };
+  var esIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function pintar() {
+    var cont = document.getElementById('czPwa');
+    if (!cont) {
+      cont = document.createElement('div'); cont.id = 'czPwa';
+      cont.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;margin:12px auto;max-width:900px;padding:0 16px;font:600 13px/1.4 Inter,system-ui,sans-serif';
+      var w = document.querySelector('.wrap') || document.body;
+      w.insertBefore(cont, w.firstChild);
+    }
+    var html = '';
+    var bt = 'border:0;border-radius:999px;padding:9px 16px;font:inherit;font-weight:800;cursor:pointer;';
+    if (!enMarco) html += '<a href="' + URL_APP + '" style="' + bt + 'background:linear-gradient(135deg,#0E8FC4,#0B5F85);color:#fff;text-decoration:none;">✨ Abrir la app con IA y Drive</a>';
+    if (!enMarco && !instalada()) {
+      if (aviso) html += '<button type="button" id="czInstalar" style="' + bt + 'background:#12314A;color:#fff;">📲 Instalar CISADDE</button>';
+      else if (esIOS) html += '<span style="color:#5B7891;">📲 Para instalarla en el iPhone: toca <b>Compartir</b> ⬆️ y luego <b>"Agregar a inicio"</b>.</span>';
+    }
+    cont.innerHTML = html;
+    cont.style.display = html ? 'flex' : 'none';
+    var b = document.getElementById('czInstalar');
+    if (b) b.onclick = function () { aviso.prompt(); aviso.userChoice.finally(function () { aviso = null; pintar(); }); };
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', pintar); else pintar();
+})();
+</script>
+<!-- PWA:FIN -->
 <!-- PUENTE-APP:INICIO -->
 <script>
 /* Puente con la app de Google (Apps Script).
@@ -102,6 +152,12 @@
       terapeuta: s.evaluator && s.evaluator.name ? String(s.evaluator.name).trim() : ''
     };
   }
+
+  // Para otras herramientas (buscador en Drive, etc.): hablar con la app de Google.
+  window.CISADDE_APP = {
+    listo: conectado.then(function (e) { return !e.sinApp && !!e.drive; }),
+    pedir: function (tipo, datos) { return pedir(tipo, datos); }
+  };
 
   window.claude = {
     use: function (que) {
@@ -4939,6 +4995,7 @@ css.textContent = ''
   + '.dic-fila{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}'
   + '.dic-fila .dic-btn,.dic-fila .dic-ia{padding:4px 10px;font-size:12px;flex:none}'
   + '.dic-ia{padding:6px 12px;font-size:12.5px}'
+  + '.dic-ia[hidden]{display:none!important}' // .btn pone display y anulaba el "hidden"
   + '.dic-btn.on{background:#e5484d;border-color:#e5484d;color:#fff;animation:dicPulso 1.4s infinite}'
   + '@keyframes dicPulso{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,.45)}50%{box-shadow:0 0 0 6px rgba(229,72,77,0)}}'
   + '.dic-vivo{margin-top:6px;font-size:12.5px;color:var(--text-faint);font-style:italic;min-height:0}'
@@ -5194,6 +5251,8 @@ function preparar(campo){
   return { btn, vivo, ia };
 }
 CAMPOS.forEach(id => preparar(document.getElementById(id)));
+// Para otras herramientas (p. ej. la Entrevista inteligente): poner el botón 🎤 en un cuadro.
+window.CISADDE_DICTADO = { preparar: preparar, detener: () => detener() };
 
 // Observaciones de cada componente: se crean y se vuelven a crear al cambiar
 // de hoja o rango de edad, así que se vigila la página para ponerles el botón.
@@ -5946,8 +6005,8 @@ function datosNino(s, f){
   if(b.cie) s.cie10Code = b.cie;
   if(b.dx) s.cie10Diag = b.dx;
 }
-function abrir(f){
-  if(filaActual() === f){ irA('plan'); return; }
+function abrir(f, destino){
+  if(filaActual() === f){ irA(destino || 'plan'); return; }
   const actual = (state.childName || '').trim();
   if(actual && !confirmar('Vas a pasar de ' + actual + ' a ' + (f.nombre || f.id) + '.\nLo que llevas de ' + actual + ' queda guardado en su expediente y lo recuperas al volver a abrirlo.\n\n¿Continuar?')) return;
   if(!guardarExpediente()) return;
@@ -5961,7 +6020,7 @@ function abrir(f){
   }catch(e){ alert('No se pudo abrir el paciente: el navegador no tiene espacio. Exporta y usa "Borrar datos de este equipo".'); return; }
   try{ lastSaved = JSON.stringify(state); clearTimeout(saveTimer); }catch(e){}
   try{ window.removeEventListener('pagehide', saveDraft); }catch(e){}
-  try{ sessionStorage.setItem(KEY_IR, 'plan'); }catch(e){}
+  try{ sessionStorage.setItem(KEY_IR, destino || 'plan'); }catch(e){}
   location.reload();
 }
 function irA(v){ const n = document.querySelector('.nav-item[data-view="' + v + '"]'); if(n) n.click(); }
@@ -6171,7 +6230,15 @@ window.CISADDE_TUS = {
     guardarLista(); pintar();
     document.dispatchEvent(new Event('cisadde:tus'));
     return 'nuevo';
-  }
+  },
+  // Para el buscador: abre al paciente (lo que está abierto se guarda en su expediente).
+  abrirPaciente: (d, destino) => {
+    const id = normId(d.id), nombre = String(d.nombre || '').trim(), k = claveDe(id, nombre);
+    const f = (lista && lista.filas.find(x => claveDe(x.id, x.nombre) === k || (id && x.id === id)))
+      || { id, nombre, estado: '', fecha: '', b: d.b || null };
+    abrir(f, destino || 'portada');
+  },
+  tieneExpediente: (id, nombre) => !!leerExpediente(claveDe(normId(id), nombre))
 };
 document.dispatchEvent(new Event('cisadde:tus'));
 document.getElementById('tpCruzarBtn').addEventListener('click', () => {
@@ -7244,5 +7311,809 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
 })();
 </script>
 <!-- NAV-MOVIL:FIN -->
+<!-- LEER:INICIO -->
+<script>
+/* =====================================================================
+   🔊 LEER EN VOZ ALTA
+   Botón "🔊 Leer en voz alta" en el Informe y en el Informe mensual, y
+   window.CISADDE_LEER.leer(texto) para otras herramientas (Asistente).
+   Usa la voz en español del dispositivo (no necesita internet en la
+   mayoría de equipos). Mientras lee, abajo queda una barra con Pausa,
+   velocidad y Detener. Sirve para explicarle el informe a la familia.
+   Fuente: herramientas/leer.js → node herramientas/insertar-leer.js
+   ===================================================================== */
+(function () {
+  if (window.CISADDE_LEER) return;
+  const voz = window.speechSynthesis;
+  const css = document.createElement('style');
+  css.textContent =
+    '#czLeerBarra{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:99989;display:flex;align-items:center;gap:8px;' +
+    'max-width:calc(100% - 32px);box-sizing:border-box;background:#0B5F85;color:#fff;border-radius:999px;padding:6px 6px 6px 14px;' +
+    'box-shadow:0 10px 30px -8px rgba(0,0,0,.45);font:600 13.5px/1.3 Inter,system-ui,sans-serif}' +
+    '#czLeerBarra[hidden]{display:none}' +
+    '#czLeerBarra button,#czLeerBarra select{border:0;border-radius:999px;background:#fff;color:#0B5F85;font:inherit;font-weight:800;padding:7px 12px;cursor:pointer}' +
+    '#czLeerBarra .txt{max-width:38vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:400;opacity:.9}' +
+    '@media print{#czLeerBarra,.cz-leer-btn{display:none!important}}';
+  document.head.appendChild(css);
+
+  let barra = null, cola = [], indice = 0, velocidad = 1, pausado = false, activo = false;
+  function vozEspanol() {
+    const voces = voz ? voz.getVoices() : [];
+    const pref = ['es-CO', 'es-US', 'es-419', 'es-MX', 'es-ES'];
+    for (const p of pref) { const v = voces.find(x => (x.lang || '').replace('_', '-').toLowerCase() === p.toLowerCase()); if (v) return v; }
+    return voces.find(x => /^es/i.test(x.lang || '')) || null;
+  }
+  // Trozos cortos: Chrome corta las lecturas largas a los ~15 segundos.
+  function trocear(texto) {
+    const limpio = String(texto || '').replace(/[•▪◦]/g, '').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+    const frases = limpio.split(/(?<=[.!?;:])\s+|\n/).map(s => s.trim()).filter(Boolean);
+    const out = [];
+    frases.forEach(f => {
+      while (f.length > 220) { const corte = f.lastIndexOf(',', 220) > 80 ? f.lastIndexOf(',', 220) + 1 : f.lastIndexOf(' ', 220); out.push(f.slice(0, corte)); f = f.slice(corte).trim(); }
+      if (f) out.push(f);
+    });
+    // Sin trozos vacíos o de pura puntuación (separadores de tablas, viñetas)
+    return out.map(s => s.replace(/^[\s.,;:·–-]+/, '').replace(/(\.\s*){2,}/g, '. ').trim()).filter(s => /[0-9A-Za-zÁÉÍÓÚÑáéíóúñü]/.test(s));
+  }
+  function mostrar() {
+    if (!barra) {
+      barra = document.createElement('div'); barra.id = 'czLeerBarra'; barra.setAttribute('role', 'status');
+      barra.innerHTML = '<span>🔊</span><span class="txt" data-t>Leyendo…</span>' +
+        '<button type="button" data-p>⏸ Pausa</button>' +
+        '<select data-v aria-label="Velocidad"><option value="0.8">Lento</option><option value="1" selected>Normal</option><option value="1.25">Rápido</option></select>' +
+        '<button type="button" data-s>⏹</button>';
+      barra.querySelector('[data-p]').onclick = () => {
+        if (pausado) { voz.resume(); pausado = false; barra.querySelector('[data-p]').textContent = '⏸ Pausa'; }
+        else { voz.pause(); pausado = true; barra.querySelector('[data-p]').textContent = '▶ Seguir'; }
+      };
+      barra.querySelector('[data-v]').onchange = (e) => { velocidad = Number(e.target.value) || 1; const i = indice; voz.cancel(); hablar(i); };
+      barra.querySelector('[data-s]').onclick = detener;
+      document.body.appendChild(barra);
+    }
+    barra.hidden = false;
+  }
+  function hablar(i) {
+    indice = i;
+    if (!activo || i >= cola.length) { detener(); return; }
+    const u = new SpeechSynthesisUtterance(cola[i]);
+    const v = vozEspanol(); if (v) u.voice = v;
+    u.lang = v ? v.lang : 'es-CO'; u.rate = velocidad;
+    u.onend = () => { if (activo && !pausado && indice === i) hablar(i + 1); };
+    u.onerror = (e) => { if (e.error !== 'interrupted' && e.error !== 'canceled') hablar(i + 1); };
+    if (barra) barra.querySelector('[data-t]').textContent = cola[i];
+    voz.speak(u);
+  }
+  function leer(texto) {
+    if (!voz || typeof SpeechSynthesisUtterance === 'undefined') { alert('Este navegador no puede leer en voz alta. Usa Chrome, Edge o Safari.'); return; }
+    detener();
+    cola = trocear(texto);
+    if (!cola.length) { alert('No hay texto para leer.'); return; }
+    activo = true; pausado = false;
+    mostrar();
+    if (barra) barra.querySelector('[data-p]').textContent = '⏸ Pausa';
+    hablar(0);
+  }
+  function detener() {
+    activo = false; pausado = false;
+    try { voz && voz.cancel(); } catch (e) {}
+    if (barra) barra.hidden = true;
+  }
+  // Texto visible de un bloque, sin botones ni partes que no se imprimen.
+  function textoDe(el) {
+    if (!el) return '';
+    const c = el.cloneNode(true);
+    c.querySelectorAll('.no-print,[data-html2canvas-ignore],button,select,script,style,svg,input[type=file]').forEach(n => n.remove());
+    c.querySelectorAll('textarea,input').forEach(n => { const s = document.createElement('div'); s.textContent = n.value || ''; n.replaceWith(s); });
+    c.querySelectorAll('p,div,h1,h2,h3,h4,h5,li,tr,br').forEach(n => n.after(document.createTextNode('\n')));
+    c.querySelectorAll('td,th').forEach(n => n.after(document.createTextNode('. ')));
+    return c.textContent.replace(/\n\s*\n+/g, '\n').trim();
+  }
+  window.CISADDE_LEER = { leer, detener, textoDe };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) detener(); });
+  if (voz && voz.onvoiceschanged !== undefined) voz.onvoiceschanged = () => {};
+
+  /* ---------- Botones en Informe e Informe mensual ---------- */
+  function boton(lugar, fuente, titulo) {
+    if (!lugar || lugar.querySelector('.cz-leer-btn')) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn ghost cz-leer-btn'; b.textContent = '🔊 Leer en voz alta'; b.title = titulo;
+    b.onclick = () => { const t = fuente(); if (t) leer(t); };
+    lugar.prepend(b);
+  }
+  function poner() {
+    boton(document.querySelector('#view-informe .page-head .btn-row'), () => textoDe(document.getElementById('informeSheet')), 'Lee el informe en voz alta (para explicárselo a la familia)');
+    boton(document.querySelector('#view-mensual .page-head .btn-row'), () => {
+      const m = (typeof state !== 'undefined' && state.mensual) || {};
+      return [m.informe, m.recs ? 'Recomendaciones. ' + m.recs : ''].filter(Boolean).join('\n');
+    }, 'Lee el informe mensual y las recomendaciones');
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', poner); else poner();
+  setTimeout(poner, 1500);
+})();
+</script>
+<!-- LEER:FIN -->
+<!-- ENTREVISTA:INICIO -->
+<script>
+/* =====================================================================
+   🎙️ ENTREVISTA INTELIGENTE (Portada)
+   Se graba (🎤 Dictar) o se pega toda la conversación con la mamá o el
+   familiar en un solo cuadro. "✨ Repartir en los campos con IA" ordena la
+   información en los cuadros de la Portada (motivo de consulta, antecedentes,
+   historia familiar, historia escolar, examen miofuncional…) y marca los
+   motivos de consulta que correspondan. Antes de aplicar se muestra todo para
+   revisar y corregir. A la IA no se le envía el nombre del niño/a.
+   Se guarda con la valoración.
+   Fuente: herramientas/entrevista.js → node herramientas/insertar-entrevista.js
+   ===================================================================== */
+(function () {
+  if (typeof state === 'undefined' || document.getElementById('entrevistaTxt')) return;
+  const portada = document.getElementById('view-portada');
+  const motivo = document.getElementById('motivoTxt');
+  if (!portada) return;
+
+  /* ---------- Estado (se recupera del borrador) ---------- */
+  try { if (typeof STATE_DEFAULTS !== 'undefined' && !('entrevista' in STATE_DEFAULTS)) STATE_DEFAULTS.entrevista = ''; } catch (e) {}
+  state.entrevista = '';
+  try {
+    const d = typeof readDraft === 'function' ? readDraft() : JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (d && d.state && typeof d.state.entrevista === 'string') state.entrevista = d.state.entrevista;
+  } catch (e) {}
+  const guardar = () => { if (typeof queueSave === 'function') queueSave(); };
+
+  /* ---------- Tarjeta ---------- */
+  const card = document.createElement('div');
+  card.className = 'card no-print';
+  card.id = 'cz-entrevista';
+  card.innerHTML =
+    '<div class="card-head"><h3>🎙️ Entrevista inteligente</h3><span class="sub">Graba o pega la conversación con la familia y la IA la reparte en los campos</span></div>' +
+    '<p class="tag-note" style="margin-bottom:10px;">1) Pulsa <b>🎤 Dictar</b> y deja el micrófono cerca de quien habla (o pega el texto). ' +
+    '2) Pulsa <b>✨ Repartir en los campos con IA</b>. 3) Revisa lo que propone y aplícalo. A la IA no se le envía el nombre del niño/a.</p>' +
+    '<label class="field"><span class="lbl">Transcripción de la entrevista</span>' +
+    '<textarea class="input" id="entrevistaTxt" style="min-height:160px;line-height:1.55;" placeholder="Aquí queda lo que cuenta la mamá o el familiar…"></textarea></label>' +
+    '<div class="btn-row" style="margin-top:10px;"><button class="btn primary" type="button" id="entIaBtn">✨ Repartir en los campos con IA</button>' +
+    '<button class="btn ghost" type="button" id="entVaciar">🗑 Vaciar</button></div>' +
+    '<p class="tag-note" id="entEstado" style="margin-top:8px;display:none;"></p>';
+  const antesDe = motivo && motivo.closest('.card');
+  if (antesDe) antesDe.before(card);
+  else (portada.querySelector('.card') ? portada.querySelector('.card').after(card) : portada.appendChild(card));
+
+  const $ = (id) => document.getElementById(id);
+  const ta = $('entrevistaTxt');
+  ta.value = state.entrevista;
+  ta.addEventListener('input', () => { state.entrevista = ta.value; guardar(); });
+  const estado = (t, error) => { const e = $('entEstado'); e.textContent = t || ''; e.style.display = t ? '' : 'none'; e.style.color = error ? '#B42318' : ''; };
+  $('entVaciar').onclick = () => {
+    if (ta.value.trim() && !confirm('¿Vaciar la transcripción de la entrevista? (Lo que ya pasaste a los campos se queda.)')) return;
+    ta.value = ''; state.entrevista = ''; guardar(); estado('');
+  };
+  // Botón 🎤 del dictado (la herramienta de dictado puede cargar antes o después)
+  const conDictado = () => { if (window.CISADDE_DICTADO && !ta.dataset.dictado) window.CISADDE_DICTADO.preparar(ta); };
+  conDictado();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', conDictado); else setTimeout(conDictado, 0);
+
+  /* ---------- Campos de destino de este formato ---------- */
+  function destinos() {
+    return Array.from(portada.querySelectorAll('textarea')).filter(t => t.id && t !== ta && !t.closest('#cz-entrevista'))
+      .map(t => {
+        const l = t.closest('label'), s = l && l.querySelector('.lbl'), c = t.closest('.card'), h = c && c.querySelector('.card-head h3');
+        return { id: t.id, el: t, etiqueta: ((s && s.textContent) || (h && h.textContent) || t.id).replace(/\s+/g, ' ').trim() };
+      });
+  }
+  const motivos = () => (typeof REASONS !== 'undefined' && Array.isArray(REASONS)) ? REASONS : [];
+
+  function anonimizar(t) {
+    let s = String(t || '');
+    const nombre = String(state.childName || '').trim();
+    if (nombre.length >= 3) {
+      s = s.split(nombre).join('el niño/a');
+      nombre.split(/\s+/).filter(p => p.length > 3).forEach(p => {
+        s = s.replace(new RegExp('\\b' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), 'el niño/a');
+      });
+      s = s.replace(/(el niño\/a\s*){2,}/g, 'el niño/a ');
+    }
+    const doc = String(state.numeroId || '').trim();
+    if (doc.length >= 4) s = s.split(doc).join('[documento]');
+    return s;
+  }
+  function prompt(lista) {
+    const area = typeof FORM_TITLE !== 'undefined' ? FORM_TITLE : 'valoración infantil';
+    return 'Eres profesional de ' + area + ' en un centro de rehabilitación infantil en Colombia. Abajo está la TRANSCRIPCIÓN de una entrevista con la familia de un niño/a ' +
+      '(hecha con dictado por voz: puede tener errores de reconocimiento y no tener puntuación).\n\n' +
+      'Reparte la información en los campos del formato. Para cada campo, redacta en tercera persona y lenguaje clínico claro ' +
+      '(por ejemplo "La madre refiere que…"), con buena puntuación, conservando TODOS los datos que da la familia (fechas, edades, semanas, peso, nombres de instituciones, medicamentos).\n' +
+      'REGLAS:\n- No inventes nada que no esté en la transcripción. Si un campo no tiene información, déjalo como "".\n' +
+      '- No repitas la misma información en varios campos: ponla donde mejor encaje.\n' +
+      '- Corrige palabras mal reconocidas solo si el contexto lo deja claro.\n' +
+      '- No escribas el nombre del niño/a.\n\n' +
+      'CAMPOS (clave: descripción):\n' + lista.map(c => '- ' + c.id + ': ' + c.etiqueta).join('\n') + '\n\n' +
+      (motivos().length ? 'MOTIVOS DE CONSULTA posibles (número: texto). Elige solo los que la familia menciona claramente:\n' + motivos().map((m, i) => i + ': ' + m).join('\n') + '\n\n' : '') +
+      'Responde SOLO con un JSON válido, sin texto antes ni después, con esta forma:\n' +
+      '{"campos": {' + lista.map(c => '"' + c.id + '": "…"').join(', ') + '}' + (motivos().length ? ', "motivos": [números]' : '') + '}\n\n' +
+      'TRANSCRIPCIÓN:\n' + anonimizar(ta.value);
+  }
+  function leerJson(t) {
+    let s = String(t || '').replace(/```(?:json)?/gi, '').trim();
+    const i = s.indexOf('{'), f = s.lastIndexOf('}');
+    if (i < 0 || f <= i) return null;
+    try { return JSON.parse(s.slice(i, f + 1)); } catch (e) { return null; }
+  }
+
+  /* ---------- Revisar antes de aplicar ---------- */
+  function revisar(lista, r) {
+    const campos = (r && r.campos) || {};
+    const propuestas = lista.map(c => ({ c, texto: String(campos[c.id] || '').trim() })).filter(x => x.texto);
+    const mot = Array.isArray(r && r.motivos) ? r.motivos.map(Number).filter(i => Number.isInteger(i) && i >= 0 && i < motivos().length) : [];
+    if (!propuestas.length && !mot.length) { estado('La IA no encontró información para los campos. Revisa la transcripción.', true); return; }
+    const m = document.createElement('div');
+    m.className = 'cz-modal';
+    m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="cz-box" style="max-width:720px;"><h3>✨ Revisa lo que propone la IA</h3>' +
+      '<p>Corrige lo que haga falta y desmarca lo que no quieras pasar. Si el cuadro ya tiene texto, elige si se agrega al final o lo reemplaza.</p>' +
+      propuestas.map((x, i) => '<div class="card" style="padding:12px;margin:10px 0;">' +
+        '<label style="display:flex;gap:8px;align-items:center;font-weight:700;padding:0;"><input type="checkbox" data-usar="' + i + '" checked> ' + x.c.etiqueta.replace(/[<>&]/g, '') + '</label>' +
+        '<textarea class="input" data-texto="' + i + '" style="min-height:90px;margin-top:6px;line-height:1.5;"></textarea>' +
+        (x.c.el.value.trim() ? '<div style="display:flex;gap:14px;font-size:12.5px;margin-top:6px;"><label style="display:flex;gap:6px;padding:0;"><input type="radio" name="modo' + i + '" value="agregar" checked> Agregar al final</label>' +
+          '<label style="display:flex;gap:6px;padding:0;"><input type="radio" name="modo' + i + '" value="reemplazar"> Reemplazar lo que hay</label></div>' : '') +
+        '</div>').join('') +
+      (mot.length ? '<div class="card" style="padding:12px;margin:10px 0;"><b>Motivos de consulta</b>' + mot.map(i => '<label style="display:flex;gap:8px;padding:6px 0;"><input type="checkbox" data-motivo="' + i + '" checked> ' + String(motivos()[i]).replace(/[<>&]/g, '') + '</label>').join('') + '</div>' : '') +
+      '<div class="cz-actions"><button type="button" class="cz-primary" data-a="aplicar">✓ Pasar a los campos</button><button type="button" data-a="cancelar">Cancelar</button></div></div>';
+    document.body.appendChild(m);
+    propuestas.forEach((x, i) => { m.querySelector('[data-texto="' + i + '"]').value = x.texto; });
+    m.querySelector('[data-a="cancelar"]').onclick = () => m.remove();
+    m.querySelector('[data-a="aplicar"]').onclick = () => {
+      let n = 0;
+      propuestas.forEach((x, i) => {
+        if (!m.querySelector('[data-usar="' + i + '"]').checked) return;
+        const texto = m.querySelector('[data-texto="' + i + '"]').value.trim();
+        if (!texto) return;
+        const modo = m.querySelector('input[name="modo' + i + '"]:checked');
+        const el = x.c.el, actual = el.value.trim();
+        el.value = actual && (!modo || modo.value === 'agregar') ? actual + '\n' + texto : texto;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        n++;
+      });
+      let nm = 0;
+      m.querySelectorAll('[data-motivo]').forEach(c => {
+        if (!c.checked) return;
+        const i = Number(c.dataset.motivo);
+        if (Array.isArray(state.reasons) && !state.reasons[i]) { state.reasons[i] = true; nm++; }
+      });
+      if (nm && typeof renderReasons === 'function') renderReasons();
+      guardar();
+      m.remove();
+      estado('✅ Se pasaron ' + n + ' campo(s)' + (nm ? ' y ' + nm + ' motivo(s) de consulta' : '') + '. Revisa la Portada.');
+    };
+  }
+
+  $('entIaBtn').onclick = async () => {
+    if (ta.value.trim().length < 20) { estado('Primero graba o pega la entrevista.', true); return; }
+    try { if (window.CISADDE_DICTADO) window.CISADDE_DICTADO.detener(); } catch (e) {}
+    const btn = $('entIaBtn'), txt = btn.textContent;
+    let sample = null;
+    btn.disabled = true; btn.textContent = '⏳ Conectando…';
+    try { if (window.claude && typeof window.claude.use === 'function') sample = await window.claude.use('sample'); } catch (e) { sample = null; }
+    if (!sample) { btn.disabled = false; btn.textContent = txt; estado('La IA no está disponible aquí. Ábrelo desde la app CISADDE para usar Gemini.', true); return; }
+    const lista = destinos();
+    btn.textContent = '⏳ Repartiendo…'; estado('✨ La IA está ordenando la entrevista en los campos…');
+    try {
+      const r = await sample(prompt(lista), { modelTier: 'default' });
+      const json = leerJson(r && r.text);
+      if (!json) throw new Error('formato');
+      estado('');
+      revisar(lista, json);
+    } catch (err) {
+      estado(err && err.code === 'rate_limited' ? 'La IA está ocupada: intenta de nuevo en un momento.' : 'No se pudo repartir la entrevista. Intenta de nuevo.', true);
+    } finally { btn.disabled = false; btn.textContent = txt; }
+  };
+})();
+</script>
+<!-- ENTREVISTA:FIN -->
+<!-- ASISTENTE:INICIO -->
+<script>
+/* =====================================================================
+   💬 PREGÚNTALE A CISADDE (asistente con IA)
+   Botón flotante que abre un chat. Responde con los datos de la valoración
+   abierta (edad, diagnóstico, motivo, antecedentes, resumen cualitativo,
+   plan, evoluciones, informe mensual), sin el nombre ni el documento del
+   niño/a. Sirve para preguntar qué objetivos faltan, pedir actividades para
+   la próxima sesión, redactar una nota o una remisión, etc.
+   Cada respuesta se puede copiar o leer en voz alta.
+   La conversación dura mientras la pestaña esté abierta.
+   Fuente: herramientas/asistente.js → node herramientas/insertar-asistente.js
+   ===================================================================== */
+(function () {
+  if (typeof state === 'undefined' || document.getElementById('czAsis')) return;
+  const CLAVE = 'cisadde.asistente.' + (typeof FORM_ID !== 'undefined' ? FORM_ID : 'x');
+  const SUGERENCIAS = ['¿Qué objetivos del plan le faltan o podría agregar?', 'Sugiere 5 actividades para la próxima sesión', 'Redacta una nota breve para el colegio',
+    'Redacta una remisión a otra especialidad', '¿Qué preguntas le hago a la familia en la próxima cita?', 'Explica el resultado en palabras sencillas para la familia'];
+
+  const css = document.createElement('style');
+  css.textContent =
+    '#czAsisBtn{position:fixed;right:16px;bottom:72px;z-index:9990;border:0;border-radius:999px;background:linear-gradient(135deg,#0E8FC4,#0B5F85);color:#fff;' +
+    'font:800 14px/1 var(--font-body,system-ui);padding:13px 16px;box-shadow:0 10px 24px -8px rgba(0,0,0,.5);cursor:pointer;display:flex;gap:8px;align-items:center}' +
+    '#czAsis{position:fixed;right:16px;bottom:16px;z-index:9995;width:400px;max-width:calc(100% - 32px);height:min(640px,calc(100% - 32px));display:flex;flex-direction:column;' +
+    'background:var(--surface,#fff);color:var(--text,#12314A);border:1px solid var(--border,#D5E3EE);border-radius:18px;box-shadow:0 24px 60px -12px rgba(0,0,0,.45);overflow:hidden}' +
+    '#czAsis[hidden],#czAsisBtn[hidden]{display:none}' +
+    '#czAsis .cab{display:flex;align-items:center;gap:8px;padding:12px 14px;background:linear-gradient(90deg,#0E8FC4,#0B5F85);color:#fff}' +
+    '#czAsis .cab b{flex:1;font-size:15px}#czAsis .cab button{border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}' +
+    '#czAsis .msgs{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;font-size:13.5px;line-height:1.55}' +
+    '#czAsis .m{max-width:92%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere}' +
+    '#czAsis .yo{align-self:flex-end;background:#0E8FC4;color:#fff;border-bottom-right-radius:4px}' +
+    '#czAsis .ia{align-self:flex-start;background:var(--surface-alt,#F1F6FA);border:1px solid var(--border,#D5E3EE);border-bottom-left-radius:4px}' +
+    '#czAsis .ia .acc{display:flex;gap:6px;margin-top:6px}#czAsis .ia .acc button{border:1px solid var(--border,#D5E3EE);background:var(--surface,#fff);color:inherit;border-radius:8px;padding:3px 8px;font-size:12px;cursor:pointer}' +
+    '#czAsis .chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 8px}#czAsis .chips button{border:1px solid var(--border,#D5E3EE);background:var(--surface-alt,#F1F6FA);color:inherit;border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer;text-align:left}' +
+    '#czAsis form{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border,#D5E3EE)}#czAsis textarea{flex:1;min-height:42px;max-height:120px;resize:vertical;border:1px solid var(--border,#D5E3EE);border-radius:12px;padding:9px 10px;font:inherit;background:var(--surface,#fff);color:inherit}' +
+    '#czAsis form button{border:0;border-radius:12px;background:#0E8FC4;color:#fff;font-weight:800;padding:0 14px;cursor:pointer}' +
+    '#czAsis .nota{font-size:11px;color:var(--text-faint,#6A8AA3);padding:0 12px 8px}' +
+    '@media (max-width:600px){#czAsis{right:8px;left:8px;bottom:8px;width:auto;max-width:none;height:calc(100% - 16px)}#czAsisBtn{bottom:64px;right:10px;padding:12px}#czAsisBtn span{display:none}}' +
+    '@media print{#czAsis,#czAsisBtn{display:none!important}}';
+  document.head.appendChild(css);
+
+  const btn = document.createElement('button');
+  btn.id = 'czAsisBtn'; btn.type = 'button'; btn.title = 'Pregúntale a CISADDE (asistente con IA)';
+  btn.innerHTML = '💬 <span>Pregúntale a CISADDE</span>';
+  const panel = document.createElement('div');
+  panel.id = 'czAsis'; panel.hidden = true; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Asistente CISADDE');
+  panel.innerHTML = '<div class="cab"><b>💬 Pregúntale a CISADDE</b><button type="button" data-borrar title="Empezar de nuevo">🗑</button><button type="button" data-cerrar title="Cerrar">✕</button></div>' +
+    '<div class="msgs" data-msgs></div><div class="chips" data-chips></div>' +
+    '<div class="nota">Usa los datos de esta valoración sin el nombre ni el documento del niño/a. Revisa siempre lo que responde: no reemplaza tu criterio profesional.</div>' +
+    '<form data-form><textarea data-q placeholder="Escribe tu pregunta…" rows="1"></textarea><button type="submit">Enviar</button></form>';
+  document.body.appendChild(btn); document.body.appendChild(panel);
+  const $m = panel.querySelector('[data-msgs]'), $q = panel.querySelector('[data-q]'), $chips = panel.querySelector('[data-chips]');
+
+  let hist = [];
+  try { hist = JSON.parse(sessionStorage.getItem(CLAVE) || '[]'); } catch (e) { hist = []; }
+  const guardarHist = () => { try { sessionStorage.setItem(CLAVE, JSON.stringify(hist.slice(-30))); } catch (e) {} };
+
+  function burbuja(quien, texto) {
+    const d = document.createElement('div');
+    d.className = 'm ' + (quien === 'yo' ? 'yo' : 'ia');
+    d.textContent = texto;
+    if (quien === 'ia' && texto && !/^⏳/.test(texto)) {
+      const acc = document.createElement('div'); acc.className = 'acc';
+      const c = document.createElement('button'); c.type = 'button'; c.textContent = '📋 Copiar';
+      c.onclick = async () => { try { await navigator.clipboard.writeText(texto); } catch (e) { const t = document.createElement('textarea'); t.value = texto; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); } catch (e2) {} t.remove(); } c.textContent = '✅ Copiado'; setTimeout(() => { c.textContent = '📋 Copiar'; }, 1500); };
+      acc.appendChild(c);
+      if (window.CISADDE_LEER) { const l = document.createElement('button'); l.type = 'button'; l.textContent = '🔊 Leer'; l.onclick = () => window.CISADDE_LEER.leer(texto); acc.appendChild(l); }
+      d.appendChild(acc);
+    }
+    $m.appendChild(d); $m.scrollTop = $m.scrollHeight;
+    return d;
+  }
+  function pintar() {
+    $m.innerHTML = '';
+    if (!hist.length) burbuja('ia', 'Hola 👋 Soy el asistente de CISADDE. Puedo ayudarte con esta valoración: objetivos, actividades, notas, remisiones o explicaciones para la familia. ¿Qué necesitas?');
+    hist.forEach(h => burbuja(h.rol, h.texto));
+    $chips.innerHTML = '';
+    if (hist.length < 2) SUGERENCIAS.forEach(s => { const b = document.createElement('button'); b.type = 'button'; b.textContent = s; b.onclick = () => preguntar(s); $chips.appendChild(b); });
+  }
+
+  /* ---------- Datos de la valoración (sin nombre ni documento) ---------- */
+  function anonimizar(t) {
+    let s = String(t || '');
+    const n = String(state.childName || '').trim();
+    if (n.length >= 3) { s = s.split(n).join('el niño/a'); n.split(/\s+/).filter(p => p.length > 3).forEach(p => { s = s.replace(new RegExp('\\b' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), 'el niño/a'); }); }
+    const doc = String(state.numeroId || '').trim(); if (doc.length >= 4) s = s.split(doc).join('[documento]');
+    return s;
+  }
+  const corto = (t, n) => { t = String(t || '').trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
+  function contexto() {
+    const partes = [];
+    const area = typeof FORM_TITLE !== 'undefined' ? FORM_TITLE : '';
+    let edad = '';
+    try { if (state.birthDate && typeof ageLabel === 'function' && typeof monthsBetween === 'function') edad = ageLabel(monthsBetween(state.birthDate, null)); } catch (e) {}
+    partes.push('Formato: ' + area + (edad ? ' · Edad: ' + edad : '') + (state.cie10Diag ? ' · Diagnóstico: ' + (state.cie10Code ? state.cie10Code + ' ' : '') + state.cie10Diag : ''));
+    try { if (typeof REASONS !== 'undefined' && Array.isArray(state.reasons)) { const mk = REASONS.filter((r, i) => state.reasons[i]); if (mk.length) partes.push('Motivos de consulta: ' + mk.join('; ')); } } catch (e) {}
+    const portada = document.getElementById('view-portada');
+    if (portada) Array.from(portada.querySelectorAll('textarea')).forEach(t => {
+      if (!t.value.trim() || t.id === 'entrevistaTxt') return;
+      const l = t.closest('label'), s = l && l.querySelector('.lbl');
+      partes.push(((s && s.textContent.trim()) || t.id) + ': ' + corto(t.value, 1500));
+    });
+    const qual = document.getElementById('il-qual');
+    if (qual && qual.textContent.trim()) partes.push('Resumen cualitativo del desarrollo:\n' + corto(Array.from(qual.children).map(x => x.textContent.trim()).join('\n'), 2500));
+    if (state.iaResponse) partes.push('Interpretación clínica y conclusión:\n' + corto(state.iaResponse, 2000));
+    const p = state.plan || {};
+    if (p.hallazgos || p.objGeneral || p.objEspecificos) partes.push('Plan terapéutico:\nHallazgos: ' + corto(p.hallazgos, 1200) + '\nObjetivo general: ' + corto(p.objGeneral, 400) + '\nObjetivos específicos: ' + corto(p.objEspecificos, 1200) + '\nIndicadores: ' + corto(p.indicadores, 1000));
+    const ev = state.evol && Array.isArray(state.evol.items) ? state.evol.items.filter(t => String(t).trim()) : [];
+    if (ev.length) partes.push('Evoluciones registradas: ' + ev.length + '. Última: ' + corto(ev[ev.length - 1], 700));
+    if (state.mensual && state.mensual.informe) partes.push('Informe mensual (' + (state.mensual.periodo || '') + '): ' + corto(state.mensual.informe, 1500));
+    return anonimizar(partes.join('\n\n'));
+  }
+  function prompt(pregunta) {
+    const conv = hist.slice(-8).map(h => (h.rol === 'yo' ? 'PROFESIONAL: ' : 'ASISTENTE: ') + corto(h.texto, 1500)).join('\n');
+    return 'Eres el asistente clínico de CISADDE, un centro de rehabilitación infantil en Colombia. Ayudas al profesional con la valoración abierta.\n' +
+      'Responde en español de Colombia, claro, práctico y en lenguaje técnico cuando sea para documentos (y sencillo si es para la familia). ' +
+      'Cuando la pregunta sea sobre este niño/a, básate SOLO en los datos de abajo; si falta información, dilo y sugiere qué registrar. ' +
+      'No inventes resultados, puntajes ni diagnósticos. No escribas el nombre del niño/a. Usa texto plano (puedes usar listas con "- " o "1."), sin markdown con asteriscos.\n\n' +
+      'DATOS DE LA VALORACIÓN:\n' + (contexto() || '(todavía no hay datos registrados)') + '\n\n' +
+      (conv ? 'CONVERSACIÓN ANTERIOR:\n' + conv + '\n\n' : '') +
+      'PREGUNTA DEL PROFESIONAL:\n' + anonimizar(pregunta);
+  }
+
+  let ocupado = false;
+  async function preguntar(texto) {
+    texto = String(texto || '').trim();
+    if (!texto || ocupado) return;
+    $q.value = ''; $chips.innerHTML = '';
+    hist.push({ rol: 'yo', texto }); guardarHist(); burbuja('yo', texto);
+    const espera = burbuja('ia', '⏳ Pensando…');
+    ocupado = true;
+    let sample = null;
+    try { if (window.claude && typeof window.claude.use === 'function') sample = await window.claude.use('sample'); } catch (e) { sample = null; }
+    if (!sample) { espera.remove(); burbuja('ia', 'La IA no está disponible aquí. Abre el formato desde la app CISADDE para usar el asistente con Gemini.'); ocupado = false; return; }
+    try {
+      const r = await sample(prompt(texto), { modelTier: 'default' });
+      const resp = String((r && r.text) || '').replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').trim() || 'No obtuve respuesta. Intenta de nuevo.';
+      espera.remove();
+      hist.push({ rol: 'ia', texto: resp }); guardarHist(); burbuja('ia', resp);
+    } catch (err) {
+      espera.remove();
+      burbuja('ia', err && err.code === 'rate_limited' ? 'La IA está ocupada en este momento. Intenta de nuevo en un minuto.' : 'No pude responder. Intenta de nuevo.');
+    } finally { ocupado = false; }
+  }
+
+  btn.onclick = () => { panel.hidden = false; btn.hidden = true; pintar(); setTimeout(() => $q.focus(), 50); };
+  panel.querySelector('[data-cerrar]').onclick = () => { panel.hidden = true; btn.hidden = false; };
+  panel.querySelector('[data-borrar]').onclick = () => { if (!hist.length || confirm('¿Borrar la conversación?')) { hist = []; guardarHist(); pintar(); } };
+  panel.querySelector('[data-form]').addEventListener('submit', (e) => { e.preventDefault(); preguntar($q.value); });
+  $q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); preguntar($q.value); } });
+  window.CISADDE_ASISTENTE = { preguntar: (t) => { btn.onclick(); preguntar(t); } };
+})();
+</script>
+<!-- ASISTENTE:FIN -->
+<!-- BUSCADOR:INICIO -->
+<script>
+/* =====================================================================
+   🔎 BUSCADOR GENERAL
+   Botón "🔎 Buscar" arriba (o Ctrl+K). Se escribe el nombre o el documento
+   y muestra todo lo de ese niño/a:
+   · Base de pacientes · Valoraciones guardadas en este equipo (en cada uno
+     de los 6 formatos: abierta ahora o en su expediente) · Tus pacientes
+     (estado) · Archivos de su carpeta en Google Drive (dentro de la app).
+   "Abrir" lo abre en ese formato (lo que esté abierto se guarda antes).
+   Fuente: herramientas/buscador.js → node herramientas/insertar-buscador.js
+   ===================================================================== */
+(function () {
+  if (typeof state === 'undefined' || typeof FORM_ID === 'undefined' || document.getElementById('czBuscar')) return;
+  const FORMATOS = {
+    psi: ['Psicología', 'Psicológica JRG.html'], to: ['Terapia ocupacional', 'Terapia Ocupacional JRG.html'],
+    is: ['Integración sensorial', 'Integración Sensorial JRG.html'], fono: ['Fonoaudiología', 'Fonoaudiologia JRG.html'],
+    fisio: ['Fisioterapia', 'Fisioterapia JRG.html'], taller: ['Taller', 'Valoración de Taller JRG.html']
+  };
+  const ESTADOS = { pendiente: 'Pendiente', proceso: 'En proceso', realizado: '✅ Realizado' };
+  const normId = s => String(s == null ? '' : s).replace(/\.0+$/, '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fecha = iso => { try { return new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
+
+  /* ---------- Abrir lo que pidió otro formato (?abrir=documento&nombre=…) ---------- */
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get('abrir') !== null) {
+      const id = q.get('abrir') || '', nombre = q.get('nombre') || '';
+      q.delete('abrir'); q.delete('nombre');
+      history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
+      setTimeout(() => {
+        const mismo = (id && normId(state.numeroId) === normId(id)) || (!id && norm(state.childName) === norm(nombre));
+        if (mismo) { const n = document.querySelector('.nav-item[data-view="portada"]'); if (n) n.click(); return; }
+        if (window.CISADDE_TUS && window.CISADDE_TUS.abrirPaciente) window.CISADDE_TUS.abrirPaciente({ id, nombre }, 'portada');
+      }, 900);
+    }
+  } catch (e) {}
+
+  /* ---------- Estilos e interfaz ---------- */
+  const css = document.createElement('style');
+  css.textContent =
+    '.cz-buscar-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.15);color:#fff;border-radius:999px;padding:7px 12px;font:700 12.5px var(--font-body,system-ui);cursor:pointer}' +
+    '#czBuscar .cz-box{max-width:680px;width:100%}#czBuscar input.input{width:100%;font-size:16px;padding:12px 14px}' +
+    '.czb-res{margin-top:12px;display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - 220px);overflow:auto}' +
+    '.czb-nino{border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--surface-alt)}' +
+    '.czb-nino h4{margin:0 0 2px;font-size:15px}.czb-nino small{color:var(--text-faint)}' +
+    '.czb-fila{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid var(--border);font-size:13px}' +
+    '.czb-fila:first-of-type{border-top:0}.czb-fila .btn{padding:5px 10px;font-size:12.5px}' +
+    '.czb-archivos a{display:block;font-size:12.5px;padding:2px 0;color:var(--cyan-600,#0E8FC4)}' +
+    '.czb-vacio{color:var(--text-faint);font-size:13.5px;padding:10px 0}' +
+    '@media (max-width:600px){.cz-buscar-btn .t{display:none}}@media print{.cz-buscar-btn{display:none!important}}';
+  document.head.appendChild(css);
+
+  const abrirBtn = document.createElement('button');
+  abrirBtn.type = 'button'; abrirBtn.className = 'cz-buscar-btn'; abrirBtn.title = 'Buscar un niño/a en todo (Ctrl+K)';
+  abrirBtn.innerHTML = '🔎 <span class="t">Buscar</span>';
+  const derecha = document.querySelector('.topbar .topbar-right');
+  if (derecha) derecha.prepend(abrirBtn);
+
+  const modal = document.createElement('div');
+  modal.className = 'cz-modal'; modal.id = 'czBuscar'; modal.hidden = true;
+  modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+  modal.innerHTML = '<div class="cz-box"><h3>🔎 Buscar un niño/a</h3><p>Nombre o número de documento. Busca en la base de pacientes, en las valoraciones guardadas en este equipo (los 6 formatos), en Tus pacientes y en Google Drive.</p>' +
+    '<input class="input" type="search" data-q placeholder="Ej.: Valentina Gómez o 1002030405" autocomplete="off">' +
+    '<div class="czb-res" data-res></div><div class="cz-actions" style="margin-top:12px;"><button type="button" data-cerrar>Cerrar</button></div></div>';
+  document.body.appendChild(modal);
+  const $q = modal.querySelector('[data-q]'), $res = modal.querySelector('[data-res]');
+  const abrir = () => { modal.hidden = false; $q.value = ''; $res.innerHTML = '<div class="czb-vacio">Escribe al menos 3 letras o números.</div>'; setTimeout(() => $q.focus(), 30); };
+  const cerrar = () => { modal.hidden = true; };
+  abrirBtn.onclick = abrir;
+  modal.querySelector('[data-cerrar]').onclick = cerrar;
+  modal.addEventListener('click', e => { if (e.target === modal) cerrar(); });
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); abrir(); }
+    else if (e.key === 'Escape' && !modal.hidden) cerrar();
+  });
+  window.CISADDE_BUSCAR = { abrir };
+
+  /* ---------- Fuentes en este equipo ---------- */
+  function leerJSON(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+  function coincide(q, nombre, id) {
+    const qi = normId(q), qn = norm(q);
+    if (qi.length >= 3 && /\d/.test(qi) && normId(id).includes(qi)) return true;
+    const palabras = qn.split(' ').filter(Boolean);
+    return palabras.length > 0 && palabras.every(w => norm(nombre).includes(w));
+  }
+  function buscarLocal(q) {
+    const ninos = new Map();
+    const llave = (id, nombre) => normId(id) || 'n_' + norm(nombre);
+    const nino = (id, nombre) => {
+      const k = llave(id, nombre);
+      if (!ninos.has(k)) ninos.set(k, { id: id || '', nombre: nombre || '', base: null, formatos: {}, drive: null });
+      const n = ninos.get(k); if (!n.nombre && nombre) n.nombre = nombre; if (!n.id && id) n.id = id;
+      return n;
+    };
+    const fmt = (n, f) => (n.formatos[f] = n.formatos[f] || {});
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      let m;
+      if ((m = k.match(/^cisadde\.borrador\.([a-z]+)$/))) {
+        const d = leerJSON(k), s = d && d.state;
+        if (s && (s.childName || s.numeroId) && coincide(q, s.childName, s.numeroId)) fmt(nino(s.numeroId, s.childName), m[1]).abierta = d.guardado || true;
+      } else if ((m = k.match(/^cisadde\.expediente\.([a-z]+)\./))) {
+        const d = leerJSON(k), s = d && d.state;
+        if (s && (s.childName || s.numeroId) && coincide(q, s.childName, s.numeroId)) fmt(nino(s.numeroId, s.childName), m[1]).expediente = d.guardado || true;
+      } else if ((m = k.match(/^cisadde\.mispacientes\.([a-z]+)$/))) {
+        const l = leerJSON(k);
+        (l && Array.isArray(l.filas) ? l.filas : []).forEach(f => {
+          const nombre = (f.b && f.b.nombre) || f.nombre, id = (f.b && f.b.id) || f.id;
+          if (coincide(q, nombre, id)) fmt(nino(id, nombre), m[1]).tus = f.estado || 'pendiente';
+        });
+      }
+    }
+    // Lo que está abierto ahora en este formato (aunque todavía no se haya guardado)
+    if ((state.childName || state.numeroId) && coincide(q, state.childName, state.numeroId)) fmt(nino(state.numeroId, state.childName), FORM_ID).abierta = new Date().toISOString();
+    const B = window.CISADDE_BASE;
+    if (B && B.lista && B.lista()) {
+      const porId = /\d{4,}/.test(q);
+      (B.buscar(q, porId) || []).slice(0, 15).forEach(p => { nino(p.id, p.nombre).base = p; });
+    }
+    return ninos;
+  }
+
+  /* ---------- Pintar resultados ---------- */
+  let ultimo = 0;
+  function pintar(ninos, q, cargandoDrive) {
+    const lista = Array.from(ninos.values());
+    if (!lista.length) { $res.innerHTML = '<div class="czb-vacio">' + (cargandoDrive ? '⏳ Buscando también en Google Drive…' : 'No encontré a nadie con "' + esc(q) + '".') + '</div>'; return; }
+    $res.innerHTML = lista.slice(0, 25).map((n, i) => {
+      const b = n.base || {};
+      const filas = Object.keys(FORMATOS).filter(f => n.formatos[f]).map(f => {
+        const x = n.formatos[f], partes = [];
+        if (x.abierta) partes.push('📍 abierta ahora' + (typeof x.abierta === 'string' ? ' · ' + fecha(x.abierta) : ''));
+        if (x.expediente) partes.push('💾 guardada' + (typeof x.expediente === 'string' ? ' · ' + fecha(x.expediente) : ''));
+        if (x.tus) partes.push('Tus pacientes: ' + (ESTADOS[x.tus] || x.tus));
+        return '<div class="czb-fila"><span><b>' + FORMATOS[f][0] + '</b> · ' + partes.join(' · ') + '</span><button class="btn primary" type="button" data-abrir="' + i + '" data-f="' + f + '">📂 Abrir</button></div>';
+      });
+      const otros = Object.keys(FORMATOS).filter(f => !n.formatos[f]);
+      const nueva = '<div class="czb-fila"><span>Empezar en otro formato</span><span>' + '<select class="input" data-nuevo-f="' + i + '" style="width:auto;padding:5px 8px;font-size:12.5px;">' +
+        [FORM_ID].concat(otros.filter(f => f !== FORM_ID)).filter((f, j, a) => a.indexOf(f) === j).map(f => '<option value="' + f + '">' + FORMATOS[f][0] + (f === FORM_ID ? ' (este)' : '') + '</option>').join('') +
+        '</select> <button class="btn ghost" type="button" data-nuevo="' + i + '">➕ Abrir</button></span></div>';
+      const drive = n.drive ? '<div class="czb-fila" style="display:block;"><b>☁️ Google Drive</b> · <a href="' + esc(n.drive.url) + '" target="_blank" rel="noopener">abrir carpeta</a><div class="czb-archivos">' +
+        (n.drive.archivos.length ? n.drive.archivos.slice(0, 12).map(a => '<a href="' + esc(a.url) + '" target="_blank" rel="noopener">📄 ' + esc(a.nombre) + ' <small>· ' + fecha(a.fecha) + '</small></a>').join('') : '<small>Carpeta vacía</small>') + '</div></div>' : '';
+      return '<div class="czb-nino"><h4>' + esc(b.nombre || n.nombre || '—') + '</h4><small>' + esc([(b.tipo ? b.tipo + ' ' : '') + (b.id || n.id || 'sin documento'), b.eps, b.cie ? b.cie + ' ' + (b.dx || '') : '', n.base ? '📊 en la base de pacientes' : ''].filter(Boolean).join(' · ')) + '</small>' +
+        filas.join('') + nueva + drive + '</div>';
+    }).join('') + (cargandoDrive ? '<div class="czb-vacio">⏳ Buscando también en Google Drive…</div>' : '');
+    $res.querySelectorAll('[data-abrir]').forEach(bt => bt.onclick = () => irA(lista[+bt.dataset.abrir], bt.dataset.f));
+    $res.querySelectorAll('[data-nuevo]').forEach(bt => bt.onclick = () => irA(lista[+bt.dataset.nuevo], $res.querySelector('[data-nuevo-f="' + bt.dataset.nuevo + '"]').value));
+  }
+  function irA(n, f) {
+    const b = n.base || {};
+    const datos = { id: b.id || n.id, nombre: b.nombre || n.nombre, b: n.base ? { nombre: b.nombre, id: b.id, tipo: b.tipo, nac: b.nac, ing: b.ing, eps: b.eps, cie: b.cie, dx: b.dx, est: b.est } : null };
+    cerrar();
+    if (f === FORM_ID) {
+      if (window.CISADDE_TUS && window.CISADDE_TUS.abrirPaciente) window.CISADDE_TUS.abrirPaciente(datos, 'portada');
+      else alert('No se pudo abrir el paciente en este formato.');
+      return;
+    }
+    const url = encodeURI(FORMATOS[f][1]) + '?abrir=' + encodeURIComponent(datos.id || '') + '&nombre=' + encodeURIComponent(datos.nombre || '');
+    location.href = url;
+  }
+
+  let temporizador = null;
+  $q.addEventListener('input', () => {
+    clearTimeout(temporizador);
+    const q = $q.value.trim();
+    if (q.length < 3) { $res.innerHTML = '<div class="czb-vacio">Escribe al menos 3 letras o números.</div>'; return; }
+    temporizador = setTimeout(async () => {
+      const yo = ++ultimo;
+      const ninos = buscarLocal(q);
+      const app = window.CISADDE_APP;
+      const conDrive = app && await app.listo.catch(() => false);
+      pintar(ninos, q, !!conDrive);
+      if (!conDrive) return;
+      try {
+        const carpetas = await app.pedir('buscarDrive', { texto: q });
+        if (yo !== ultimo) return;
+        (carpetas || []).forEach(c => {
+          const m = String(c.carpeta).match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+          const nombre = m ? m[1] : c.carpeta, id = m ? m[2] : '';
+          const k = normId(id) || 'n_' + norm(nombre);
+          if (!ninos.has(k)) ninos.set(k, { id, nombre, base: null, formatos: {}, drive: null });
+          ninos.get(k).drive = c;
+        });
+      } catch (e) {}
+      if (yo === ultimo) pintar(ninos, q, false);
+    }, 250);
+  });
+})();
+</script>
+<!-- BUSCADOR:FIN -->
+<!-- HISTORIAL:INICIO -->
+<script>
+/* =====================================================================
+   🕓 HISTORIAL DE CAMBIOS
+   Anota quién cambió qué y cuándo en la valoración: campos de la Portada,
+   ítems de la Evaluación, observaciones, resumen, plan, evoluciones,
+   informe mensual, descargas (PDF/Word) y exportaciones. Los cambios
+   seguidos de la misma persona se juntan en una sola anotación.
+   Se guarda dentro de la valoración (viaja con el borrador, el respaldo y
+   el archivo exportado). Se ve en el menú: "🕓 Historial de cambios".
+   Fuente: herramientas/historial.js → node herramientas/insertar-historial.js
+   ===================================================================== */
+(function () {
+  if (typeof state === 'undefined' || typeof DRAFT_KEY === 'undefined' || window.CISADDE_HISTORIAL) return;
+  const MAX = 400, JUNTAR_MS = 3 * 60 * 1000;
+
+  try { if (typeof STATE_DEFAULTS !== 'undefined' && !('historial' in STATE_DEFAULTS)) STATE_DEFAULTS.historial = []; } catch (e) {}
+  if (!Array.isArray(state.historial)) state.historial = [];
+  try {
+    const d = typeof readDraft === 'function' ? readDraft() : JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (d && d.state && Array.isArray(d.state.historial)) state.historial = d.state.historial;
+  } catch (e) {}
+
+  const quien = () => (state.evaluator && state.evaluator.name) || (() => { try { return localStorage.getItem('cisadde.nombre') || ''; } catch (e) { return ''; } })() || 'Sin evaluador';
+  const guardar = () => { if (typeof queueSave === 'function') queueSave(); };
+
+  /* ---------- Nombres legibles de cada dato ---------- */
+  const NOMBRES = { reasons: 'Motivos de consulta', answers: 'Ítems de la evaluación', compNotes: 'Observaciones', evaluator: 'Evaluador(a)', iaResponse: 'Interpretación clínica (IA)',
+    qualEdit: 'Resumen cualitativo', entrevista: 'Entrevista inteligente', customRecs: 'Recomendaciones', firmas: 'Firmas', sello: 'Sello' };
+  const SUB = { plan: { hallazgos: 'Plan: hallazgos', objGeneral: 'Plan: objetivo general', objEspecificos: 'Plan: objetivos específicos', indicadores: 'Plan: indicadores', _: 'Plan terapéutico' },
+    mensual: { base: 'Informe mensual: texto base', informe: 'Informe mensual', recs: 'Informe mensual: recomendaciones', periodo: 'Informe mensual: periodo', _: 'Informe mensual' } };
+  function etiqueta(k) {
+    if (NOMBRES[k]) return NOMBRES[k];
+    const el = document.getElementById(k);
+    if (el) {
+      const l = el.closest('label'), s = l && l.querySelector('.lbl');
+      const t = (s && s.textContent) || el.getAttribute('aria-label') || el.getAttribute('placeholder');
+      if (t) return t.replace(/\s+/g, ' ').trim().slice(0, 60);
+    }
+    return k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
+  }
+  const corto = v => { const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return s.length > 70 ? s.slice(0, 70) + '…' : s; };
+  const IGNORAR = new Set(['historial']);
+
+  function copia() { const s = {}; Object.keys(state).forEach(k => { if (!IGNORAR.has(k)) s[k] = state[k]; }); return JSON.stringify(s); }
+  let previo = JSON.parse(copia());
+
+  // Qué cambió entre dos copias del estado: [{ campo, antes, despues }]
+  function cambios(a, b) {
+    const out = [];
+    const claves = new Set(Object.keys(a).concat(Object.keys(b)));
+    claves.forEach(k => {
+      const x = a[k], y = b[k];
+      if (JSON.stringify(x) === JSON.stringify(y)) return;
+      if (k === 'answers' && x && y && typeof x === 'object') {
+        const ks = new Set(Object.keys(x).concat(Object.keys(y)));
+        let n = 0; ks.forEach(i => { if (JSON.stringify(x[i]) !== JSON.stringify(y[i])) n++; });
+        out.push({ campo: NOMBRES.answers, n });
+      } else if (k === 'compNotes' && x && y && typeof x === 'object') {
+        Object.keys(Object.assign({}, x, y)).forEach(i => { if ((x[i] || '') !== (y[i] || '')) out.push({ campo: 'Observaciones de ' + i.split('::').pop(), antes: x[i], despues: y[i] }); });
+      } else if (SUB[k] && x && y && typeof x === 'object') {
+        Object.keys(Object.assign({}, x, y)).forEach(i => {
+          if (JSON.stringify(x[i]) === JSON.stringify(y[i])) return;
+          out.push({ campo: SUB[k][i] || SUB[k]._, antes: typeof x[i] === 'string' ? x[i] : undefined, despues: typeof y[i] === 'string' ? y[i] : undefined });
+        });
+      } else if (k === 'evol' && x && y && Array.isArray(x.items) && Array.isArray(y.items)) {
+        y.items.forEach((t, i) => { if ((x.items[i] || '') !== (t || '')) out.push({ campo: 'Evolución ' + (i + 1) }); });
+      } else if (k === 'reasons' && Array.isArray(x) && Array.isArray(y)) {
+        let n = 0; y.forEach((v, i) => { if (!!v !== !!x[i]) n++; });
+        out.push({ campo: NOMBRES.reasons, n });
+      } else if (k === 'evaluator') {
+        out.push({ campo: NOMBRES.evaluator, antes: x && x.name, despues: y && y.name });
+      } else {
+        out.push({ campo: etiqueta(k), antes: typeof x === 'string' || typeof x === 'number' ? x : undefined, despues: typeof y === 'string' || typeof y === 'number' ? y : undefined });
+      }
+    });
+    return out;
+  }
+
+  function anotar(lista, tipo) {
+    if (!lista.length) return;
+    const ahora = Date.now(), yo = quien(), h = state.historial;
+    const ult = h[h.length - 1];
+    if (!tipo && ult && !ult.tipo && ult.quien === yo && ahora - ult.t < JUNTAR_MS) {
+      lista.forEach(c => {
+        const ya = ult.cambios.find(x => x.campo === c.campo);
+        if (ya) { if (c.despues !== undefined) ya.despues = corto(c.despues); if (c.n) ya.n = (ya.n || 0) + c.n; }
+        else ult.cambios.push({ campo: c.campo, antes: c.antes !== undefined ? corto(c.antes) : undefined, despues: c.despues !== undefined ? corto(c.despues) : undefined, n: c.n });
+      });
+      ult.t = ahora;
+    } else {
+      h.push({ t: ahora, quien: yo, tipo: tipo || '', cambios: lista.map(c => ({ campo: c.campo, antes: c.antes !== undefined ? corto(c.antes) : undefined, despues: c.despues !== undefined ? corto(c.despues) : undefined, n: c.n })) });
+      if (h.length > MAX) h.splice(0, h.length - MAX);
+    }
+    guardar();
+  }
+  function evento(texto) { anotar([{ campo: texto }], 'evento'); }
+
+  if (!state.historial.length && (state.childName || state.numeroId)) evento('Valoración abierta en este equipo');
+  else if (!state.historial.length) evento('Valoración nueva');
+
+  // Revisión periódica (no se toca la función de guardado del formato)
+  setInterval(() => {
+    let ahora;
+    try { ahora = JSON.parse(copia()); } catch (e) { return; }
+    const c = cambios(previo, ahora);
+    previo = ahora;
+    if (c.length) anotar(c);
+  }, 4000);
+  window.addEventListener('pagehide', () => { try { const ahora = JSON.parse(copia()); const c = cambios(previo, ahora); if (c.length) anotar(c); } catch (e) {} });
+
+  // Descargas y exportación
+  const EVENTOS = { pdfBtn: 'Descargó el informe en PDF', printBtn: 'Imprimió el informe', fileExportBtn: 'Exportó la valoración', planWordBtn: 'Descargó el plan en Word',
+    evolWordBtn: 'Descargó las evoluciones en Word', mesWordBtn: 'Descargó el informe mensual en Word', fileNewBtn: 'Pulsó "Nueva valoración"' };
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('button');
+    if (!b) return;
+    if (EVENTOS[b.id]) evento(EVENTOS[b.id]);
+    else if (/descargar word|word/i.test(b.textContent) && b.closest('#view-informe')) evento('Descargó el informe en Word');
+  }, true);
+
+  /* ---------- Ver el historial ---------- */
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ver() {
+    const h = state.historial.slice().reverse();
+    const m = document.createElement('div');
+    m.className = 'cz-modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="cz-box" style="max-width:680px;"><h3>🕓 Historial de cambios</h3>' +
+      '<p>' + esc(state.childName || 'Valoración sin nombre') + ' · ' + h.length + ' anotaciones. Se guarda con la valoración (también al exportarla).</p>' +
+      '<div style="max-height:calc(100vh - 260px);overflow:auto;border:1px solid var(--border);border-radius:12px;">' +
+      (h.length ? h.map(x => '<div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px;line-height:1.5;">' +
+        '<b>' + esc(new Date(x.t).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</b> · ' + esc(x.quien) +
+        (x.tipo === 'evento' ? ' · <span style="color:var(--cyan-600,#0E8FC4);font-weight:700;">' + esc(x.cambios.map(c => c.campo).join(', ')) + '</span>'
+          : '<div style="color:var(--text-dim);margin-top:2px;">' + x.cambios.map(c => '• ' + esc(c.campo) +
+            (c.n ? ' (' + c.n + ')' : '') +
+            (c.antes !== undefined || c.despues !== undefined ? ': <s style="color:var(--red,#B42318);">' + esc(c.antes || '(vacío)') + '</s> → <b>' + esc(c.despues || '(vacío)') + '</b>' : '')).join('<br>') + '</div>') +
+        '</div>').join('') : '<div style="padding:12px;">Todavía no hay cambios anotados.</div>') + '</div>' +
+      '<div class="cz-actions"><button type="button" data-copiar>📋 Copiar historial</button><button type="button" class="cz-primary" data-cerrar>Cerrar</button></div></div>';
+    document.body.appendChild(m);
+    m.querySelector('[data-cerrar]').onclick = () => m.remove();
+    m.addEventListener('click', e => { if (e.target === m) m.remove(); });
+    m.querySelector('[data-copiar]').onclick = async (e) => {
+      const txt = h.map(x => new Date(x.t).toLocaleString('es-CO') + ' · ' + x.quien + ' · ' + x.cambios.map(c => c.campo + (c.n ? ' (' + c.n + ')' : '') + (c.despues !== undefined ? ': ' + (c.antes || '(vacío)') + ' → ' + (c.despues || '(vacío)') : '')).join('; ')).join('\n');
+      try { await navigator.clipboard.writeText(txt); } catch (err) { const t = document.createElement('textarea'); t.value = txt; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); } catch (e2) {} t.remove(); }
+      e.currentTarget.textContent = '✅ Copiado';
+    };
+  }
+  const wipe = document.getElementById('fileWipeBtn');
+  if (wipe) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'nav-item'; b.id = 'cz-historial-btn'; b.style.cssText = 'width:100%; text-align:left;';
+    b.innerHTML = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> Historial de cambios';
+    b.onclick = () => { ver(); const sb = document.getElementById('sidebar'); if (sb) sb.classList.remove('open'); const ov = document.getElementById('overlay'); if (ov) ov.hidden = true; };
+    wipe.parentNode.insertBefore(b, wipe);
+  }
+  window.CISADDE_HISTORIAL = { ver, evento };
+})();
+</script>
+<!-- HISTORIAL:FIN -->
 </body>
 </html>
