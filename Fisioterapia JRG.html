@@ -4059,7 +4059,15 @@ css.textContent = ''
   + '.bp-sug button:last-child{border-bottom:0}'
   + '.bp-sug button.on,.bp-sug button:hover{background:var(--blue-bg)}'
   + '.bp-sug small{display:block;color:var(--text-faint);font-size:11.5px;margin-top:2px}'
-  + '@media (max-width:560px){.bp-map{grid-template-columns:1fr}}';
+  + '.bp-dups{border:1px solid var(--border);border-radius:12px;max-height:320px;overflow:auto}'
+  + '.bp-dup{display:flex;gap:10px;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:13px}'
+  + '.bp-dup:last-child{border-bottom:0}.bp-dup small{display:block;color:var(--text-faint);font-size:11.5px;margin-top:2px;line-height:1.5}'
+  + '.bp-dup s{color:var(--red)}.bp-dup-op{display:flex;flex-direction:column;gap:4px;flex:none;font-size:12.5px}'
+  + '.bp-dup-op label{display:flex;gap:6px;align-items:center;cursor:pointer;white-space:nowrap}'
+  + '.bp-agregar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;font-size:12.5px;color:var(--text-dim)}'
+  + '.bp-agregar:empty{display:none}.bp-agregar .btn{padding:6px 12px;font-size:12.5px}'
+  + '.bp-agregar .ok{color:var(--green);font-weight:600}.bp-agregar .warn{color:var(--amber,#B26B00);font-weight:600}'
+  + '@media (max-width:560px){.bp-map{grid-template-columns:1fr}.bp-dup{flex-direction:column;align-items:flex-start}}';
 document.head.appendChild(css);
 
 /* ---------- Interfaz: botón y estado en la tarjeta "Datos del niño" ---------- */
@@ -4075,6 +4083,42 @@ if(cabeza){ cabeza.style.display = 'flex'; cabeza.style.alignItems = 'center'; c
 const estado = document.createElement('div');
 estado.className = 'bp-estado';
 if(tarjeta) tarjeta.appendChild(estado);
+
+/* Debajo: "➕ Guardar en la base de pacientes" y "➕ Agregar a Tus pacientes" para el niño/a de la Portada */
+const barraAgregar = document.createElement('div');
+barraAgregar.className = 'bp-agregar no-print';
+if(tarjeta) tarjeta.appendChild(barraAgregar);
+let tAgregar = null;
+function pintarAgregar(){
+  clearTimeout(tAgregar);
+  tAgregar = setTimeout(() => {
+    const p = fichaPortada();
+    barraAgregar.innerHTML = '';
+    if(!p.nombre || p.nombre.length < 3) return;
+    const a = fichaEnBase(p);
+    const dif = a ? cambiosReales(a, p) : [];
+    const span = (cls, t) => { const s = document.createElement('span'); s.className = cls; s.textContent = t; barraAgregar.appendChild(s); };
+    const boton = (t, fn, pri) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (pri ? 'primary' : 'ghost'); b.textContent = t; b.onclick = fn; barraAgregar.appendChild(b); };
+    if(!a) boton('➕ Guardar en la base de pacientes', agregarPortada, true);
+    else if(dif.length){ span('warn', '⚠ En la base tiene otros datos (' + dif.map(x => x.l).join(', ') + ')'); boton('Revisar duplicado', agregarPortada); }
+    else span('ok', '✓ En la base de pacientes');
+    const T = window.CISADDE_TUS;
+    if(T){
+      if(T.tiene(p.id, p.nombre)) span('ok', '✓ En Tus pacientes');
+      else boton('➕ Agregar a Tus pacientes', () => {
+        const r = T.agregar({ id: p.id, nombre: p.nombre, b: Object.assign({}, a || {}, p) });
+        pintarEstado(r === 'ya' ? '✓ ' + p.nombre + ' ya estaba en Tus pacientes.' : '✓ ' + p.nombre + ' quedó agregado a Tus pacientes.');
+        setTimeout(() => pintarEstado(), 5000);
+        pintarAgregar();
+      });
+    }
+  }, 250);
+}
+['childName', 'numeroId', 'tipoId', 'birthDate', 'fechaIngreso', 'eps', 'cie10Code', 'cie10Diag'].forEach(id => {
+  const el = document.getElementById(id);
+  if(el){ el.addEventListener('input', pintarAgregar); el.addEventListener('change', pintarAgregar); }
+});
+document.addEventListener('cisadde:tus', pintarAgregar);
 
 const inputArchivo = document.createElement('input');
 inputArchivo.type = 'file'; inputArchivo.accept = '.xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv'; inputArchivo.hidden = true;
@@ -4213,10 +4257,12 @@ async function desdeCarpeta(carpeta, op){
     const filas = aFilas(g.hoja, g.fila, g.mapa);
     if(!filas.length){ mostrarMapeo(f.name, hojas, { modificado: f.lastModified, carpeta:true }); return; }
     const antes = base ? base.filas.length : 0;
-    await guardarNueva({ ver: VERSION, archivo: f.name, cargado: Date.now(), modificado: f.lastModified, carpeta: true, cols: g.cols, hoja: g.hoja.nombre, filas });
+    // El Excel de la carpeta manda: se actualiza solo, pero los pacientes agregados a mano se conservan.
+    const finales = base && base.filas && !vieja() ? combinarBases(base.filas, compararBases(base.filas, filas), true) : filas;
+    await guardarNueva({ ver: VERSION, archivo: f.name, cargado: Date.now(), modificado: f.lastModified, carpeta: true, cols: g.cols, hoja: g.hoja.nombre, filas: finales });
     modal.hidden = true;
-    const dif = filas.length - antes;
-    pintarEstado('✓ Base actualizada desde la carpeta: ' + filas.length.toLocaleString('es-CO') + ' pacientes'
+    const dif = finales.length - antes;
+    pintarEstado('✓ Base actualizada desde la carpeta: ' + finales.length.toLocaleString('es-CO') + ' pacientes'
       + (dif > 0 ? ' (' + dif + ' nuevos)' : '') + '.');
     setTimeout(()=> pintarEstado(), 6000);
   }catch(err){
@@ -4239,6 +4285,149 @@ async function guardarNueva(nueva){
   try{ await escribirBase(nueva); }
   catch(e){ alert('No se pudo guardar en este navegador; la base funcionará solo mientras no cierres esta página.'); }
   base = nueva; prepararIndice();
+  pintarAgregar();
+}
+
+/* ---------- Combinar una base nueva con la actual (duplicados) ----------
+   Un paciente es el mismo si tiene el mismo documento (o, sin documento, el mismo nombre).
+   Duplicado = el mismo paciente con datos distintos: se elige conservar el anterior o
+   actualizar con el nuevo. Los pacientes agregados a mano (manual:true) nunca se pierden. */
+const CAMPOS_FICHA = [['nombre', 'Nombre'], ['tipo', 'Tipo de documento'], ['nac', 'Nacimiento'], ['ing', 'Ingreso'], ['eps', 'EPS'], ['cie', 'CIE'], ['dx', 'Diagnóstico'], ['est', 'Estado']];
+const claveFicha = p => normId(p.id) || ('n_' + norm(p.nombre));
+// Diferencias reales: el dato nuevo vacío no cuenta como cambio (no borra lo que había).
+function diferencias(a, b){
+  return CAMPOS_FICHA.filter(([k]) => limpio(b[k]) && norm(a[k]) !== norm(b[k]))
+    .map(([k, l]) => ({ k, l, antes: limpio(a[k]), despues: limpio(b[k]) }));
+}
+function compararBases(viejas, nuevas){
+  const idx = new Map(); viejas.forEach(p => idx.set(claveFicha(p), p));
+  const r = { nuevos: [], iguales: 0, duplicados: [], soloAnteriores: 0, manuales: viejas.filter(p => p.manual).length, nuevas };
+  const vistos = new Set();
+  nuevas.forEach(p => {
+    const k = claveFicha(p), a = idx.get(k);
+    if(!a){ r.nuevos.push(p); return; }
+    vistos.add(k);
+    const dif = diferencias(a, p);
+    if(dif.length) r.duplicados.push({ k, a, p, dif, actualizar: true }); else r.iguales++;
+  });
+  r.soloAnteriores = viejas.filter(p => !vistos.has(claveFicha(p))).length;
+  return r;
+}
+// reemplazar: quita los anteriores que no vienen en la nueva (los agregados a mano se quedan).
+function combinarBases(viejas, r, reemplazar){
+  const enNueva = new Set(r.nuevas.map(claveFicha));
+  const porClave = new Map();
+  viejas.forEach(p => { if(!reemplazar || enNueva.has(claveFicha(p)) || p.manual) porClave.set(claveFicha(p), p); });
+  r.nuevas.forEach(p => {
+    const k = claveFicha(p), a = porClave.get(k);
+    if(!a){ porClave.set(k, p); return; }
+    const d = r.duplicados.find(x => x.k === k);
+    if(d && !d.actualizar) return; // se conserva el anterior
+    // se actualiza con el nuevo, sin perder datos que el nuevo no trae ni los otros nombres
+    const n = Object.assign({}, p);
+    CAMPOS_FICHA.forEach(([c]) => { if(!limpio(n[c]) && a[c]) n[c] = a[c]; });
+    const alias = new Set([].concat(a.alias || [], p.alias || [], a.nombre && norm(a.nombre) !== norm(n.nombre) ? [a.nombre] : []));
+    alias.delete(n.nombre); alias.delete('');
+    if(alias.size) n.alias = Array.from(alias); else delete n.alias;
+    delete n.manual;
+    porClave.set(k, n);
+  });
+  return Array.from(porClave.values());
+}
+const textoFicha = p => [p.nombre || '—', (p.tipo ? p.tipo + ' ' : '') + (p.id || 'sin documento')].join(' · ');
+
+// Ventana para decidir qué hacer con la base nueva. alGuardar(filasFinales, resumen)
+function mostrarCombinar(archivo, r, alGuardar, alCancelar){
+  const MAX = 300;
+  let reemplazar = false;
+  function pintar(){
+    const dups = r.duplicados;
+    caja.innerHTML = '<h3>Combinar con la base actual</h3>'
+      + '<p>El Excel <b>' + esc(archivo) + '</b> trae <b>' + r.nuevas.length.toLocaleString('es-CO') + '</b> pacientes. Comparado con tu base actual:</p>'
+      + '<div class="bp-prev" style="line-height:1.9;">➕ <b>' + r.nuevos.length.toLocaleString('es-CO') + '</b> nuevos (se agregan)'
+      + '<br>✓ <b>' + r.iguales.toLocaleString('es-CO') + '</b> iguales (no cambian)'
+      + '<br>⚠ <b>' + dups.length.toLocaleString('es-CO') + '</b> duplicados con datos distintos'
+      + '<br>📌 <b>' + r.soloAnteriores.toLocaleString('es-CO') + '</b> solo están en la base actual (se conservan)'
+      + (r.manuales ? '<br>✍️ <b>' + r.manuales + '</b> agregados a mano en tu base: nunca se borran' : '') + '</div>'
+      + (dups.length
+        ? '<p><b>Duplicados:</b> el mismo paciente ya está en la base con otros datos. Elige qué hacer con cada uno:</p>'
+          + '<div class="bp-acc" style="justify-content:flex-start;margin:0 0 8px;"><button class="btn ghost" type="button" data-todos="1">↻ Actualizar todos con el nuevo</button><button class="btn ghost" type="button" data-todos="0">📌 Conservar todos los anteriores</button></div>'
+          + '<div class="bp-dups">' + dups.slice(0, MAX).map((d, i) => '<div class="bp-dup">'
+            + '<div><b>' + esc(d.a.nombre || d.p.nombre || '—') + '</b> <small>' + esc((d.p.tipo ? d.p.tipo + ' ' : '') + (d.p.id || 'sin documento')) + (d.a.manual ? ' · agregado a mano' : '') + '</small>'
+            + '<small>' + d.dif.map(x => esc(x.l) + ': <s>' + esc(!x.antes ? '(vacío)' : x.k === 'nac' || x.k === 'ing' ? fmt(x.antes) : x.antes) + '</s> → <b>' + esc(x.k === 'nac' || x.k === 'ing' ? fmt(x.despues) : x.despues) + '</b>').join(' · ') + '</small></div>'
+            + '<div class="bp-dup-op"><label><input type="radio" name="bpd' + i + '" value="0"' + (d.actualizar ? '' : ' checked') + '> Conservar el anterior</label>'
+            + '<label><input type="radio" name="bpd' + i + '" value="1"' + (d.actualizar ? ' checked' : '') + '> Actualizar con el nuevo</label></div></div>').join('')
+          + (dups.length > MAX ? '<p style="margin-top:8px;">Se muestran ' + MAX + ' de ' + dups.length + '. Los demás siguen el botón "Actualizar todos" o "Conservar todos".</p>' : '') + '</div>'
+        : '')
+      + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-top:12px;"><input type="checkbox" data-reemplazar' + (reemplazar ? ' checked' : '') + '>'
+      + '<span>Quitar de la base los ' + r.soloAnteriores.toLocaleString('es-CO') + ' pacientes que no vienen en este Excel <small style="display:block;color:var(--text-faint);">Los agregados a mano se conservan siempre.</small></span></label>'
+      + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button><button class="btn primary" type="button" data-a="guardar">✓ Guardar base</button></div>';
+    caja.querySelectorAll('[data-todos]').forEach(b => b.onclick = () => { const v = b.dataset.todos === '1'; dups.forEach(d => { d.actualizar = v; }); pintar(); });
+    caja.querySelectorAll('.bp-dup-op input').forEach(inp => inp.onchange = () => { const i = Number(inp.name.slice(3)); dups[i].actualizar = inp.value === '1'; });
+    caja.querySelector('[data-reemplazar]').onchange = e => { reemplazar = e.target.checked; };
+    caja.querySelector('[data-a="cancelar"]').onclick = () => { modal.hidden = true; if(alCancelar) alCancelar(); };
+    caja.querySelector('[data-a="guardar"]').onclick = () => {
+      const filas = combinarBases(base ? base.filas : [], r, reemplazar);
+      alGuardar(filas, { reemplazar, actualizados: dups.filter(d => d.actualizar).length, conservados: dups.filter(d => !d.actualizar).length });
+    };
+  }
+  pintar();
+  modal.hidden = false;
+}
+
+/* ---------- Agregar a la base el paciente escrito en la Portada ---------- */
+function fichaPortada(){
+  const v = id => { const el = document.getElementById(id); return el ? limpio(el.value) : ''; };
+  return { id: v('numeroId'), tipo: v('tipoId'), nombre: v('childName'), nac: v('birthDate'), ing: v('fechaIngreso'),
+    eps: v('eps'), cie: v('cie10Code'), dx: v('cie10Diag') };
+}
+function fichaEnBase(p){
+  if(!base || !base.filas) return null;
+  const k = claveFicha(p);
+  return base.filas.find(x => claveFicha(x) === k) || null;
+}
+// Cómo quedó la Portada justo al traer al paciente de la base: el formato puede reescribir
+// el diagnóstico o el tipo de documento a su manera, y eso no es un cambio real.
+let traidoDeBase = null;
+function cambiosReales(a, p){
+  const dif = diferencias(a, p);
+  if(!traidoDeBase || traidoDeBase.k !== claveFicha(p)) return dif;
+  return dif.filter(x => norm(traidoDeBase.p[x.k]) !== norm(p[x.k]));
+}
+async function guardarFichas(filas, archivo){
+  await guardarNueva(Object.assign({}, base || { ver: VERSION, archivo: archivo || 'Agregados a mano', cols: null, hoja: '' },
+    { ver: (base && base.ver) || VERSION, cargado: (base && base.cargado) || Date.now(), filas }));
+}
+async function agregarPortada(){
+  const p = fichaPortada();
+  if(!p.nombre || p.nombre.length < 3){ alert('Escribe primero el nombre del niño/a en la Portada.'); return; }
+  if(!p.id && !confirm('No escribiste el número de documento. ¿Guardar en la base solo con el nombre?')) return;
+  const a = fichaEnBase(p);
+  if(!a){
+    await guardarFichas((base ? base.filas : []).concat([Object.assign(p, { est: 'ACTIVO', manual: true, agregado: Date.now() })]));
+    pintarEstado('✓ ' + p.nombre + ' quedó guardado en la base de pacientes de este navegador.');
+    setTimeout(() => pintarEstado(), 5000);
+    return;
+  }
+  const dif = cambiosReales(a, p);
+  if(!dif.length){ pintarEstado('✓ ' + (a.nombre || p.nombre) + ' ya está en la base con los mismos datos.'); setTimeout(() => pintarEstado(), 5000); pintarAgregar(); return; }
+  // Duplicado: el mismo paciente con otros datos
+  caja.innerHTML = '<h3>⚠ Paciente duplicado</h3>'
+    + '<p><b>' + esc(a.nombre || p.nombre) + '</b> (' + esc(p.id || 'sin documento') + ') ya está en la base de pacientes con otros datos:</p>'
+    + '<div class="bp-prev" style="line-height:1.8;">' + dif.map(x => '<b>' + esc(x.l) + ':</b> en la base <s>' + esc(!x.antes ? '(vacío)' : x.k === 'nac' || x.k === 'ing' ? fmt(x.antes) : x.antes) + '</s> · en la Portada <b>' + esc(x.k === 'nac' || x.k === 'ing' ? fmt(x.despues) : x.despues) + '</b>').join('<br>') + '</div>'
+    + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cerrar">Cancelar</button>'
+    + '<button class="btn ghost" type="button" data-a="conservar">📌 Conservar el anterior</button>'
+    + '<button class="btn primary" type="button" data-a="actualizar">↻ Actualizar con el nuevo</button></div>';
+  caja.querySelector('[data-a="cerrar"]').onclick = () => { modal.hidden = true; };
+  caja.querySelector('[data-a="conservar"]').onclick = () => { modal.hidden = true; pintarEstado('📌 Se conservaron los datos que ya tenía la base.'); setTimeout(() => pintarEstado(), 5000); };
+  caja.querySelector('[data-a="actualizar"]').onclick = async () => {
+    const r = { nuevas: [p], duplicados: [{ k: claveFicha(p), a, p, dif, actualizar: true }] };
+    const filas = combinarBases(base.filas, r, false).map(x => claveFicha(x) === claveFicha(p) && a.manual ? Object.assign(x, { manual: true }) : x);
+    await guardarFichas(filas);
+    modal.hidden = true;
+    pintarEstado('✓ Datos de ' + p.nombre + ' actualizados en la base de pacientes.'); setTimeout(() => pintarEstado(), 5000);
+  };
+  modal.hidden = false;
 }
 
 function mostrarMapeo(archivo, hojas, origen){
@@ -4276,11 +4465,21 @@ function mostrarMapeo(archivo, hojas, origen){
       if(!filas.length) return alert('No hay pacientes para guardar con estas columnas.');
       const enc = hojas[iHoja].filas[det.fila] || [], cols = {};
       Object.keys(mapa).forEach(k => { const n = norm(enc[mapa[k]]); if(n) cols[k] = n; });
-      await guardarNueva({ ver: VERSION, archivo, cargado: Date.now(), modificado: origen.modificado || 0, carpeta: !!origen.carpeta, cols, hoja: hojas[iHoja].nombre, filas });
-      modal.hidden = true;
-      pintarEstado('✓ Base guardada: ' + filas.length.toLocaleString('es-CO') + ' pacientes.'
-        + (origen.carpeta ? ' Se actualizará sola cuando cambie el Excel de la carpeta.' : '') + ' Ya puedes escribir el nombre o el documento.');
-      setTimeout(()=> pintarEstado(), 6000);
+      const guardarCon = async (finales, resumen) => {
+        await guardarNueva({ ver: VERSION, archivo, cargado: Date.now(), modificado: origen.modificado || 0, carpeta: !!origen.carpeta, cols, hoja: hojas[iHoja].nombre, filas: finales });
+        modal.hidden = true;
+        pintarEstado('✓ Base guardada: ' + finales.length.toLocaleString('es-CO') + ' pacientes'
+          + (resumen ? ' (' + [resumen.nuevos ? resumen.nuevos + ' nuevos' : '', resumen.actualizados ? resumen.actualizados + ' actualizados' : '', resumen.conservados ? resumen.conservados + ' duplicados conservados' : ''].filter(Boolean).join(', ') + ')' : '') + '.'
+          + (origen.carpeta ? ' Se actualizará sola cuando cambie el Excel de la carpeta.' : '') + ' Ya puedes escribir el nombre o el documento.');
+        setTimeout(()=> pintarEstado(), 8000);
+      };
+      // Ya había base: se combina y se pregunta por los duplicados (antes se reemplazaba toda).
+      if(base && base.filas && base.filas.length && !vieja()){
+        const r = compararBases(base.filas, filas);
+        mostrarCombinar(archivo, r, (finales, res) => guardarCon(finales, Object.assign({ nuevos: r.nuevos.length }, res)), () => {});
+        return;
+      }
+      await guardarCon(filas.concat(base && base.filas ? base.filas.filter(p => p.manual && !filas.some(x => claveFicha(x) === claveFicha(p))) : []), null);
     };
   }
   pintar();
@@ -4343,6 +4542,7 @@ function llenar(p){
   anterior = {};
   Object.keys(campos).forEach(k => { const el = document.getElementById(k); if(el) anterior[k] = el.value; });
   ocultar();
+  setTimeout(() => { traidoDeBase = { k: claveFicha(p), p: fichaPortada() }; pintarAgregar(); }, 50);
   if(malas.length){
     pintarEstado('⚠ Datos de ' + (p.nombre || p.id) + ' traídos de la base, pero revisa la fecha: ' + malas.map(m => m[1]).join(' ') + ' Parece un error del Excel; escríbela a mano y corrígela en el Excel.');
     alert('Revisa el Excel de ' + (p.nombre || p.id) + ':\n\n' + malas.map(m => '• ' + m[1]).join('\n') + '\n\nParece un error de digitación en el Excel. Ese campo quedó vacío para que lo escribas a mano.');
@@ -4421,8 +4621,13 @@ if(campoIngreso && typeof state !== 'undefined'){
 
 window.CISADDE_BASE.listo = leerBase().then(b=>{
   if(b && Array.isArray(b.filas)){ base = b; prepararIndice(); pintarEstado(); }
+  // Al abrir con un paciente ya escrito (borrador), lo que trae la Portada se toma como punto de partida.
+  const p = fichaPortada();
+  if(p.nombre && fichaEnBase(p)) traidoDeBase = { k: claveFicha(p), p };
+  pintarAgregar();
   return b;
 });
+window.CISADDE_BASE.agregarPortada = agregarPortada;
 window.CISADDE_BASE.listo.then(async ()=>{
   // carpeta conectada: revisar si el Excel cambió (también al volver a esta pestaña)
   if(!HAY_CARPETAS) return;
@@ -5378,7 +5583,7 @@ function cruzarFila(f){
     const r = base.buscar(f.nombre, false);
     if(r.length === 1) p = r[0]; else if(r.length > 1) f.varios = r.length;
   }
-  if(!p){ f.b = null; return false; }
+  if(!p){ if(!f.manual) f.b = null; return false; } // los agregados a mano conservan sus datos de la Portada
   f.b = { nombre: p.nombre, id: p.id, tipo: p.tipo, nac: p.nac, ing: p.ing, eps: p.eps, cie: p.cie, dx: p.dx, est: p.est };
   if(!f.id) f.id = normId(p.id);
   if(!f.nombre) f.nombre = p.nombre;
@@ -5612,24 +5817,100 @@ inputPlanes.addEventListener('change', () => {
   const btn = document.getElementById('tpLoteBtn'); btn.disabled = true;
   renovarLote(archivos).catch(e => aviso('⚠ No se pudieron renovar los planes: ' + ((e && e.message) || e))).finally(() => { btn.disabled = false; });
 });
+/* Ventana con opciones (sin depender de confirm(), que puede estar bloqueado). Devuelve el valor del botón elegido. */
+function elegir(titulo, html, botones){
+  return new Promise(ok => {
+    const m = document.createElement('div');
+    m.className = 'cz-modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="cz-box" style="max-width:560px;"><h3></h3><div>' + html + '</div><div class="cz-actions"></div></div>';
+    m.querySelector('h3').textContent = titulo;
+    const acc = m.querySelector('.cz-actions');
+    botones.forEach(([valor, texto, clase]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = texto; if(clase) b.className = clase;
+      b.onclick = () => { m.remove(); ok(valor); };
+      acc.appendChild(b);
+    });
+    document.body.appendChild(m);
+  });
+}
+const nombreFila = f => (f.b && f.b.nombre) || f.nombre || f.id || '—';
 inputLista.addEventListener('change', async () => {
   const archivo = inputLista.files && inputLista.files[0]; if(!archivo) return;
   try{
     const r = await leerExcel(archivo);
-    // Si ya había lista, se conserva el estado (realizado / en proceso) de quienes siguen en la nueva
+    let resumen = '', archivoLista = archivo.name;
     if(lista && lista.filas.length){
-      if(!confirmar('¿Reemplazar tu lista actual (' + lista.filas.length + ' pacientes) por la de "' + archivo.name + '" (' + r.filas.length + ')?\nSe conserva el estado de los que estén en las dos.')) return;
       const antes = {}; lista.filas.forEach(f => { antes[claveDe(f.id, f.nombre)] = f; });
-      r.filas.forEach(f => { const a = antes[claveDe(f.id, f.nombre)]; if(a){ f.estado = a.estado; f.fecha = a.fecha; } });
+      const dups = r.filas.filter(f => antes[claveDe(f.id, f.nombre)]);
+      const nuevos = r.filas.length - dups.length;
+      const modo = await elegir('Ya tienes una lista de pacientes',
+        '<p>Tu lista actual tiene <b>' + lista.filas.length + '</b> pacientes. El Excel <b>' + esc(archivo.name) + '</b> trae <b>' + r.filas.length + '</b>: '
+        + '<b>' + nuevos + '</b> nuevos y <b>' + dups.length + '</b> que ya están en tu lista.</p><p>¿Qué quieres hacer?</p>',
+        [['combinar', '➕ Agregar a mi lista actual', 'cz-primary'], ['reemplazar', '🔁 Reemplazar mi lista por la nueva'], ['', 'Cancelar']]);
+      if(!modo) return;
+      let actualizar = false;
+      if(dups.length){
+        actualizar = await elegir('⚠ ' + dups.length + ' paciente(s) duplicados',
+          '<p>Estos pacientes ya están en tu lista. ¿Conservas los datos anteriores o los actualizas con los del Excel nuevo?</p>'
+          + '<div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:13px;line-height:1.6;">'
+          + dups.slice(0, 60).map(f => '• ' + esc(nombreFila(antes[claveDe(f.id, f.nombre)])) + (f.id ? ' <small>(' + esc(f.id) + ')</small>' : '')).join('<br>')
+          + (dups.length > 60 ? '<br>… y ' + (dups.length - 60) + ' más' : '') + '</div>'
+          + '<p style="font-size:12.5px;margin-top:8px;">En los dos casos se conserva el estado (pendiente, en proceso o realizado) y lo trabajado con cada niño/a.</p>',
+          [[true, '↻ Actualizar con los nuevos', 'cz-primary'], [false, '📌 Conservar los anteriores']]);
+      }
+      // Los duplicados conservan su estado y expediente; sus datos, según lo elegido.
+      const mezclar = f => {
+        const a = antes[claveDe(f.id, f.nombre)];
+        if(!a) return f;
+        if(!actualizar) return a;
+        return Object.assign({}, a, { id: f.id || a.id, nombre: f.nombre || a.nombre, extra: Object.assign({}, a.extra || {}, f.extra || {}) });
+      };
+      if(modo === 'combinar'){
+        const nuevasPorClave = {}; r.filas.forEach(f => { nuevasPorClave[claveDe(f.id, f.nombre)] = f; });
+        r.filas = lista.filas.map(a => { const f = nuevasPorClave[claveDe(a.id, a.nombre)]; return f ? mezclar(f) : a; })
+          .concat(r.filas.filter(f => !antes[claveDe(f.id, f.nombre)]));
+        archivoLista = lista.archivo + ' + ' + archivo.name;
+        resumen = nuevos + ' agregados';
+      } else {
+        r.filas = r.filas.map(mezclar);
+        resumen = 'lista reemplazada';
+      }
+      if(dups.length) resumen += ', ' + dups.length + ' duplicados ' + (actualizar ? 'actualizados' : 'conservados');
     }
-    lista = { archivo: archivo.name, cargado: Date.now(), hoja: r.hoja, filas: r.filas };
+    lista = { archivo: archivoLista, cargado: Date.now(), hoja: r.hoja, filas: r.filas };
     const base = B(); if(base && base.listo) await base.listo;
     const n = cruzar(); guardarLista(); pintar();
+    document.dispatchEvent(new Event('cisadde:tus'));
     const hayBase = B() && B().lista && B().lista();
-    aviso('✓ Lista cargada: ' + lista.filas.length + ' pacientes. ' + (hayBase ? n + ' encontrados en la base de pacientes' + (n < lista.filas.length ? '; los que dicen "No está en la base" se abren con lo que trae tu Excel.' : '.')
+    aviso('✓ Lista cargada: ' + lista.filas.length + ' pacientes' + (resumen ? ' (' + resumen + ')' : '') + '. '
+      + (hayBase ? n + ' encontrados en la base de pacientes' + (n < lista.filas.length ? '; los que dicen "No está en la base" se abren con lo que trae tu Excel.' : '.')
       : '⚠ No hay base de pacientes cargada: cárgala en la Portada ("📊 Base de pacientes") y luego pulsa "🔄 Cruzar con la base".'));
   }catch(e){ alert('No se pudo leer tu lista:\n\n' + (e && e.message || e)); }
 });
+
+/* ---------- Para la Portada: "➕ Agregar a Tus pacientes" ---------- */
+window.CISADDE_TUS = {
+  tiene: (id, nombre) => {
+    if(!lista) return false;
+    const i = normId(id), k = claveDe(i, nombre);
+    return lista.filas.some(f => claveDe(f.id, f.nombre) === k || (i && f.id === i));
+  },
+  agregar: (d) => {
+    const id = normId(d.id), nombre = String(d.nombre || '').trim();
+    if(!id && !nombre) return 'vacio';
+    if(window.CISADDE_TUS.tiene(id, nombre)) return 'ya';
+    if(!lista) lista = { archivo: 'Agregados a mano', cargado: Date.now(), hoja: '', filas: [] };
+    const b = d.b || {};
+    const f = { id, nombre, manual: true, extra: { 'Agregado': 'A mano desde la Portada · ' + fmt(hoyISO()) }, estado: 'pendiente', fecha: '',
+      b: { nombre: b.nombre || nombre, id: b.id || id, tipo: b.tipo || '', nac: b.nac || '', ing: b.ing || '', eps: b.eps || '', cie: b.cie || '', dx: b.dx || '', est: b.est || '' } };
+    lista.filas.push(f);
+    cruzarFila(f); // si está en la base, se completa con ella; si no, queda con los datos de la Portada
+    guardarLista(); pintar();
+    document.dispatchEvent(new Event('cisadde:tus'));
+    return 'nuevo';
+  }
+};
+document.dispatchEvent(new Event('cisadde:tus'));
 document.getElementById('tpCruzarBtn').addEventListener('click', () => {
   if(!B() || !B().lista()){ alert('No hay base de pacientes cargada. Cárgala en la Portada con "📊 Base de pacientes (Excel)".'); return; }
   const n = cruzar(); pintar(); aviso('✓ ' + n + ' de ' + lista.filas.length + ' pacientes encontrados en la base.');
