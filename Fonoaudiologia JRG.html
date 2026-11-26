@@ -5823,6 +5823,7 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
     '<div class="page-head"><div><h2>Evoluciones</h2><p>Las 10 primeras evoluciones son de adaptación. Cada una empieza con la técnica, la actividad, los reforzadores y los tipos de apoyo, y termina con "' + CIERRE + '"</p></div>' +
     '<div class="btn-row no-print"><button class="btn primary" type="button" id="evolIaBtn">✨ Generar las 10 primeras evoluciones con IA</button>' +
     '<button class="btn ghost" type="button" id="evolCopiarTodo">📋 Copiar todas</button>' +
+    '<button class="btn dark" type="button" id="evolWordBtn">⬇️ Descargar Word</button>' +
     '<button class="btn ghost" type="button" id="evolBorrar">🗑 Vaciar</button></div></div>' +
     '<p class="tag-note" id="evolEstado" style="margin-bottom:14px;"></p>' +
     '<div class="card no-print"><details><summary style="cursor:pointer;font-weight:800;font-size:14px;">¿No funciona el botón de IA? Hazlo con otra IA</summary>' +
@@ -5969,6 +5970,183 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
     if (!items) { estado('No encontré "EVOLUCIÓN 1:", "EVOLUCIÓN 2:"… en la respuesta pegada.', true); return; }
     if (aplicar(items, false)) $('evolIaResp').value = '';
   };
+
+  /* ================= Word (.docx) ================= */
+  const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+  const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const AZUL = '1F3864', GRIS = '7F7F7F', ANCHO = 9638; // A4 con márgenes de 2 cm
+  const x = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  function run(t, o) {
+    o = o || {};
+    let pr = (o.b ? '<w:b/><w:bCs/>' : '') + (o.color ? '<w:color w:val="' + o.color + '"/>' : '') + (o.sz ? '<w:sz w:val="' + o.sz + '"/><w:szCs w:val="' + o.sz + '"/>' : '');
+    pr = pr ? '<w:rPr>' + pr + '</w:rPr>' : '';
+    return String(t).split('\n').map((s, i) => (i ? '<w:r>' + pr + '<w:br/></w:r>' : '') + '<w:r>' + pr + '<w:t xml:space="preserve">' + x(s) + '</w:t></w:r>').join('');
+  }
+  function par(runs, o) {
+    o = o || {};
+    let pr = (o.junto ? '<w:keepNext/>' : '') + '<w:spacing w:before="' + (o.before || 0) + '" w:after="' + (o.after || 0) + '"/>';
+    if (o.jc) pr += '<w:jc w:val="' + o.jc + '"/>';
+    if (o.borde) pr += '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="2" w:color="0E8FC4"/></w:pBdr>';
+    return '<w:p><w:pPr>' + pr + '</w:pPr>' + (runs || '') + '</w:p>';
+  }
+  function celda(w, cont, o) {
+    o = o || {};
+    let pr = '<w:tcW w:w="' + w + '" w:type="dxa"/>' + (o.span ? '<w:gridSpan w:val="' + o.span + '"/>' : '') + (o.v ? '<w:vAlign w:val="' + o.v + '"/>' : '');
+    return '<w:tc><w:tcPr>' + pr + '</w:tcPr>' + (cont || par('')) + '</w:tc>';
+  }
+  const fila = (celdas, o) => '<w:tr>' + (o && o.alto ? '<w:trPr><w:cantSplit/><w:trHeight w:val="' + o.alto + '"/></w:trPr>' : '<w:trPr><w:cantSplit/></w:trPr>') + celdas.join('') + '</w:tr>';
+  function tabla(cols, filas, o) {
+    o = o || {};
+    const bordes = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(s => o.sinBordes ? '<w:' + s + ' w:val="nil"/>' : '<w:' + s + ' w:val="single" w:sz="4" w:space="0" w:color="' + (o.color || 'A6A6A6') + '"/>').join('');
+    return '<w:tbl><w:tblPr><w:tblW w:w="' + cols.reduce((a, b) => a + b, 0) + '" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders>' + bordes + '</w:tblBorders><w:tblLayout w:type="fixed"/>' +
+      '<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr>' +
+      '<w:tblGrid>' + cols.map(c => '<w:gridCol w:w="' + c + '"/>').join('') + '</w:tblGrid>' + filas.join('') + '</w:tbl>';
+  }
+  function imagen(rid, img, id, nombre) {
+    return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + img.cx + '" cy="' + img.cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>' +
+      '<wp:docPr id="' + id + '" name="' + nombre + '"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>' +
+      '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + nombre + '.png"/><pic:cNvPicPr/></pic:nvPicPr>' +
+      '<pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+      '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + img.cx + '" cy="' + img.cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  }
+  function aPng(src, maxW, maxH) {
+    return new Promise(res => {
+      if (!src) return res(null);
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const nw = im.naturalWidth || 300, nh = im.naturalHeight || 150, k = Math.min(1, 900 / Math.max(nw, nh));
+          const cv = document.createElement('canvas'); cv.width = Math.round(nw * k); cv.height = Math.round(nh * k);
+          cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+          const bin = atob(cv.toDataURL('image/png').split(',')[1]), data = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+          const r = Math.min(maxW / nw, maxH / nh);
+          res({ data: data, cx: Math.round(nw * r), cy: Math.round(nh * r) });
+        } catch (e) { res(null); }
+      };
+      im.onerror = () => res(null);
+      im.src = src;
+    });
+  }
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(d) { let c = 0xFFFFFFFF; for (let i = 0; i < d.length; i++) c = CRC[(c ^ d[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function zip(archivos) { // ZIP sin compresión: es todo lo que necesita un .docx
+    const enc = new TextEncoder(), partes = [], central = [];
+    const t = new Date(), hora = (t.getHours() << 11) | (t.getMinutes() << 5) | (t.getSeconds() >> 1), dia = ((t.getFullYear() - 1980) << 9) | ((t.getMonth() + 1) << 5) | t.getDate();
+    let off = 0;
+    archivos.forEach(f => {
+      const nom = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+      const l = new DataView(new ArrayBuffer(30));
+      l.setUint32(0, 0x04034b50, true); l.setUint16(4, 20, true); l.setUint16(6, 0x0800, true); l.setUint16(8, 0, true); l.setUint16(10, hora, true); l.setUint16(12, dia, true);
+      l.setUint32(14, crc, true); l.setUint32(18, data.length, true); l.setUint32(22, data.length, true); l.setUint16(26, nom.length, true); l.setUint16(28, 0, true);
+      partes.push(new Uint8Array(l.buffer), nom, data);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true); c.setUint16(12, hora, true); c.setUint16(14, dia, true);
+      c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nom.length, true); c.setUint32(42, off, true);
+      central.push(new Uint8Array(c.buffer), nom);
+      off += 30 + nom.length + data.length;
+    });
+    const tam = central.reduce((s, a) => s + a.length, 0), e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, archivos.length, true); e.setUint16(10, archivos.length, true); e.setUint32(12, tam, true); e.setUint32(16, off, true);
+    return new Blob(partes.concat(central, [new Uint8Array(e.buffer)]), { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  }
+  const fecha = (iso) => { try { return typeof fmtDate === 'function' ? fmtDate(iso) : iso.split('-').reverse().join('/'); } catch (e) { return iso || ''; } };
+  const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+  const CAMPO = /^(t[ée]cnica a usarse|actividad que se usa|reforzadores|tipos? de apoyo)\s*:\s*/i;
+
+  async function crearWordEvoluciones() {
+    const d = datosClinicos(), ev = state.evaluator || {};
+    const logo = await aPng(typeof LOGO_SRC !== 'undefined' ? LOGO_SRC : '', 1000000, 560000);
+    const sello = await aPng(ev.sealImg || '', 1150000, 750000);
+    const gris = (t, o) => run(t, Object.assign({ b: 1, color: GRIS }, o || {}));
+    const fin = '<w:p><w:pPr><w:spacing w:before="0" w:after="0"/><w:rPr><w:sz w:val="4"/></w:rPr></w:pPr></w:p>';
+
+    const encabezado = tabla([2400, 4838, 2400], [fila([
+      celda(2400, par(logo ? imagen('rIdLogo', logo, 1, 'Logo') : gris('CISADDE'), { jc: 'center' }), { v: 'center' }),
+      celda(4838, par(gris('EVOLUCIONES\n' + d.area.toUpperCase()), { jc: 'center' }), { v: 'center' }),
+      celda(2400, par(gris('Generado:\n' + fecha(new Date().toISOString().slice(0, 10)), { sz: 18 }), { jc: 'center' }), { v: 'center' })
+    ], { alto: 1000 })]) + fin;
+    const pie = par(gris('CISADDE · Evoluciones de ' + d.area, { sz: 16 }), { jc: 'center' });
+
+    const dato = (lbl, val) => par(run(lbl + ': ', { b: 1 }) + run(val || '', { color: AZUL }), { after: 20 });
+    const mitad = ANCHO / 2;
+    const datosT = tabla([mitad, mitad], [
+      fila([celda(mitad, dato('Nombre', state.childName)), celda(mitad, dato('Documento', state.numeroId))]),
+      fila([celda(mitad, dato('Edad', d.edad)), celda(mitad, dato('Fecha de valoración', state.evalDate ? fecha(state.evalDate) : ''))]),
+      fila([celda(mitad, dato('Diagnóstico', d.diag)), celda(mitad, dato('CIE', state.cie10Code))]),
+      fila([celda(mitad, dato('Área', d.area)), celda(mitad, dato('Profesional', ev.name))])
+    ], { sinBordes: 1 });
+
+    let cuerpo = '';
+    state.evol.items.forEach((t, i) => {
+      t = String(t || '').trim();
+      if (!t) return;
+      cuerpo += par(run('EVOLUCIÓN ' + (i + 1) + ' · ADAPTACIÓN', { b: 1, color: AZUL, sz: 22 }), { before: 240, after: 80, junto: 1, borde: 1 });
+      cuerpo += par(run('Fecha: ', { b: 1 }) + run('____________________'), { after: 60, junto: 1 });
+      lineas(t).forEach(l => {
+        const m = l.match(CAMPO);
+        cuerpo += m ? par(run(m[0].trim() + ' ', { b: 1 }) + run(l.slice(m[0].length)), { after: 40, jc: 'both' })
+          : par(run(l), { after: 60, jc: 'both' });
+      });
+    });
+
+    const firma = par('', { before: 480 }) + (sello ? par(imagen('rIdSello', sello, 2, 'Sello'), { jc: 'center', after: 60 }) : '') +
+      par(run('______________________________'), { jc: 'center' }) +
+      par(run(ev.name || 'Profesional', { b: 1 }), { jc: 'center' }) +
+      ((ev.savedCard || ev.card) ? par(run('T.P. ' + (ev.savedCard || ev.card)), { jc: 'center' }) : '') +
+      par(run(d.area), { jc: 'center' });
+
+    const documento = datosT + par('', { after: 120 }) + cuerpo + firma +
+      '<w:sectPr><w:headerReference w:type="default" r:id="rIdEnc"/><w:footerReference w:type="default" r:id="rIdPie"/>' +
+      '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="2000" w:right="1134" w:bottom="1300" w:left="1134" w:header="450" w:footer="450" w:gutter="0"/></w:sectPr>';
+    const rel = (id, tipo, destino) => '<Relationship Id="' + id + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/' + tipo + '" Target="' + destino + '"/>';
+    const rels = (items) => XML + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + items + '</Relationships>';
+    const W = 'application/vnd.openxmlformats-officedocument.wordprocessingml.';
+    const archivos = [
+      { name: '[Content_Types].xml', data: XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>' +
+        '<Override PartName="/word/document.xml" ContentType="' + W + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + W + 'styles+xml"/>' +
+        '<Override PartName="/word/header1.xml" ContentType="' + W + 'header+xml"/><Override PartName="/word/footer1.xml" ContentType="' + W + 'footer+xml"/></Types>' },
+      { name: '_rels/.rels', data: rels(rel('rId1', 'officeDocument', 'word/document.xml')) },
+      { name: 'word/document.xml', data: XML + '<w:document ' + NS + '><w:body>' + documento + '</w:body></w:document>' },
+      { name: 'word/_rels/document.xml.rels', data: rels(rel('rIdEstilos', 'styles', 'styles.xml') + rel('rIdEnc', 'header', 'header1.xml') + rel('rIdPie', 'footer', 'footer1.xml') + (sello ? rel('rIdSello', 'image', 'media/sello.png') : '')) },
+      { name: 'word/header1.xml', data: XML + '<w:hdr ' + NS + '>' + encabezado + '</w:hdr>' },
+      { name: 'word/_rels/header1.xml.rels', data: rels(logo ? rel('rIdLogo', 'image', 'media/logo.png') : '') },
+      { name: 'word/footer1.xml', data: XML + '<w:ftr ' + NS + '>' + pie + '</w:ftr>' },
+      { name: 'word/styles.xml', data: XML + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="es-CO"/></w:rPr></w:rPrDefault>' +
+        '<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
+        '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>' +
+        '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>' }
+    ];
+    if (logo) archivos.push({ name: 'word/media/logo.png', data: logo.data });
+    if (sello) archivos.push({ name: 'word/media/sello.png', data: sello.data });
+    return zip(archivos);
+  }
+  // En la app CISADDE pasa por "downloads" (se descarga y pregunta la carpeta de Drive); en el navegador normal, descarga directa.
+  async function guardarArchivo(blob, nombre) {
+    try {
+      const dl = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('downloads') : null;
+      if (dl) { await dl.save({ filename: nombre, data: blob }); return; }
+    } catch (e) { if (e && (e.code === 'declined' || e.code === 'rate_limited')) return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = nombre;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  $('evolWordBtn').onclick = async () => {
+    const n = state.evol.items.filter(t => String(t).trim()).length;
+    if (!n) { estado('Primero genera o escribe al menos una evolución.', true); return; }
+    if (!state.childName && !confirm('Falta el nombre del niño/a en la Portada. ¿Descargar de todas formas?')) return;
+    const btn = $('evolWordBtn'), txt = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ Creando Word…';
+    try {
+      const nombre = ['Evoluciones', slug(datosClinicos().area), slug(state.childName) || 'sin_nombre', new Date().toISOString().slice(0, 10)].join('_') + '.docx';
+      await guardarArchivo(await crearWordEvoluciones(), nombre);
+      estado('✅ Word con ' + n + ' evolución(es) listo.');
+    } catch (err) {
+      estado('No se pudo crear el Word: ' + ((err && err.message) || err), true);
+    } finally { btn.disabled = false; btn.textContent = txt; }
+  };
+  window.CISADDE_EVOL_DOCX = crearWordEvoluciones; // para pruebas
 
   pintar();
 })();
