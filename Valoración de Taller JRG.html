@@ -87,7 +87,7 @@
     if (ev.source !== padre || !m || m.cisadde !== 1) return;
     // Solo se habla con la app de Google (Apps Script se sirve desde googleusercontent.com).
     if (!/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/.test(ev.origin)) return;
-    if (m.hola) { if (!origenPadre) { origenPadre = ev.origin; listo({ ia: !!m.ia, drive: !!m.drive }); } return; }
+    if (m.hola) { if (!origenPadre) { origenPadre = ev.origin; listo({ ia: !!m.ia, drive: !!m.drive, nube: !!m.nube, admin: !!m.admin }); } return; }
     var p = m.id && pendientes[m.id];
     if (!p) return;
     delete pendientes[m.id];
@@ -156,8 +156,27 @@
   // Para otras herramientas (buscador en Drive, etc.): hablar con la app de Google.
   window.CISADDE_APP = {
     listo: conectado.then(function (e) { return !e.sinApp && !!e.drive; }),
+    nube: conectado.then(function (e) { return !e.sinApp && !!e.nube; }),     // bases de pacientes, aviso y formulario de familias
+    admin: conectado.then(function (e) { return !e.sinApp && !!e.admin; }),
     pedir: function (tipo, datos) { return pedir(tipo, datos); }
   };
+
+  // El aviso para el equipo lo publica el Panel de control (antes venía de aviso.json en GitHub).
+  if (window.fetch) {
+    var fetchOriginal = window.fetch.bind(window);
+    window.fetch = function (recurso, opciones) {
+      var u = typeof recurso === 'string' ? recurso : (recurso && recurso.url) || '';
+      if (/\/aviso\.json(\?|$)/.test(u)) {
+        return conectado.then(function (e) {
+          if (e.sinApp || !e.nube) return fetchOriginal(recurso, opciones);
+          return pedir('aviso', {}).then(function (a) {
+            return new Response(JSON.stringify(a || { activo: false }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          });
+        });
+      }
+      return fetchOriginal(recurso, opciones);
+    };
+  }
 
   window.claude = {
     use: function (que) {
@@ -4136,6 +4155,7 @@ function pintarAgregar(){
     const span = (cls, t) => { const s = document.createElement('span'); s.className = cls; s.textContent = t; barraAgregar.appendChild(s); };
     const boton = (t, fn, pri) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (pri ? 'primary' : 'ghost'); b.textContent = t; b.onclick = fn; barraAgregar.appendChild(b); };
     if(!a) boton('➕ Guardar en la base de pacientes', agregarPortada, true);
+    else if(a.base && !(base && base.filas && base.filas.includes(a))) span('ok', '☁️ En la base del centro (' + a.base + ')'); // se corrige subiendo el Excel actualizado
     else if(dif.length){ span('warn', '⚠ En la base tiene otros datos (' + dif.map(x => x.l).join(', ') + ')'); boton('Revisar duplicado', agregarPortada); }
     else span('ok', '✓ En la base de pacientes');
     const T = window.CISADDE_TUS;
@@ -4176,8 +4196,9 @@ function pintarEstado(msg){
   estado.textContent = vieja()
     ? '⚠ La base de pacientes se cargó con una versión anterior que podía confundir el número de documento. Pulsa "Base de pacientes" y vuelve a cargar el Excel (o "Actualizar desde la carpeta").'
     : base && base.filas.length
-    ? '📊 Base cargada: ' + base.filas.length.toLocaleString('es-CO') + ' pacientes. Escribe el nombre o el número de documento y elige al paciente para llenar los datos.'
+    ? (textoNube() ? textoNube() + ' ' : '') + '📊 Base de este equipo: ' + base.filas.length.toLocaleString('es-CO') + ' pacientes. Escribe el nombre o el número de documento y elige al paciente para llenar los datos.'
       + (faltan().length ? ' ⚠ La base no trae ' + faltan().join(' ni ') + ': pulsa "Base de pacientes", vuelve a cargar el Excel y elige esa columna.' : '')
+    : textoNube() ? textoNube() + ' Escribe el nombre o el número de documento y elige al paciente para llenar los datos.'
     : '';
 }
 // Base guardada antes de esta corrección (podía tener el consecutivo "N°" como documento).
@@ -4418,9 +4439,10 @@ function fichaPortada(){
     eps: v('eps'), cie: v('cie10Code'), dx: v('cie10Diag') };
 }
 function fichaEnBase(p){
-  if(!base || !base.filas) return null;
   const k = claveFicha(p);
-  return base.filas.find(x => claveFicha(x) === k) || null;
+  const local = base && base.filas ? base.filas.find(x => claveFicha(x) === k) : null;
+  if(local) return local;
+  return nube && nube.filas ? nube.filas.find(x => claveFicha(x) === k) || null : null; // está en una base del centro
 }
 // Cómo quedó la Portada justo al traer al paciente de la base: el formato puede reescribir
 // el diagnóstico o el tipo de documento a su manera, y eso no es un cambio real.
@@ -4491,7 +4513,15 @@ function mostrarMapeo(archivo, hojas, origen){
           + '<br>Diagnóstico: ' + esc(ej.cie || '—') + ' ' + esc(ej.dx || '')
           + '<br><b>' + filas.length.toLocaleString('es-CO') + '</b> pacientes distintos (si un niño sale varias veces en el Excel, queda una sola vez: la fila ACTIVA o la de ingreso más reciente).'
         : 'No encontré pacientes con estas columnas.') + '</div>'
-      + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button><button class="btn primary" type="button" data-a="guardar">✓ Guardar base</button></div>';
+      + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button>'
+      + (esAdminNube ? '<button class="btn dark" type="button" data-a="nube" title="Para todos los terapeutas, en cualquier equipo">☁️ Subir a la nube (base del centro)</button>' : '')
+      + '<button class="btn primary" type="button" data-a="guardar">✓ Guardar en este equipo</button></div>';
+    const bn = caja.querySelector('[data-a="nube"]');
+    if(bn) bn.onclick = () => {
+      if(!('id' in mapa) && !('n1' in mapa)) return alert('Elige al menos la columna del número de documento o la del nombre.');
+      if(!filas.length) return alert('No hay pacientes para subir con estas columnas.');
+      subirANube(archivo, filas);
+    };
     const sh = caja.querySelector('[data-hoja]');
     if(sh) sh.onchange = ()=>{ iHoja = Number(sh.value); det = detectar(hojas[iHoja].filas); mapa = Object.assign({}, det.mapa); pintar(); };
     caja.querySelectorAll('[data-k]').forEach(s => s.onchange = ()=>{ if(s.value === '') delete mapa[s.dataset.k]; else mapa[s.dataset.k] = Number(s.value); pintar(); });
@@ -4526,7 +4556,58 @@ function mostrarMapeo(archivo, hojas, origen){
 let indice = [];
 function prepararIndice(){
   // una base vieja podía tener el consecutivo como documento: no se usa hasta releerla
-  indice = base && !vieja() ? base.filas.map(p => ({ p, id: normId(p.id), n: norm([p.nombre].concat(p.alias || []).join(' | ')) })) : [];
+  const locales = base && !vieja() ? base.filas : [];
+  // Primero las bases del centro (nube, en el orden del Panel) y luego la de este equipo; si un niño está en varias, manda la primera.
+  const vistos = new Set(), todas = [];
+  (nube && Array.isArray(nube.filas) ? nube.filas : []).concat(locales).forEach(p => { const k = claveFicha(p); if(!k || vistos.has(k)) return; vistos.add(k); todas.push(p); });
+  indice = todas.map(p => ({ p, id: normId(p.id), n: norm([p.nombre].concat(p.alias || []).join(' | ')) }));
+}
+
+/* ---------- ☁️ Bases del centro (nube, dentro de la app) ---------- */
+let nube = null, esAdminNube = false; // { version, bases:[{nombre,n}], filas }
+async function sincronizarNube(forzar){
+  const app = window.CISADDE_APP;
+  if(!app || !(await app.nube.catch(() => false))) return;
+  esAdminNube = await app.admin.catch(() => false);
+  if(!nube) nube = await leerClave('nube');
+  try{
+    const r = await app.pedir('baseNube', { version: !forzar && nube ? nube.version : '' });
+    if(!r.igual){ nube = r; try{ await escribirBase(r, 'nube'); }catch(e){} }
+  }catch(e){ /* sin conexión: queda la copia guardada en este equipo */ }
+  prepararIndice(); pintarEstado(); pintarAgregar();
+}
+function textoNube(){
+  if(!nube || !nube.filas || !nube.filas.length) return '';
+  return '☁️ Bases del centro: ' + nube.filas.length.toLocaleString('es-CO') + ' pacientes (' + (nube.bases || []).map(b => b.nombre).join(', ') + ').';
+}
+// Subir lo que se está revisando en "Revisa las columnas" como base del centro (nueva o reemplazo).
+async function subirANube(archivo, filas){
+  const app = window.CISADDE_APP;
+  let lista = [];
+  try{ lista = await app.pedir('listarBases', {}); }catch(e){ alert('No se pudo leer la lista de bases: ' + (e && e.message || e)); return; }
+  const nombreSug = String(archivo || '').replace(/\.[a-z0-9]+$/i, '').slice(0, 60) || ('Base ' + (lista.length + 1));
+  caja.innerHTML = '<h3>☁️ Subir a la nube (base del centro)</h3>'
+    + '<p><b>' + filas.length.toLocaleString('es-CO') + '</b> pacientes de <b>' + esc(archivo) + '</b>. Todos los terapeutas la verán en la Portada.</p>'
+    + '<label style="display:block;font-size:13px;font-weight:600;margin:8px 0 4px;">¿Qué hago con ella?</label>'
+    + '<select class="input" data-dest><option value="">➕ Agregarla como base nueva</option>'
+    + lista.map(b => '<option value="' + esc(b.id) + '">🔄 Reemplazar (actualizar) "' + esc(b.nombre) + '" · ' + (b.n || 0) + ' pacientes</option>').join('') + '</select>'
+    + '<label style="display:block;font-size:13px;font-weight:600;margin:10px 0 4px;" data-nombre-l>Nombre de la base</label><input class="input" data-nombre value="' + esc(nombreSug) + '">'
+    + '<p style="font-size:12.5px;margin-top:10px;">El orden y cuáles están en uso se manejan en el ⚙️ Panel → 🗂 Bases de pacientes.</p>'
+    + '<div class="bp-acc"><button class="btn ghost" type="button" data-a="cancelar">Cancelar</button><button class="btn primary" type="button" data-a="subir">☁️ Subir</button></div>';
+  const dest = caja.querySelector('[data-dest]');
+  dest.onchange = () => { const r = !!dest.value; caja.querySelector('[data-nombre]').hidden = r; caja.querySelector('[data-nombre-l]').hidden = r; };
+  caja.querySelector('[data-a="cancelar"]').onclick = () => { modal.hidden = true; };
+  caja.querySelector('[data-a="subir"]').onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = '⏳ Subiendo…';
+    try{
+      const r = await app.pedir('subirBase', { nombre: caja.querySelector('[data-nombre]').value, reemplazar: dest.value || '', archivo, filas });
+      modal.hidden = true;
+      await sincronizarNube(true);
+      pintarEstado('☁️ Base "' + r.base.nombre + '" ' + (dest.value ? 'actualizada' : 'subida') + ' en la nube: ' + r.base.n.toLocaleString('es-CO') + ' pacientes. Ya la ven todos los terapeutas.');
+      setTimeout(() => pintarEstado(), 9000);
+    }catch(err){ b.disabled = false; b.textContent = '☁️ Subir'; alert('No se pudo subir la base: ' + (err && err.message || err)); }
+  };
+  modal.hidden = false;
 }
 function buscar(texto, porId){
   if(!indice.length) return [];
@@ -4655,7 +4736,9 @@ if(campoIngreso && typeof state !== 'undefined'){
   campoIngreso.addEventListener('change', e=>{ state.fechaIngreso = e.target.value; });
 }
 
+window.CISADDE_BASE.sincronizarNube = sincronizarNube;
 window.CISADDE_BASE.listo = leerBase().then(b=>{
+  setTimeout(() => sincronizarNube(false), 0); // bases del centro (solo dentro de la app)
   if(b && Array.isArray(b.filas)){ base = b; prepararIndice(); pintarEstado(); }
   // Al abrir con un paciente ya escrito (borrador), lo que trae la Portada se toma como punto de partida.
   const p = fichaPortada();
@@ -7869,5 +7952,182 @@ if(ir) setTimeout(() => { irA(ir); pintarBotonPlan(); }, 0);
 })();
 </script>
 <!-- HISTORIAL:FIN -->
+<!-- FORMULARIO-FAMILIA:INICIO -->
+<script>
+/* =====================================================================
+   📱 FORMULARIO PREVIO PARA LA FAMILIA (Portada, dentro de la app)
+   "🔗 Crear enlace" da un enlace y un código QR propios de este niño/a
+   (Formulario de Google: la familia no necesita cuenta). Se comparte por
+   correo (a varios a la vez), WhatsApp o copiando el enlace.
+   "📥 Traer respuestas a la Portada" muestra lo que respondió la familia
+   para revisarlo y pasarlo a los campos (datos del niño/a, motivo,
+   antecedentes, historia familiar y escolar).
+   Fuente: herramientas/formulario-familia.js → node herramientas/insertar-formulario-familia.js
+   ===================================================================== */
+(function () {
+  if (typeof state === 'undefined' || document.getElementById('cz-familia')) return;
+  const portada = document.getElementById('view-portada');
+  if (!portada) return;
+
+  try { if (typeof STATE_DEFAULTS !== 'undefined' && !('formFamilia' in STATE_DEFAULTS)) STATE_DEFAULTS.formFamilia = null; } catch (e) {}
+  state.formFamilia = null;
+  try {
+    const d = typeof readDraft === 'function' ? readDraft() : JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (d && d.state && d.state.formFamilia && d.state.formFamilia.codigo) state.formFamilia = d.state.formFamilia;
+  } catch (e) {}
+  const guardar = () => { if (typeof queueSave === 'function') queueSave(); };
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const card = document.createElement('div');
+  card.className = 'card no-print'; card.id = 'cz-familia';
+  card.innerHTML = '<div class="card-head"><h3>📱 Formulario previo para la familia</h3><span class="sub">La familia lo llena desde su celular y se pasa a la Portada</span></div><div data-cuerpo></div>' +
+    '<p class="tag-note" data-estado style="margin-top:8px;display:none;"></p>';
+  const ent = document.getElementById('cz-entrevista');
+  const motivo = document.getElementById('motivoTxt');
+  if (ent) ent.before(card); else if (motivo && motivo.closest('.card')) motivo.closest('.card').before(card); else portada.appendChild(card);
+  const $c = card.querySelector('[data-cuerpo]'), $e = card.querySelector('[data-estado]');
+  const estado = (t, error) => { $e.textContent = t || ''; $e.style.display = t ? '' : 'none'; $e.style.color = error ? '#B42318' : ''; };
+  const app = () => window.CISADDE_APP;
+
+  function pintar() {
+    const f = state.formFamilia;
+    if (!f) {
+      $c.innerHTML = '<p class="tag-note" style="margin-bottom:10px;">Antes de la cita, envíale a la familia un formulario con los datos del niño/a, el motivo de consulta y los antecedentes. No necesitan cuenta de Google.</p>' +
+        '<div class="btn-row"><button class="btn primary" type="button" data-a="crear">🔗 Crear enlace para la familia</button></div>';
+    } else {
+      $c.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">' +
+        '<div data-qr style="background:#fff;padding:8px;border-radius:12px;border:1px solid var(--border);width:176px;height:176px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#5B7891;">QR…</div>' +
+        '<div style="flex:1;min-width:240px;">' +
+        '<label class="field"><span class="lbl">Enlace del formulario · código ' + esc(f.codigo) + '</span><input class="input" readonly data-enlace value="' + esc(f.enlace) + '"></label>' +
+        '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost" type="button" data-a="copiar">📋 Copiar enlace</button>' +
+        (navigator.share ? '<button class="btn ghost" type="button" data-a="compartir">📤 Compartir (WhatsApp…)</button>' : '') +
+        '<a class="btn ghost" data-a="whatsapp" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent('Hola. Para la valoración en CISADDE, por favor llenen este formulario: ' + f.enlace) + '">💬 WhatsApp</a></div>' +
+        '<label class="field" style="margin-top:12px;"><span class="lbl">Enviar por correo (uno o varios, separados por coma)</span><input class="input" data-correos placeholder="mama@gmail.com, papa@gmail.com"></label>' +
+        '<div class="btn-row" style="margin-top:8px;"><button class="btn dark" type="button" data-a="enviar">✉️ Enviar por correo</button>' +
+        '<button class="btn primary" type="button" data-a="traer">📥 Traer respuestas a la Portada</button>' +
+        '<button class="btn ghost" type="button" data-a="nuevo">🔁 Nuevo enlace</button></div>' +
+        (f.enviados && f.enviados.length ? '<p class="tag-note" style="margin-top:8px;">✉️ Enviado a: ' + esc(f.enviados.join(', ')) + '</p>' : '') +
+        '</div></div>';
+      dibujarQR(f.enlace);
+    }
+  }
+  function dibujarQR(texto) {
+    const div = $c.querySelector('[data-qr]');
+    const hacer = () => { try { div.innerHTML = ''; new window.QRCode(div, { text: texto, width: 160, height: 160, correctLevel: window.QRCode.CorrectLevel.M }); } catch (e) { div.textContent = 'Sin QR'; } };
+    if (window.QRCode) return hacer();
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload = hacer; s.onerror = () => { div.textContent = 'No se pudo dibujar el QR (sin internet). Usa el enlace.'; };
+    document.head.appendChild(s);
+  }
+
+  async function disponible() {
+    const a = app();
+    if (!a || !(await a.nube.catch(() => false))) { estado('El formulario para la familia funciona dentro de la app CISADDE (con tu correo).', true); return null; }
+    return a;
+  }
+  async function crear(nuevo) {
+    const a = await disponible(); if (!a) return;
+    estado('⏳ Creando el enlace…');
+    try {
+      const r = await a.pedir('enlaceFamilia', { nombre: String(state.childName || '').trim(), codigo: nuevo ? '' : (state.formFamilia && state.formFamilia.codigo) || '' });
+      state.formFamilia = { codigo: r.codigo, enlace: r.enlace, creado: new Date().toISOString(), enviados: [] };
+      guardar(); pintar(); estado('✅ Enlace listo. Compártelo con la familia por correo, WhatsApp o con el código QR.');
+    } catch (err) { estado('No se pudo crear el enlace: ' + ((err && err.message) || err), true); }
+  }
+
+  /* ---------- Pasar las respuestas a la Portada ---------- */
+  const CAMPOS = [
+    ['childName', 'Nombre del niño/a', 'reemplazar'], ['tipoId', 'Tipo de documento', 'reemplazar'], ['numeroId', 'Número de documento', 'reemplazar'],
+    ['birthDate', 'Fecha de nacimiento', 'reemplazar'], ['eps', 'EPS', 'reemplazar'], ['escolaridad', 'Grado escolar', 'reemplazar'], ['colegio', 'Colegio', 'reemplazar'],
+    ['motivoTxt', 'Motivo de consulta', 'agregar'], ['antecedentesTxt', 'Antecedentes', 'agregar'], ['historiaFamiliarTxt', 'Historia familiar', 'agregar'], ['historiaEscolarTxt', 'Historia escolar', 'agregar']
+  ];
+  function propuestas(d) {
+    const out = {};
+    CAMPOS.forEach(([k]) => { if (d[k]) out[k] = String(d[k]).trim(); });
+    if (out.tipoId) out.tipoId = (out.tipoId.match(/^[A-Z]{2}/) || ['Otro'])[0];
+    // Lo que no tiene su propio cuadro en este formato va al motivo de consulta
+    const extra = [];
+    if (d.acudiente) extra.push('Información suministrada por: ' + d.acudiente + (d.telefono ? ' · Tel. ' + d.telefono : '') + '.');
+    if (out.historiaFamiliarTxt && !document.getElementById('historiaFamiliarTxt')) { extra.push('Historia familiar: ' + out.historiaFamiliarTxt); delete out.historiaFamiliarTxt; }
+    if (d.otros) extra.push('Otros datos: ' + d.otros);
+    if (extra.length) out.motivoTxt = [out.motivoTxt, extra.join('\n')].filter(Boolean).join('\n');
+    return out;
+  }
+  function revisar(r) {
+    const prop = propuestas(r.datos || {});
+    const filas = CAMPOS.filter(([k]) => prop[k] && document.getElementById(k));
+    if (!filas.length) { estado('La familia respondió, pero sin datos para la Portada.', true); return; }
+    const m = document.createElement('div');
+    m.className = 'cz-modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="cz-box" style="max-width:720px;"><h3>📥 Respuestas de la familia</h3>' +
+      '<p>Respondido el ' + esc(new Date(r.fecha).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })) + '. Revisa, corrige y desmarca lo que no quieras pasar.</p>' +
+      filas.map(([k, l, modo], i) => {
+        const el = document.getElementById(k), largo = el.tagName === 'TEXTAREA', actual = String(el.value || '').trim();
+        return '<div class="card" style="padding:12px;margin:10px 0;"><label style="display:flex;gap:8px;align-items:center;font-weight:700;padding:0;"><input type="checkbox" data-usar="' + i + '" checked> ' + l + '</label>' +
+          (largo ? '<textarea class="input" data-v="' + i + '" style="min-height:80px;margin-top:6px;line-height:1.5;"></textarea>' : '<input class="input" data-v="' + i + '" style="margin-top:6px;">') +
+          (actual ? (largo && modo === 'agregar'
+            ? '<div style="display:flex;gap:14px;font-size:12.5px;margin-top:6px;"><label style="display:flex;gap:6px;padding:0;"><input type="radio" name="fm' + i + '" value="agregar" checked> Agregar al final</label><label style="display:flex;gap:6px;padding:0;"><input type="radio" name="fm' + i + '" value="reemplazar"> Reemplazar</label></div>'
+            : '<small style="display:block;color:var(--text-faint);margin-top:4px;">Ahora en la Portada: ' + esc(actual.slice(0, 90)) + ' (se reemplaza)</small>') : '') + '</div>';
+      }).join('') +
+      '<div class="cz-actions"><button type="button" class="cz-primary" data-a="aplicar">✓ Pasar a la Portada</button><button type="button" data-a="cancelar">Cancelar</button></div></div>';
+    document.body.appendChild(m);
+    filas.forEach(([k], i) => { m.querySelector('[data-v="' + i + '"]').value = prop[k]; });
+    m.querySelector('[data-a="cancelar"]').onclick = () => m.remove();
+    m.querySelector('[data-a="aplicar"]').onclick = () => {
+      let n = 0;
+      filas.forEach(([k], i) => {
+        if (!m.querySelector('[data-usar="' + i + '"]').checked) return;
+        const v = m.querySelector('[data-v="' + i + '"]').value.trim(); if (!v) return;
+        const el = document.getElementById(k), actual = String(el.value || '').trim();
+        const modo = m.querySelector('input[name="fm' + i + '"]:checked');
+        if (el.tagName === 'SELECT' && !Array.from(el.options).some(o => o.value === v)) return;
+        el.value = el.tagName === 'TEXTAREA' && actual && (!modo || modo.value === 'agregar') ? actual + '\n' + v : v;
+        el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+        n++;
+      });
+      guardar(); m.remove();
+      estado('✅ Se pasaron ' + n + ' dato(s) de la familia a la Portada.');
+    };
+  }
+
+  card.addEventListener('click', async (e) => {
+    const b = e.target.closest && e.target.closest('[data-a]'); if (!b) return;
+    const a = b.dataset.a, f = state.formFamilia;
+    if (a === 'crear') return crear(false);
+    if (a === 'nuevo') { if (confirm('¿Crear un enlace nuevo? El anterior sigue funcionando, pero las respuestas se buscarán con el nuevo código.')) crear(true); return; }
+    if (a === 'whatsapp') return;
+    if (a === 'copiar') {
+      try { await navigator.clipboard.writeText(f.enlace); } catch (err) { const i = $c.querySelector('[data-enlace]'); i.select(); try { document.execCommand('copy'); } catch (e2) {} }
+      b.textContent = '✅ Copiado'; setTimeout(() => { b.textContent = '📋 Copiar enlace'; }, 1500); return;
+    }
+    if (a === 'compartir') { try { await navigator.share({ title: 'Formulario CISADDE', text: 'Para la valoración en CISADDE, por favor llenen este formulario:', url: f.enlace }); } catch (err) {} return; }
+    if (a === 'enviar') {
+      const correos = $c.querySelector('[data-correos]').value.trim();
+      if (!correos) { estado('Escribe al menos un correo.', true); return; }
+      const ap = await disponible(); if (!ap) return;
+      b.disabled = true; estado('⏳ Enviando…');
+      try {
+        const r = await ap.pedir('enviarFormularioFamilia', { correos, enlace: f.enlace, nombre: String(state.childName || '').trim() });
+        f.enviados = Array.from(new Set((f.enviados || []).concat(r.enviados))); guardar(); pintar();
+        estado('✉️ Enviado a ' + r.enviados.join(', ') + '. Cuando respondan, pulsa "📥 Traer respuestas".');
+      } catch (err) { b.disabled = false; estado('No se pudo enviar: ' + ((err && err.message) || err), true); }
+      return;
+    }
+    if (a === 'traer') {
+      const ap = await disponible(); if (!ap) return;
+      b.disabled = true; estado('⏳ Buscando las respuestas de la familia…');
+      try {
+        const r = await ap.pedir('respuestaFamilia', { codigo: f.codigo });
+        b.disabled = false;
+        if (!r.encontrada) { estado('La familia todavía no ha respondido (código ' + f.codigo + ').'); return; }
+        estado(''); revisar(r);
+      } catch (err) { b.disabled = false; estado('No se pudieron traer las respuestas: ' + ((err && err.message) || err), true); }
+    }
+  });
+  pintar();
+})();
+</script>
+<!-- FORMULARIO-FAMILIA:FIN -->
 </body>
 </html>
